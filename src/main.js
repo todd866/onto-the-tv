@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, isAbsolute } from 'node:path';
 import { createLiveSession } from './live.js';
@@ -69,7 +69,6 @@ async function createWindow() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-  app.dock?.setIcon(nativeImage.createFromPath(join(appRoot, 'brand/onto-the-tv-icon.png')));
   win.once('ready-to-show', () => win.show());
   await win.loadURL(uiUrl);
   if (settingsError) win.webContents.send('app:error', settingsError);
