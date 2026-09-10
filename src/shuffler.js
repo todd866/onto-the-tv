@@ -35,14 +35,22 @@ export async function prepareChannels(root, settings, userData) {
     readFile(join(root, 'shuffler/player.html'), 'utf8'), readFile(join(root, 'shuffler/player.js'), 'utf8'),
   ]);
   let audiences = false;
+  let audienceNames = {};
   try {
-    audiences = JSON.parse(await readFile(join(userData, 'audiences.json'), 'utf8')).enabled === true;
+    const settings = JSON.parse(await readFile(join(userData, 'audiences.json'), 'utf8'));
+    audiences = settings.enabled === true;
+    // Households name their own adults; anything else in the file is ignored.
+    if (settings.names && typeof settings.names === 'object') for (const id of ['mum', 'dad', 'both']) {
+      const value = settings.names[id];
+      if (typeof value === 'string' && value.trim()) audienceNames[id] = value.trim().slice(0, 40);
+    }
   } catch (error) { if (error.code !== 'ENOENT') throw new Error('Could not read audience settings.'); }
   let imported = {};
   try {
     const data = JSON.parse(await readFile(join(userData, 'player-import.json'), 'utf8'));
     for (const [key, value] of Object.entries(data)) {
-      if (/^kidshuffle\.(weights\.v2\.s(2|6|grown|mum|dad|both|music|all)|log\.v1|preferShort\.v1)$/.test(key)
+      // Music and Everything learn under the audience's key now; their old keys are retired.
+      if (/^kidshuffle\.(weights\.v2\.s(2|6|grown|mum|dad|both)|log\.v1|preferShort\.v1)$/.test(key)
           && typeof value === 'string') imported[key] = value;
     }
   } catch (error) { if (error.code !== 'ENOENT') throw new Error('Could not read imported preferences.'); }
@@ -54,7 +62,7 @@ export async function prepareChannels(root, settings, userData) {
   } } catch (_) {}`;
   const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src file:; base-uri 'none'; form-action 'none'">`;
   const content = template.replace('<head>', '<head>\n' + policy)
-    .replace('__PLAYER_JS__', 'window.ONTO_TASTE_TOKEN = ' + safeJSON(exportToken) + '; window.ONTO_AUDIENCES = ' + audiences + ';\n' + seed + '\n' + javascript).replace('__VIDEOS__', safeJSON(videos));
+    .replace('__PLAYER_JS__', 'window.ONTO_TASTE_TOKEN = ' + safeJSON(exportToken) + '; window.ONTO_AUDIENCES = ' + audiences + '; window.ONTO_AUDIENCE_NAMES = ' + safeJSON(audienceNames) + ';\n' + seed + '\n' + javascript).replace('__VIDEOS__', safeJSON(videos));
   await mkdir(userData, { recursive: true });
   const temporary = output + '.' + randomUUID() + '.tmp';
   await writeFile(temporary, content, { mode: 0o600 });

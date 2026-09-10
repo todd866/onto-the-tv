@@ -1,5 +1,8 @@
 import { expandPaths as expandPathsDefault, normalizeUri } from './paths.js';
 
+// A file that stopped within this many seconds of its end finished on its own.
+const END_SLACK_SECONDS = 10;
+
 export function createSession({ config, prepareMedia, createServer, createRenderer,
   expandPaths = expandPathsDefault, fs, pollMs = 2000 } = {}) {
   let server, renderer, timer;
@@ -115,13 +118,21 @@ export function createSession({ config, prepareMedia, createServer, createRender
       if (!renderer || !started || closed) return getState();
       try {
         const [transport, pos] = await Promise.all([renderer.transportInfo(), renderer.positionInfo()]);
+        const previous = position;
         transportState = transport.state;
         position = pos;
         const reportedIndex = items.findIndex((item) => normalizeUri(item.url) === normalizeUri(pos.uri));
         if (reportedIndex >= 0) currentIndex = reportedIndex;
         const stopped = transportState === 'STOPPED' || transportState === 'NO_MEDIA_PRESENT';
         if (stopped) {
-          if (currentIndex + 1 < items.length) {
+          // A stop well before the end is the remote or another controller, not the
+          // file finishing: relinquish the queue instead of starting the next file.
+          const duration = items[currentIndex]?.durationSeconds || previous.durationSeconds || 0;
+          const interrupted = previous.positionSeconds > 0 && duration > 0 && previous.positionSeconds < duration - END_SLACK_SECONDS;
+          if (interrupted) {
+            await clearQueue();
+            status = 'idle';
+          } else if (currentIndex + 1 < items.length) {
             await playAt(currentIndex + 1);
             await armNext();
             status = 'playing';

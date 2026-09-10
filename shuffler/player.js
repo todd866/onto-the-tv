@@ -33,14 +33,15 @@
       return data && typeof data === "object" && !Array.isArray(data) ? data : Object.create(null);
     } catch (_) { return Object.create(null); }
   }
-  function readWeights(storage, age, videos) {
+  function readWeights(storage, age, videos, decay = true) {
+    // decay: a new session moves every saved weight 25% back toward neutral.
     const weights = Object.create(null);
     try {
       const data = JSON.parse(storage.getItem(keyFor(age)));
       if (!data || typeof data !== "object" || Array.isArray(data)) return weights;
       for (const video of videos) {
         if (Object.prototype.hasOwnProperty.call(data, video.src) && typeof data[video.src] === "number" && Number.isFinite(data[video.src])) {
-          weights[video.src] = clamp(data[video.src]) * 0.75 + 0.25;
+          weights[video.src] = decay ? clamp(data[video.src]) * 0.75 + 0.25 : clamp(data[video.src]);
         }
       }
     } catch (_) { /* Private browsing and damaged saved data must not stop a show. */ }
@@ -64,12 +65,19 @@
       return true;
     } catch (_) { return false; }
   }
-  function learnedWeight(current, reason, time, duration) {
-    // Errors and initial playback never teach a preference. Completion comes first,
-    // including short episodes that are already 80% watched before three minutes.
+  function learnedWeight(current, reason, time, duration, watched = time) {
+    // Errors and initial playback never teach a preference. Only footage watched
+    // during the visit counts, so resuming a bookmark near the end is not a
+    // completion, and leaving at once after resuming is a fresh bail-out.
+    // Short episodes still complete before three minutes when most was watched.
     if (reason !== "skip" && reason !== "ended") return current;
-    if (reason === "ended" || (Number.isFinite(duration) && duration > 0 && time / duration >= 0.8)) return Math.min(CAP, current * 1.3);
-    if (reason === "skip" && Number.isFinite(time) && time < 180) return Math.max(FLOOR, current * 0.7);
+    if (reason === "ended") return Math.min(CAP, current * 1.3);
+    if (!Number.isFinite(time)) return current;
+    const progress = Number.isFinite(watched) ? Math.max(0, watched) : 0;
+    if (Number.isFinite(duration) && duration > 0 && time / duration >= 0.8) {
+      return progress >= 180 || progress >= 0.8 * duration ? Math.min(CAP, current * 1.3) : current;
+    }
+    if (progress < 180) return Math.max(FLOOR, current * 0.7);
     return current;
   }
   function weightedChoice(items, weight, random) {
@@ -115,12 +123,30 @@
     try { storage = environment.localStorage; } catch (_) { storage = null; }
     const state = { stream:null, pool:[], weights:Object.create(null), cur:-1, history:[], failed:new Set(), token:0, played:false,
       navigation:[], navIndex:-1, direction:1, pendingSeek:null, feedback:new Map(), dirty:new Set(),
-      preferShort:true, visitLogged:false, visitStart:0, deferred:new Set(), scrubbing:false };
+      preferShort:true, visitLogged:false, visitStart:0, watchFrom:0, deferred:new Set(), scrubbing:false };
+    const decayed = new Set();
     let toastTimer = null;
     let audience = null;
     const profileFlow = !!el("profiles");
+    // Household names for the adult audiences; the defaults are only defaults.
+    const names = Object.create(null);
+    const configured = environment.ONTO_AUDIENCE_NAMES;
+    if (configured && typeof configured === "object") for (const id of ["mum","dad","both"]) {
+      const value = configured[id];
+      if (typeof value === "string" && value.trim()) names[id] = value.trim().slice(0,40);
+    }
+    const labelFor = id => names[id] || STREAM_LABELS[id] || "Channel";
+    for (const id of ["mum","dad","both"]) {
+      if (!names[id]) continue;
+      for (const button of [el("p" + id), el("s" + id)]) {
+        const label = button && button.querySelector && button.querySelector(".channel-name");
+        if (label) label.textContent = names[id];
+      }
+    }
     let controlsTimer = null, lastBookmarkSave = 0, resumeAfterSaved = false;
     let bookmarks = Object.create(null), exportEnabled = false;
+    const TASTE_INTERVAL = 30000;
+    let lastTaste = -Infinity, tasteTimer = null;
     function loadBookmarks() {
       bookmarks = Object.create(null);
       try {
@@ -133,8 +159,15 @@
         }
       } catch (_) {}
     }
-    function publishTaste() {
+    function publishTaste(force = false) {
       if (!exportEnabled || !environment.parent || environment.parent === environment) return;
+      // Periodic position saves are batched; weight changes and leaving flush at once.
+      const at = now();
+      if (!force && at - lastTaste < TASTE_INTERVAL) {
+        if (tasteTimer === null) tasteTimer = environment.setTimeout(() => { tasteTimer = null; publishTaste(true); }, TASTE_INTERVAL - (at - lastTaste));
+        return;
+      }
+      environment.clearTimeout(tasteTimer); tasteTimer = null; lastTaste = at;
       const profiles = {};
       for (const id of ['grown','mum','dad','both']) {
         let places = {};
@@ -166,9 +199,23 @@
       return (hours ? hours + ':' + String(Math.floor(seconds / 60) % 60).padStart(2,'0') : Math.floor(seconds / 60)) + ':' + String(seconds % 60).padStart(2,'0');
     };
     function saveBookmarks() {
-      const rows = Object.entries(bookmarks).sort((a,b) => b[1].updated - a[1].updated).slice(0,500);
-      bookmarks = Object.assign(Object.create(null), Object.fromEntries(rows));
-      try { storage.setItem(bookmarkKey(state.stream), JSON.stringify(bookmarks)); publishTaste(); return true; }
+      // Rows for files outside the current library are kept for when they return,
+      // and saved-for-Later rows outrank automatic positions at the cap.
+      const known = new Set(videos.map(video => video.src));
+      const rows = [];
+      try {
+        const raw = JSON.parse(storage.getItem(bookmarkKey(state.stream)));
+        if (raw && typeof raw === 'object') for (const [src, value] of Object.entries(raw)) {
+          if (!known.has(src) && value && Number.isFinite(value.time) && value.time >= 0) {
+            rows.push([src, {time:value.time, saved:!!value.saved, updated:Number(value.updated) || 0}]);
+          }
+        }
+      } catch (_) {}
+      rows.push(...Object.entries(bookmarks));
+      rows.sort((a,b) => (b[1].saved - a[1].saved) || (b[1].updated - a[1].updated));
+      const kept = rows.slice(0,500);
+      bookmarks = Object.assign(Object.create(null), Object.fromEntries(kept.filter(([src]) => known.has(src))));
+      try { storage.setItem(bookmarkKey(state.stream), JSON.stringify(Object.fromEntries(kept))); publishTaste(); return true; }
       catch (_) { showToast('Could not save your place.'); return false; }
     }
     function rememberPosition(finished = false, saved = false) {
@@ -207,8 +254,10 @@
       if (!adult() || state.cur < 0 || state.pendingSeek || !Number.isFinite(vid.duration) || vid.duration <= 0) return;
       const entry = state.navigation[state.navIndex];
       entry.sought = true;
+      capturePosition();
       try { vid.currentTime = Math.max(0,Math.min(vid.duration,Number(time) || 0)); }
       catch (_) { showToast('Seeking is not available yet.'); }
+      if (Number.isFinite(vid.currentTime)) state.watchFrom = vid.currentTime;
       state.scrubbing = false;
       capturePosition(); rememberPosition(); updateTimeline(); revealControls();
     }
@@ -217,6 +266,7 @@
       const saved = rememberPosition(false, true);
       state.deferred.add(state.cur);
       next('later');
+      publishTaste(true);
       showToast(saved ? 'Saved for later' : 'Saved for this session only');
     }
     function resumeSaved(index) {
@@ -265,14 +315,14 @@
     function saveFull() {
       // A decayed reload and a reset replace the whole record deliberately.
       if (!saveWeights(storage, state.stream, state.weights)) showToast("Preferences cannot be saved.");
-      publishTaste();
+      publishTaste(true);
     }
     function save() {
       // Merge, so a second open tab's learning is never discarded by this one.
       const stored = readStored(storage, state.stream);
       for (const src of state.dirty) stored[src] = state.weights[src];
       if (!saveWeights(storage, state.stream, stored)) showToast("Preferences cannot be saved.");
-      publishTaste();
+      publishTaste(true);
     }
     function logDeparture(reason) {
       // One record per visit to a video: what was reached, and where it began.
@@ -334,12 +384,17 @@
       if (!entry || state.cur < 0) return;
       entry.played = entry.played || state.played;
       if (!state.pendingSeek) {
-        if (Number.isFinite(vid.currentTime)) entry.time = Math.max(0, vid.currentTime);
+        if (Number.isFinite(vid.currentTime)) {
+          entry.time = Math.max(0, vid.currentTime);
+          // Footage watched since arriving or since the last seek, never a resumed position.
+          entry.watched = (entry.watched || 0) + Math.max(0, vid.currentTime - state.watchFrom);
+          state.watchFrom = vid.currentTime;
+        }
         if (Number.isFinite(vid.duration) && vid.duration > 0) entry.duration = vid.duration;
       }
     }
     function applyFeedback(value, event) {
-      return learnedWeight(value, event.reason, event.time, event.duration);
+      return learnedWeight(value, event.reason, event.time, event.duration, event.watched);
     }
     function recomputeFeedback(src) {
       const ledger = state.feedback.get(src);
@@ -355,18 +410,22 @@
       // Moving the playhead is not evidence of watching the intervening footage.
       // Keep that visit neutral; a fresh uninterrupted visit can still teach us.
       if (adult() && entry.sought) return;
+      const video = videos[entry.index];
       const time = state.pendingSeek ? entry.time : vid.currentTime;
-      const duration = state.pendingSeek ? entry.duration : vid.duration;
-      if (!entry.played && !state.played && !(time > 0) && reason !== "ended") return;
+      // Before metadata arrives the catalogue duration keeps the verdict consistent.
+      const catalogue = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+      const duration = (state.pendingSeek ? entry.duration : vid.duration) || catalogue;
+      const watched = entry.watched || 0;
+      if (!entry.played && !state.played && !(watched > 0) && reason !== "ended") return;
       // An unobserved or neutral departure is not a final judgement. Returning
       // and finishing this entry must still be able to earn its first reward.
-      if (learnedWeight(1, reason, time, duration) === 1) return;
+      if (learnedWeight(1, reason, time, duration, watched) === 1) return;
       entry.graded = true;
-      const src = videos[entry.index].src;
+      const src = video.src;
       if (!state.feedback.has(src)) state.feedback.set(src, { base:weightFor(state.weights, src), events:[] });
       // Keep even saturated/no-op events: removing an earlier skip may make
       // a later completion relevant when its floor/cap is recalculated.
-      entry.feedback = { reason, time, duration, penalty:learnedWeight(1, reason, time, duration) < 1, retired:false };
+      entry.feedback = { reason, time, duration, watched, penalty:learnedWeight(1, reason, time, duration, watched) < 1, retired:false };
       state.feedback.get(src).events.push(entry.feedback);
       recomputeFeedback(src);
     }
@@ -408,6 +467,7 @@
       if (Number.isFinite(vid.duration) && time >= vid.duration) time = 0;
       try {
         vid.currentTime = time;
+        state.watchFrom = time;
         const entry = state.navigation[state.navIndex];
         if (Number.isFinite(vid.duration) && vid.duration > 0) entry.duration = vid.duration;
         state.pendingSeek = null;
@@ -424,6 +484,8 @@
       state.pendingSeek = { token:state.token, time:entry.completed ? 0 : entry.time };
       state.visitLogged = false;
       state.visitStart = entry.completed ? 0 : entry.time;
+      state.watchFrom = state.visitStart;
+      entry.sought = false;
       entry.completed = false;
       state.history.push(entry.index);
       state.history = state.history.slice(-6);
@@ -460,7 +522,7 @@
         let direction = state.direction, target = historyIndex(direction);
         if (target < 0 && direction < 0) { direction = 1; target = historyIndex(1); }
         if (target >= 0) {
-          if (direction < 0) undoSkip(state.navigation[target]);
+          if (direction < 0) { state.deferred.delete(state.navigation[target].index); undoSkip(state.navigation[target]); }
           playEntry(target, direction);
           return;
         }
@@ -496,7 +558,9 @@
       if (el('adultTimeline')) el('adultTimeline').hidden = !adult();
       if (el('savedPanel')) el('savedPanel').hidden = true;
       state.pool = videos.map((_, index) => index).filter(index => inStream(videos[index], age));
-      state.weights = readWeights(storage, age, videos);
+      // The session decay runs once per audience key, not on every channel start.
+      state.weights = readWeights(storage, age, videos, !decayed.has(keyFor(age)));
+      decayed.add(keyFor(age));
       state.dirty = new Set();
       state.history = [];
       state.navigation = [];
@@ -512,6 +576,7 @@
     }
     function switchStream() {
       rememberPosition();
+      publishTaste(true);
       logDeparture("switch");
       state.stream = null;
       stopVideo();
@@ -549,15 +614,16 @@
     function showWeights() {
       if (state.stream === null) return;
       if (!panel.hidden) { panel.hidden = true; return; }
-      el("panelTitle").textContent = "Preferences — " + (STREAM_LABELS[audienceFor(state.stream)] || "Channel");
+      el("panelTitle").textContent = "Preferences — " + labelFor(audienceFor(state.stream));
       const box = el("preferShort");
       if (box) box.checked = state.preferShort;
       const rows = el("weightRows");
       rows.replaceChildren();
-      const sorted = state.pool.slice().sort((a, b) => weightFor(state.weights, videos[b].src) - weightFor(state.weights, videos[a].src));
+      const shown = selectionWeights();
+      const sorted = state.pool.slice().sort((a, b) => weightFor(shown, videos[b].src) - weightFor(shown, videos[a].src));
       for (const index of sorted) {
         const video = videos[index], row = document.createElement("tr");
-        for (const text of [video.channel, video.title, weightFor(state.weights, video.src).toFixed(2)]) {
+        for (const text of [video.channel, video.title, weightFor(shown, video.src).toFixed(2)]) {
           const cell = document.createElement("td");
           cell.textContent = text;
           row.appendChild(cell);
@@ -604,7 +670,7 @@
       try { storage.setItem('onto.audience.v1',audience); } catch (_) {}
       el('profiles').hidden = true; el('streams').hidden = false;
       el('pickerTitle').textContent = 'What’s on?';
-      el('audienceSwitch').textContent = STREAM_LABELS[id].replace(/ [26]\+$/, '');
+      el('audienceSwitch').textContent = labelFor(id).replace(/ [26]\+$/, '');
       el('audienceSwitch').hidden = false;
       for (const age of Object.keys(STREAMS)) {
         const button = el('s' + age); if (!button) continue;
@@ -615,7 +681,8 @@
       if (label) label.textContent = 'For you';
     }
     function chooseChannel(age) {
-      if (!profileFlow || !audience) return startStream(age);
+      if (!profileFlow) return startStream(age);
+      if (!audience) return;
       const allowed = ['2','6'].includes(audience) ? age === audience || age === 'music' : ['grown','music','all'].includes(age);
       if (!allowed) return;
       startStream(age === 'grown' || age === audience ? audience : audience + '.' + age);
@@ -655,10 +722,11 @@
     const shortBox = el("preferShort");
     if (shortBox && shortBox.addEventListener) shortBox.addEventListener("change", () => setPreferShort(shortBox.checked));
     // Closing the tab is the commonest way a long compilation ends; record it.
-    if (environment.addEventListener) environment.addEventListener("pagehide", () => { rememberPosition(); logDeparture("hide"); });
+    if (environment.addEventListener) environment.addEventListener("pagehide", () => { rememberPosition(); publishTaste(true); logDeparture("hide"); });
     el("reset").addEventListener("click", () => {
-      if (state.stream !== null && environment.confirm("Reset learned preferences for this stream?")) {
-        state.weights = Object.create(null);
+      if (state.stream !== null && environment.confirm("Reset learned preferences for the episodes on this channel?")) {
+        // Only this channel's episodes: the audience's other channels share the key.
+        for (const index of state.pool) delete state.weights[videos[index].src];
         state.feedback = new Map();
         state.dirty = new Set();
         for (const entry of state.navigation) { entry.feedback = null; entry.graded = true; }
@@ -687,7 +755,7 @@
     if (environment.addEventListener) environment.addEventListener("message", event => {
       if (event.source !== environment.parent || !event.data) return;
       if (event.data.type === 'onto:export' && environment.ONTO_TASTE_TOKEN && event.data.token === environment.ONTO_TASTE_TOKEN) {
-        exportEnabled = true; publishTaste();
+        exportEnabled = true; publishTaste(true);
       }
       if (event.data.type === "onto:pause") vid.pause();
     });

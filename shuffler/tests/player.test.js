@@ -18,7 +18,10 @@ class Element {
 function fixture(options={}) {
   const elements={};
   for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','closePanel','fullscreen','reset']) elements[id]=new Element();
-  if (options.profileFlow) for (const id of ['profiles','streams','pickerTitle','audienceSwitch','pmum','pdad','pboth','pgrown','p2','p6']) elements[id]=new Element();
+  if (options.profileFlow) for (const id of ['profiles','streams','pickerTitle','audienceSwitch','pmum','pdad','pboth','pgrown','p2','p6']) {
+    elements[id]=new Element();
+    if (id.startsWith('p') && id.length<=6) { const name=new Element('SPAN'); name.className='channel-name'; elements[id].appendChild(name); elements[id].querySelector=selector=>selector==='.channel-name'?name:null; }
+  }
   elements.panel.hidden=true; elements.savedPanel.hidden=true;
   const vid=elements.vid;
   Object.assign(vid,{paused:true,currentTime:0,duration:120,muted:false,playCount:0,readyState:0});
@@ -32,7 +35,7 @@ function fixture(options={}) {
   document.documentElement={};
   const entries={};
   let clock=1000;
-  const environment={parent:options.parent,ONTO_TASTE_TOKEN:options.exportToken,ONTO_AUDIENCES:options.audiences,location:{search:options.search || ''},setTimeout:()=>1,clearTimeout:()=>{},confirm:()=>true,random:options.random || (()=>0),
+  const environment={parent:options.parent,ONTO_TASTE_TOKEN:options.exportToken,ONTO_AUDIENCES:options.audiences,ONTO_AUDIENCE_NAMES:options.names,location:{search:options.search || ''},setTimeout:()=>1,clearTimeout:()=>{},confirm:()=>true,random:options.random || (()=>0),
     now:options.now || (()=>clock++),addEventListener:(name,callback)=>{(window.listeners[name] ||= []).push(callback);},
     localStorage:options.storage || {getItem:key=>(key in entries ? entries[key] : null),setItem:(key,value)=>{entries[key]=value;}}};
   const window={listeners:{},dispatch(name,event={}){for (const callback of window.listeners[name] || []) callback(event);}};
@@ -712,4 +715,126 @@ test('A music-only library still offers an audience and a playable channel', () 
   assert.equal(f.elements.sgrown.hidden,true);
   f.player.chooseChannel('music');
   assert.equal(f.vid.playCount,1);
+});
+
+// --- Review fixes 2026-09-10 ---
+const filmVideos = adultVideos.map(video => ({...video,duration:120}));
+const musicVideo = {src:'Music/a.mp4',channel:'Music',title:'Music',tier:'music',duration:200};
+test('preference decay applies once per session, not on every channel start', () => {
+  const f=fixture({videos:[...filmVideos,musicVideo],audiences:true});
+  const src=filmVideos[0].src;
+  f.entries[keyFor('mum')]=JSON.stringify({[src]:2});
+  f.player.startStream('mum');
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],1.75);
+  f.player.switchStream(); f.player.startStream('mum.music');
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],1.75);
+  f.player.switchStream(); f.player.startStream('mum');
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],1.75);
+});
+test('Reset on a channel clears only the episodes on that channel', () => {
+  const f=fixture({videos:[...filmVideos,musicVideo],audiences:true});
+  f.player.startStream('dad'); const film=filmVideos[f.player.state.cur].src;
+  f.vid.currentTime=20; f.player.next('skip');
+  assert.equal(JSON.parse(f.entries[keyFor('dad')])[film],0.7);
+  f.player.switchStream(); f.player.startStream('dad.music');
+  f.vid.currentTime=20; f.player.next('skip');
+  assert.equal(JSON.parse(f.entries[keyFor('dad')])[musicVideo.src],0.7);
+  f.elements.reset.dispatch('click');
+  const stored=JSON.parse(f.entries[keyFor('dad')]);
+  assert.equal(stored[musicVideo.src],undefined);
+  assert.equal(stored[film],0.7);
+});
+test('grading uses progress this visit, so a resumed film is not rewarded or forgiven by its position', () => {
+  // Fifth argument: seconds actually watched this visit.
+  assert.equal(learnedWeight(1,'skip',102,120,2),1);        // resumed at 85%, skipped at once: nothing learned
+  assert.equal(learnedWeight(1,'skip',241,6000,1),0.7);     // resumed at four minutes, rejected at once: a fresh bail-out
+  assert.equal(learnedWeight(1,'skip',110,120,110),1.3);    // a short episode watched almost through
+  assert.equal(learnedWeight(1,'skip',5900,6000,900),1.3);  // fifteen minutes to the end of a long film
+  assert.equal(learnedWeight(1,'ended',120,120,2),1.3);     // finishing still counts
+});
+test('a resumed film skipped at once stays neutral whether or not metadata has arrived', () => {
+  for (const metadata of [true,false]) {
+    const f=fixture({videos:filmVideos,play(){ if (metadata) { this.readyState=1; this.dispatch('loadedmetadata'); } this.paused=false; this.dispatch('playing'); return Promise.resolve(); }});
+    const src=filmVideos[0].src;
+    f.entries['onto.adult.v1.dad']=JSON.stringify({[src]:{time:100,saved:false,updated:1}});
+    f.player.startStream('dad');
+    assert.equal(f.player.state.cur,0);
+    if (metadata) assert.equal(f.vid.currentTime,100);
+    f.player.next('skip');
+    assert.equal(f.player.state.weights[src],undefined,`metadata ${metadata}`);
+  }
+});
+test('a fresh visit after Back can teach even when the earlier visit seeked', () => {
+  const f=fixture({videos:filmVideos}); f.player.startStream('dad');
+  const src=filmVideos[f.player.state.cur].src;
+  f.player.seekTo(30); f.vid.currentTime=120; f.player.next('ended');
+  assert.equal(f.player.state.weights[src],undefined);
+  f.player.back(); assert.equal(f.vid.currentTime,0);
+  f.vid.currentTime=120; f.player.next('ended');
+  assert.equal(f.player.state.weights[src],1.3);
+});
+test('saved-for-Later rows outrank automatic bookmarks at the storage cap', () => {
+  const many=Array.from({length:520},(_,i)=>({src:`Film/${i}.mp4`,channel:'Film',title:String(i),tier:'grownup',duration:120}));
+  const f=fixture({videos:many});
+  const rows={[many[0].src]:{time:1800,saved:true,updated:100}};
+  for (let i=1;i<=500;i++) rows[many[i].src]={time:5,saved:false,updated:5000+i};
+  f.entries['onto.adult.v1.dad']=JSON.stringify(rows);
+  f.player.startStream('dad'); f.vid.currentTime=5; f.player.next('skip');
+  const stored=JSON.parse(f.entries['onto.adult.v1.dad']);
+  assert.equal(stored[many[0].src]?.saved,true);
+  assert.ok(Object.keys(stored).length<=500);
+});
+test('bookmarks for files missing from the current library survive a save', () => {
+  const f=fixture({videos:filmVideos});
+  f.entries['onto.adult.v1.dad']=JSON.stringify({'Unplugged/film.mp4':{time:1800,saved:true,updated:1}});
+  f.player.startStream('dad'); f.vid.currentTime=5; f.player.next('skip');
+  assert.deepEqual(JSON.parse(f.entries['onto.adult.v1.dad'])['Unplugged/film.mp4'],{time:1800,saved:true,updated:1});
+});
+test('the Both panel shows the effective joint weights', () => {
+  const f=fixture({videos:filmVideos,audiences:true});
+  f.entries[keyFor('mum')]=JSON.stringify({[filmVideos[0].src]:0.15});
+  f.player.startStream('both'); f.player.showWeights();
+  const shown=f.elements.weightRows.children.map(row=>row.children[2].textContent);
+  assert.ok(shown.includes('0.26'),`rows ${shown}`);
+});
+test('a media error while stepping back un-defers the item it lands on', () => {
+  const f=fixture({videos:filmVideos}); f.player.startStream('dad');
+  const first=f.player.state.cur; f.vid.currentTime=10; f.player.later();
+  f.vid.currentTime=10; f.player.next('skip');
+  f.player.back();
+  f.vid.error={code:3}; f.vid.currentSrc=f.vid.src; f.vid.dispatch('error');
+  assert.equal(f.player.state.cur,first);
+  assert.equal(f.player.state.deferred.has(first),false);
+});
+test('channels cannot start before an audience is chosen in profile flow', () => {
+  const f=fixture({videos:filmVideos,profileFlow:true,audiences:true});
+  f.player.chooseChannel('grown');
+  assert.equal(f.vid.playCount,0);
+  assert.equal(f.player.state.stream,null);
+});
+test('taste snapshots are throttled during playback and flushed on leaving', () => {
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  let t=0;
+  const f=fixture({videos:filmVideos,parent,exportToken:'cap',now:()=>t});
+  f.window.dispatch('message',{source:parent,data:{type:'onto:export',token:'cap'}});
+  assert.equal(sent.length,1);
+  f.player.startStream('dad');
+  for (let i=0;i<12;i++) { t+=5000; f.vid.currentTime=i*5; f.vid.dispatch('timeupdate'); }
+  assert.ok(sent.length<=4,`sent ${sent.length} snapshots in a minute`);
+  const before=sent.length;
+  f.window.dispatch('pagehide');
+  assert.equal(sent.length,before+1);
+});
+test('audience names come from the household configuration, defaulting to Mum and Dad', () => {
+  const f=fixture({videos:filmVideos,profileFlow:true,audiences:true,names:{mum:'Mama',dad:'Papa',both:'Us'}});
+  assert.equal(f.elements.pmum.children[0].textContent,'Mama');
+  assert.equal(f.elements.pdad.children[0].textContent,'Papa');
+  f.player.chooseAudience('mum');
+  assert.equal(f.elements.audienceSwitch.textContent,'Mama');
+  f.player.chooseChannel('grown'); f.player.showWeights();
+  assert.match(f.elements.panelTitle.textContent,/Mama/);
+  const plain=fixture({videos:filmVideos,profileFlow:true,audiences:true});
+  assert.equal(plain.elements.pmum.children[0].textContent,'');
+  plain.player.chooseAudience('dad');
+  assert.equal(plain.elements.audienceSwitch.textContent,'Dad');
 });

@@ -2,8 +2,8 @@
 """Build and install a self-contained macOS app without launching it.
 
 Run npm ci first to download Electron. A custom --output is a staged build and
-is never registered with Launch Services. Existing installations are retained
-as hidden, uniquely named sibling backups.
+is never registered with Launch Services. The previous installation is retained
+as a hidden, uniquely named sibling backup; older backups of this app are removed.
 """
 from __future__ import annotations
 
@@ -130,6 +130,31 @@ def build_bundle(root: Path, stage: Path, runner=run_command) -> None:
     runner(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(stage)])
 
 
+def prune_backups(output: Path, keep: int = 1) -> list[Path]:
+    """Remove older hidden backups of this app beside OUTPUT, keeping the newest KEEP.
+
+    Only directories named like our backups that carry our bundle identifier are
+    touched; anything else beside the app is left alone.
+    """
+    prefix = f".{output.stem}.backup-"
+    candidates = []
+    for path in output.parent.iterdir():
+        if not path.name.startswith(prefix) or path.suffix != ".app" or path.is_symlink() or not path.is_dir():
+            continue
+        try:
+            with (path / "Contents/Info.plist").open("rb") as handle:
+                info = plistlib.load(handle)
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            continue
+        if info.get("CFBundleIdentifier") == BUNDLE_ID:
+            candidates.append(path)
+    candidates.sort(key=lambda path: path.name)  # the name carries the UTC timestamp
+    removed = candidates[:-keep] if keep > 0 else candidates
+    for path in removed:
+        shutil.rmtree(path)
+    return removed
+
+
 def install(root: Path, output: Path, *, register: bool, runner=run_command) -> Path | None:
     output = output.expanduser().absolute()
     if output.suffix.lower() != ".app" or output.is_symlink():
@@ -168,6 +193,7 @@ def install(root: Path, output: Path, *, register: bool, runner=run_command) -> 
                 backup.rename(output)
                 backup = None
             raise
+        prune_backups(output)
         return backup
     finally:
         if stage.exists():

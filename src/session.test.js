@@ -62,12 +62,27 @@ describe('createSession', () => {
     assert.deepEqual(session.getState().upcoming.map((item) => item.title), ['Presto.mp4']);
   });
 
-  it('plays the queued file when the renderer stops', async () => {
-    const session = createTestSession();
+  it('plays the queued file when the TV stops at the end of the current one', async () => {
+    const renderer = mockRenderer();
+    renderer.positionInfo = async function () { return { uri: this.uri || '', positionSeconds: 97, durationSeconds: 100 }; };
+    const session = createTestSession(renderer);
     await session.addFiles(['/videos/Luxo.mp4', '/videos/Presto.mp4']);
+    await session.tick();
     session.renderer.state = 'STOPPED';
     await session.tick();
     assert.ok(session.renderer.calls.some((call) => call[0] === 'play' && call[1] === 'Presto.mp4'));
+  });
+
+  it('treats a stop in the middle of a file as the remote stopping playback', async () => {
+    const session = createTestSession();
+    await session.addFiles(['/videos/Luxo.mp4', '/videos/Presto.mp4']);
+    await session.tick();
+    assert.equal(session.getState().current.positionSeconds, 12);
+    session.renderer.state = 'STOPPED';
+    await session.tick();
+    assert.ok(!session.renderer.calls.some((call) => call[0] === 'play' && call[1] === 'Presto.mp4'));
+    assert.equal(session.getState().status, 'idle');
+    assert.equal(session.getState().count, 0);
   });
 });
 

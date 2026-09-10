@@ -12,7 +12,7 @@
     "start": "electron .",
     "install-app": "python3 scripts/install_mac_app.py",
     "test": "node --test src/*.test.js casting/test/*.test.js shuffler/tests/player.test.js",
-    "test:python": "cd shuffler && python3 -m unittest discover -s tests && python3 -m unittest test_sync_phone",
+    "test:python": "cd shuffler && python3 -m unittest discover -s tests && python3 -m unittest test_sync_phone && cd ../scripts && python3 -m unittest test_install_mac_app",
     "cast": "node casting/src/cli.js"
   },
   "devDependencies": {

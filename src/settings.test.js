@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm, stat, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm, stat, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaults, validateTvSettings, readSettings, writeSettings } from './settings.js';
@@ -66,5 +66,25 @@ test('embedded channels read data without running imported HTML and preserve IDs
     assert.equal(data[0].path, '../a #1%.mp4');
     assert.equal((await stat(output)).mode & 0o777, 0o600);
     assert.throws(() => readCatalogue('<script>const VIDEOS = [{"src":"a","path":"https://example.com/a","tier":"shared"}];</script>',original,output));
+  } finally { await rm(dir, { recursive:true, force:true }); }
+});
+
+test('preference import seeds audience keys but not the retired Music and Everything keys', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-import-'));
+  try {
+    const original = join(dir, 'old.html');
+    await writeFile(original, '<script>const VIDEOS = [{"src":"Family/one.mp4","path":"one.mp4","tier":"shared"}];</script>');
+    const userData = join(dir, 'private');
+    await mkdir(userData, { recursive: true });
+    await writeFile(join(userData, 'player-import.json'), JSON.stringify({
+      'kidshuffle.weights.v2.s2': '{"Family/one.mp4":0.7}',
+      'kidshuffle.weights.v2.smusic': '{"Family/one.mp4":0.15}',
+      'kidshuffle.weights.v2.sall': '{"Family/one.mp4":0.15}',
+    }));
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const content = await readFile(fileURLToPath((await prepareChannels(root, { playerPath: original }, userData)).url), 'utf8');
+    assert.ok(content.includes('kidshuffle.weights.v2.s2'));
+    assert.ok(!content.includes('kidshuffle.weights.v2.smusic'));
+    assert.ok(!content.includes('kidshuffle.weights.v2.sall'));
   } finally { await rm(dir, { recursive:true, force:true }); }
 });
