@@ -76,6 +76,9 @@ $('mode-local').onclick = () => setMode('local');
 $('mode-tv').onclick = () => setMode('tv');
 async function loadChannels() {
   const result = await api.openShuffler();
+  $('channel-player').onload = () => {
+    if (result.exportToken) $('channel-player').contentWindow.postMessage({type:'onto:export', token:result.exportToken}, '*');
+  };
   $('channel-player').src = result.url;
 }
 $('library-toggle').onclick = () => { $('library-settings').hidden = !$('library-settings').hidden; };
@@ -131,3 +134,8 @@ if (api) {
   message('Open this view with the Onto the TV app.');
   document.querySelectorAll('button').forEach(button => { if (!button.id.startsWith('mode-')) button.disabled = true; });
 }
+
+window.addEventListener('message', event => {
+  if (event.source !== $('channel-player').contentWindow || event.origin !== 'null' || event.data?.type !== 'onto:taste') return;
+  if (api.saveTaste) void act(() => api.saveTaste(event.data.profiles));
+});

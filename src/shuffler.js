@@ -28,16 +28,21 @@ function safeJSON(value) { return JSON.stringify(value).replaceAll('<', '\\u003c
 
 export async function prepareChannels(root, settings, userData) {
   // Import data only. Never execute a previously generated or user-selected HTML file.
+  const exportToken = randomUUID();
   const output = join(userData, 'channels.html');
   const videos = readCatalogue(await readFile(settings.playerPath, 'utf8'), settings.playerPath, output);
   const [template, javascript] = await Promise.all([
     readFile(join(root, 'shuffler/player.html'), 'utf8'), readFile(join(root, 'shuffler/player.js'), 'utf8'),
   ]);
+  let audiences = false;
+  try {
+    audiences = JSON.parse(await readFile(join(userData, 'audiences.json'), 'utf8')).enabled === true;
+  } catch (error) { if (error.code !== 'ENOENT') throw new Error('Could not read audience settings.'); }
   let imported = {};
   try {
     const data = JSON.parse(await readFile(join(userData, 'player-import.json'), 'utf8'));
     for (const [key, value] of Object.entries(data)) {
-      if (/^kidshuffle\.(weights\.v2\.s(2|6|grown|music|all)|log\.v1|preferShort\.v1)$/.test(key)
+      if (/^kidshuffle\.(weights\.v2\.s(2|6|grown|mum|dad|both|music|all)|log\.v1|preferShort\.v1)$/.test(key)
           && typeof value === 'string') imported[key] = value;
     }
   } catch (error) { if (error.code !== 'ENOENT') throw new Error('Could not read imported preferences.'); }
@@ -49,12 +54,16 @@ export async function prepareChannels(root, settings, userData) {
   } } catch (_) {}`;
   const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src file:; base-uri 'none'; form-action 'none'">`;
   const content = template.replace('<head>', '<head>\n' + policy)
-    .replace('__PLAYER_JS__', seed + '\n' + javascript).replace('__VIDEOS__', safeJSON(videos));
+    .replace('__PLAYER_JS__', 'window.ONTO_TASTE_TOKEN = ' + safeJSON(exportToken) + '; window.ONTO_AUDIENCES = ' + audiences + ';\n' + seed + '\n' + javascript).replace('__VIDEOS__', safeJSON(videos));
   await mkdir(userData, { recursive: true });
   const temporary = output + '.' + randomUUID() + '.tmp';
   await writeFile(temporary, content, { mode: 0o600 });
   await rename(temporary, output);
-  return { url: pathToFileURL(output).href, count: videos.length };
+  const catalogue = join(userData, 'library.json');
+  const catalogueTemp = catalogue + '.' + randomUUID() + '.tmp';
+  await writeFile(catalogueTemp, JSON.stringify({version:1, videos:videos.map(({path, ...video}) => video)}, null, 2) + '\n', {mode:0o600});
+  await rename(catalogueTemp, catalogue);
+  return { url: pathToFileURL(output).href, count: videos.length, exportToken };
 }
 
 export async function playerExists(settings) {

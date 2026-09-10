@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('tv', {
+  saveTaste: input => ipcRenderer.invoke('taste:save', input),
   get: () => ipcRenderer.invoke('app:get'),
   addFiles: paths => ipcRenderer.invoke('drop:add', paths),
   pause: () => ipcRenderer.invoke('drop:pause'),

@@ -1,3 +1,4 @@
+import { createTasteWriter } from './taste.js';
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, isAbsolute } from 'node:path';
@@ -76,6 +77,11 @@ async function createWindow() {
   if (pendingFiles.length) await queueOrAdd(pendingFiles.splice(0));
 }
 
+let tasteWriter;
+handle('taste:save', input => {
+  tasteWriter ||= createTasteWriter(app.getPath('userData'));
+  return tasteWriter(input);
+});
 handle('app:get', snapshot);
 handle('drop:add', (paths) => {
   if (changingTv) throw new Error('Wait for TV settings to finish saving.');

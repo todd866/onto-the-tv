@@ -6,14 +6,17 @@
   // shuffle that treats every file as one equal draw. SHORT_FLOOR keeps them reachable.
   const SHORT_TARGET = 900, SHORT_FLOOR = 0.05;
   const LOG_KEY = "kidshuffle.log.v1", LOG_LIMIT = 3000, SHORT_KEY = "kidshuffle.preferShort.v1";
+  const ADULT_KEY = "onto.adult.v1";
   // Stream id -> tiers, mirroring STREAMS in make_shuffler.py. No stream is a
   // superset of another by accident: widening one means naming a tier here.
-  const STREAMS = { 2:["preschool", "shared"], 6:["shared", "big"], grown:["grownup"], music:["music"],
+  const STREAMS = { 2:["preschool", "shared"], 6:["shared", "big"], grown:["grownup"], mum:["grownup"], dad:["grownup"], both:["grownup"], music:["music"],
     all:["preschool", "shared", "big", "older", "grownup", "music"] };
-  const STREAM_LABELS = { 2:"Little Kids 2+", 6:"Big Kids 6+", grown:"Grown-ups", music:"Music", all:"Everything" };
+  const STREAM_LABELS = { 2:"Little Kids 2+", 6:"Big Kids 6+", grown:"Grown-ups", mum:"Mum", dad:"Dad", both:"Both", music:"Music", all:"Everything" };
   const keyFor = age => "kidshuffle.weights.v2.s" + age;
   const clamp = value => Math.max(FLOOR, Math.min(CAP, value));
   const weightFor = (weights, src) => typeof weights[src] === "number" && Number.isFinite(weights[src]) ? clamp(weights[src]) : 1;
+  const togetherWeight = (mum, dad, both = 1) => clamp((2 * clamp(mum) * clamp(dad) / (clamp(mum) + clamp(dad))) * clamp(both));
+  const bookmarkKey = stream => ADULT_KEY + (stream === "grown" ? "" : "." + stream);
   const encodePath = path => path.split("/").map(encodeURIComponent).join("/");
   const inStream = (video, age) => (STREAMS[age] || []).indexOf(video.tier) >= 0;
   function durationWeight(video, preferShort) {
@@ -111,10 +114,138 @@
     try { storage = environment.localStorage; } catch (_) { storage = null; }
     const state = { stream:null, pool:[], weights:Object.create(null), cur:-1, history:[], failed:new Set(), token:0, played:false,
       navigation:[], navIndex:-1, direction:1, pendingSeek:null, feedback:new Map(), dirty:new Set(),
-      preferShort:true, visitLogged:false, visitStart:0 };
+      preferShort:true, visitLogged:false, visitStart:0, deferred:new Set(), scrubbing:false };
     let toastTimer = null;
+    let controlsTimer = null, lastBookmarkSave = 0, resumeAfterSaved = false;
+    let bookmarks = Object.create(null), exportEnabled = false;
+    function loadBookmarks() {
+      bookmarks = Object.create(null);
+      try {
+        const raw = JSON.parse(storage.getItem(bookmarkKey(state.stream)));
+        if (raw && typeof raw === 'object') for (const video of videos) {
+          const value = raw[video.src];
+          if (video.tier === 'grownup' && value && Number.isFinite(value.time) && value.time >= 0) {
+            bookmarks[video.src] = {time:value.time, saved:!!value.saved, updated:Number(value.updated) || 0};
+          }
+        }
+      } catch (_) {}
+    }
+    function publishTaste() {
+      if (!exportEnabled || !environment.parent || environment.parent === environment) return;
+      const profiles = {};
+      for (const id of ['grown','mum','dad','both']) {
+        let places = {};
+        try { places = JSON.parse(storage.getItem(bookmarkKey(id))) || {}; } catch (_) {}
+        const weights = Object.create(null), clean = Object.create(null), raw = readStored(storage,id);
+        for (const video of videos) {
+          if (video.tier !== 'grownup') continue;
+          if (Number.isFinite(raw[video.src])) weights[video.src] = clamp(raw[video.src]);
+          const value = places && places[video.src];
+          if (value && Number.isFinite(value.time) && value.time >= 0) clean[video.src] = {
+            time:value.time, saved:!!value.saved, updated:Number.isFinite(value.updated) && value.updated >= 0 ? value.updated : 0,
+          };
+        }
+        profiles[id] = {weights, bookmarks:clean};
+      }
+      environment.parent.postMessage({type:'onto:taste', profiles}, '*');
+    }
+    function selectionWeights() {
+      if (state.stream !== 'both') return state.weights;
+      const mum = readStored(storage,'mum'), dad = readStored(storage,'dad'), weights = Object.create(null);
+      for (const video of videos) weights[video.src] = togetherWeight(weightFor(mum,video.src),weightFor(dad,video.src),weightFor(state.weights,video.src));
+      return weights;
+    }
     const random = environment.random || Math.random;
     const now = environment.now || (() => Date.now());
+    const adult = () => ['grown','mum','dad','both'].includes(state.stream);
+    const clock = time => {
+      const seconds = Math.max(0, Math.floor(Number(time) || 0));
+      const hours = Math.floor(seconds / 3600);
+      return (hours ? hours + ':' + String(Math.floor(seconds / 60) % 60).padStart(2,'0') : Math.floor(seconds / 60)) + ':' + String(seconds % 60).padStart(2,'0');
+    };
+    function saveBookmarks() {
+      const rows = Object.entries(bookmarks).sort((a,b) => b[1].updated - a[1].updated).slice(0,500);
+      bookmarks = Object.assign(Object.create(null), Object.fromEntries(rows));
+      try { storage.setItem(bookmarkKey(state.stream), JSON.stringify(bookmarks)); publishTaste(); return true; }
+      catch (_) { showToast('Could not save your place.'); return false; }
+    }
+    function rememberPosition(finished = false, saved = false) {
+      if (!adult() || state.cur < 0) return;
+      const src = videos[state.cur].src;
+      if (finished) delete bookmarks[src];
+      else {
+        const entry = state.navigation[state.navIndex];
+        const time = state.pendingSeek ? entry.time : vid.currentTime;
+        bookmarks[src] = { time:Number.isFinite(time) ? Math.max(0,time) : 0,
+          saved:saved || !!bookmarks[src]?.saved, updated:now() };
+      }
+      return saveBookmarks();
+    }
+    function revealControls() {
+      const controls = el('controls');
+      controls.classList?.remove('dimmed');
+      environment.clearTimeout(controlsTimer);
+      if (!adult()) return;
+      controlsTimer = environment.setTimeout(() => {
+        const saved = el('savedPanel');
+        if (!vid.paused && !state.scrubbing && panel.hidden && (!saved || saved.hidden)) controls.classList?.add('dimmed');
+      }, 3000);
+    }
+    function updateTimeline() {
+      const seek = el('seek');
+      if (!seek || !adult()) return;
+      const duration = Number.isFinite(vid.duration) && vid.duration > 0 ? vid.duration : 0;
+      seek.disabled = !duration || state.cur < 0 || !!state.pendingSeek;
+      seek.max = duration || 1;
+      if (!state.scrubbing) seek.value = Number.isFinite(vid.currentTime) ? vid.currentTime : 0;
+      el('elapsed').textContent = clock(seek.value);
+      el('duration').textContent = clock(duration);
+    }
+    function seekTo(time) {
+      if (!adult() || state.cur < 0 || state.pendingSeek || !Number.isFinite(vid.duration) || vid.duration <= 0) return;
+      const entry = state.navigation[state.navIndex];
+      entry.sought = true;
+      try { vid.currentTime = Math.max(0,Math.min(vid.duration,Number(time) || 0)); }
+      catch (_) { showToast('Seeking is not available yet.'); }
+      state.scrubbing = false;
+      capturePosition(); rememberPosition(); updateTimeline(); revealControls();
+    }
+    function later() {
+      if (!adult() || state.cur < 0) return;
+      const saved = rememberPosition(false, true);
+      state.deferred.add(state.cur);
+      next('later');
+      showToast(saved ? 'Saved for later' : 'Saved for this session only');
+    }
+    function resumeSaved(index) {
+      if (!adult() || !state.pool.includes(index)) return;
+      capturePosition(); rememberPosition(); logDeparture('select');
+      state.deferred.delete(index);
+      el('savedPanel').hidden = true;
+      state.navigation.splice(state.navIndex + 1);
+      state.navigation.push({ index, time:bookmarks[videos[index].src]?.time || 0, duration:0,
+        played:false, completed:false, graded:false, feedback:null });
+      trimNavigation(); playEntry(state.navigation.length - 1, 1);
+    }
+    function showSaved() {
+      if (!adult()) return;
+      resumeAfterSaved = !vid.paused;
+      vid.pause(); rememberPosition();
+      const rows = el('savedRows'); rows.replaceChildren();
+      const saved = state.pool.filter(index => bookmarks[videos[index].src]?.saved);
+      for (const index of saved) {
+        const button = document.createElement('button');
+        button.textContent = videos[index].title + ' · ' + clock(bookmarks[videos[index].src].time);
+        button.addEventListener('click', () => resumeSaved(index)); rows.appendChild(button);
+      }
+      el('savedEmpty').hidden = saved.length > 0;
+      el('savedPanel').hidden = false; revealControls();
+    }
+    function closeSaved() {
+      el('savedPanel').hidden = true;
+      if (resumeAfterSaved && state.cur >= 0) attemptPlay();
+      revealControls();
+    }
     try { state.preferShort = storage.getItem(SHORT_KEY) !== "0"; } catch (_) { state.preferShort = true; }
     if (new URLSearchParams(environment.location.search).get("audioQa") === "silent") vid.muted = true;
 
@@ -132,12 +263,14 @@
     function saveFull() {
       // A decayed reload and a reset replace the whole record deliberately.
       if (!saveWeights(storage, state.stream, state.weights)) showToast("Preferences cannot be saved.");
+      publishTaste();
     }
     function save() {
       // Merge, so a second open tab's learning is never discarded by this one.
       const stored = readStored(storage, state.stream);
       for (const src of state.dirty) stored[src] = state.weights[src];
       if (!saveWeights(storage, state.stream, stored)) showToast("Preferences cannot be saved.");
+      publishTaste();
     }
     function logDeparture(reason) {
       // One record per visit to a video: what was reached, and where it began.
@@ -158,6 +291,7 @@
     }
     function updatePause() { el("pause").textContent = vid.paused ? "Play ▶" : "Pause ⏸"; }
     function stopVideo() {
+      state.scrubbing = false;
       state.cur = -1;
       state.token++;
       state.played = false;
@@ -181,14 +315,15 @@
     }
     function historyIndex(direction, from = state.navIndex) {
       for (let index = from + direction; index >= 0 && index < state.navigation.length; index += direction) {
-        if (!state.failed.has(state.navigation[index].index)) return index;
+        if (!state.failed.has(state.navigation[index].index) && (direction < 0 || !state.deferred.has(state.navigation[index].index))) return index;
       }
       return -1;
     }
     function updateNavigation() {
       el("back").disabled = state.stream === null || historyIndex(-1) < 0;
-      el("skip").disabled = state.stream === null || !state.pool.some(index => !state.failed.has(index));
+      el("skip").disabled = state.stream === null || !state.pool.some(index => !state.failed.has(index) && !state.deferred.has(index));
       el("pause").disabled = state.cur < 0;
+      if (el('later')) el('later').disabled = state.cur < 0;
     }
     function capturePosition() {
       const entry = state.navigation[state.navIndex];
@@ -215,6 +350,9 @@
       const entry = state.navigation[state.navIndex];
       if (!entry || entry.graded) return;
       if (reason !== "skip" && reason !== "ended") return;
+      // Moving the playhead is not evidence of watching the intervening footage.
+      // Keep that visit neutral; a fresh uninterrupted visit can still teach us.
+      if (adult() && entry.sought) return;
       const time = state.pendingSeek ? entry.time : vid.currentTime;
       const duration = state.pendingSeek ? entry.duration : vid.duration;
       if (!entry.played && !state.played && !(time > 0) && reason !== "ended") return;
@@ -274,6 +412,7 @@
       } catch (_) { /* Retry once playable if this browser cannot seek yet. */ }
     }
     function playEntry(index, direction) {
+      state.scrubbing = false;
       state.navIndex = index;
       const entry = state.navigation[index];
       state.cur = entry.index;
@@ -291,16 +430,19 @@
       vid.src = encodePath(video.path || video.src);
       showToast((video.channel ? video.channel + " — " : "") + video.title);
       attemptPlay();
+      updateTimeline(); revealControls();
     }
     function chooseNew() {
-      const selected = pickVideo(videos, state.pool, state.weights, state.cur, state.failed, state.history, random, state.preferShort);
+      const available = state.pool.filter(index => !state.deferred.has(index));
+      const selected = pickVideo(videos, available, selectionWeights(), state.cur, state.failed, state.history, random, state.preferShort);
       if (selected < 0) {
         stopVideo();
         updateNavigation();
-        status(state.pool.length ? "These episodes could not be played. Use Channels to choose a channel or try again." : "No episodes are available in this channel. Use Channels to choose another.", false);
+        status(!available.length && state.deferred.size ? 'Everything’s saved for later.' : !state.pool.length ? 'No episodes on this channel.' : 'These episodes could not be played.', false);
         return;
       }
-      state.navigation.push({ index:selected, time:0, duration:0, played:false, completed:false, graded:false, feedback:null });
+      state.navigation.push({ index:selected, time:adult() ? bookmarks[videos[selected].src]?.time || 0 : 0,
+        duration:0, played:false, completed:false, graded:false, feedback:null });
       state.navIndex = state.navigation.length - 1;
       trimNavigation();
       playEntry(state.navIndex, 1);
@@ -308,6 +450,7 @@
     function next(reason) {
       if (state.stream === null) return;
       capturePosition();
+      rememberPosition(reason === 'ended');
       logDeparture(reason);
       if (reason === "error" && state.cur >= 0) {
         state.failed.add(state.cur);
@@ -335,13 +478,21 @@
       const target = historyIndex(-1);
       if (target < 0) return;
       capturePosition();
+      rememberPosition();
       logDeparture("back");
+      state.deferred.delete(state.navigation[target].index);
       undoSkip(state.navigation[target]);
       playEntry(target, -1);
     }
     function startStream(age) {
+      rememberPosition(); logDeparture("switch");
       stopVideo();
       state.stream = age;
+      loadBookmarks();
+      state.deferred = new Set(videos.map((video,index) => bookmarks[video.src]?.saved ? index : -1).filter(index => index >= 0));
+      if (el('adultTools')) el('adultTools').hidden = !adult();
+      if (el('adultTimeline')) el('adultTimeline').hidden = !adult();
+      if (el('savedPanel')) el('savedPanel').hidden = true;
       state.pool = videos.map((_, index) => index).filter(index => inStream(videos[index], age));
       state.weights = readWeights(storage, age, videos);
       state.dirty = new Set();
@@ -358,6 +509,7 @@
       next("start");
     }
     function switchStream() {
+      rememberPosition();
       logDeparture("switch");
       state.stream = null;
       stopVideo();
@@ -374,6 +526,7 @@
       status("", false);
       el("controls").hidden = true;
       splash.hidden = false;
+      if (el('savedPanel')) el('savedPanel').hidden = true;
       updateNavigation();
       environment.clearTimeout(toastTimer);
       el("toast").style.opacity = "0";
@@ -425,12 +578,30 @@
     vid.addEventListener("error", () => { if (vid.error && isCurrentSource()) next("error"); });
     vid.addEventListener("loadedmetadata", restorePosition);
     vid.addEventListener("playing", () => { if (isCurrentSource()) { restorePosition(); state.played = true; status("", false); updatePause(); } });
-    vid.addEventListener("pause", updatePause);
+    vid.addEventListener("pause", () => { updatePause(); rememberPosition(); revealControls(); });
+    vid.addEventListener('timeupdate', () => {
+      if (!isCurrentSource()) return;
+      updateTimeline();
+      if (adult() && now() - lastBookmarkSave > 5000) { rememberPosition(); lastBookmarkSave = now(); }
+    });
+    vid.addEventListener('loadedmetadata', updateTimeline);
+    document.addEventListener('pointermove', revealControls);
+    document.addEventListener('pointerdown', revealControls);
+    if (el('seek')) {
+      el('seek').addEventListener('input', () => { state.scrubbing = true; updateTimeline(); revealControls(); });
+      el('seek').addEventListener('change', () => seekTo(el('seek').value));
+      el('rewind').addEventListener('click', () => seekTo(vid.currentTime - 10));
+      el('forward').addEventListener('click', () => seekTo(vid.currentTime + 10));
+      el('later').addEventListener('click', later);
+      el('saved').addEventListener('click', showSaved);
+      el('closeSaved').addEventListener('click', closeSaved);
+    }
     for (const age of Object.keys(STREAMS)) {
       const button = el("s" + age);
       if (!button) continue;
       // A stream with nothing in it is not offered, so no button is ever a dead end.
-      const stocked = videos.some(video => inStream(video, age));
+      const enabled = environment.ONTO_AUDIENCES === true;
+      const stocked = (age === "grown" ? !enabled : ["mum","dad","both"].includes(age) ? enabled : true) && videos.some(video => inStream(video, age));
       button.hidden = !stocked;
       if (stocked) button.addEventListener("click", () => startStream(age));
     }
@@ -445,7 +616,7 @@
     const shortBox = el("preferShort");
     if (shortBox && shortBox.addEventListener) shortBox.addEventListener("change", () => setPreferShort(shortBox.checked));
     // Closing the tab is the commonest way a long compilation ends; record it.
-    if (environment.addEventListener) environment.addEventListener("pagehide", () => logDeparture("hide"));
+    if (environment.addEventListener) environment.addEventListener("pagehide", () => { rememberPosition(); logDeparture("hide"); });
     el("reset").addEventListener("click", () => {
       if (state.stream !== null && environment.confirm("Reset learned preferences for this stream?")) {
         state.weights = Object.create(null);
@@ -460,24 +631,32 @@
     });
     document.addEventListener("fullscreenchange", () => { el("fullscreen").textContent = document.fullscreenElement ? "Exit full screen" : "Full screen"; });
     document.addEventListener("keydown", event => {
+      revealControls();
       if (state.stream === null || event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
       if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
       const key = event.key.toLowerCase();
-      if (key === "escape") { panel.hidden = true; return; }
+      if (key === "escape") { panel.hidden = true; if (el('savedPanel') && !el('savedPanel').hidden) closeSaved(); return; }
+      if (el('savedPanel') && !el('savedPanel').hidden) return;
       if (key === "w") { event.preventDefault(); showWeights(); return; }
       if (!panel.hidden) return;
       if (key === " " || event.code === "Space") { event.preventDefault(); togglePause(); }
-      else if (key === "arrowleft") { event.preventDefault(); back(); }
-      else if (key === "arrowright" || key === "s") { event.preventDefault(); next("skip"); }
+      else if (key === "arrowleft") { event.preventDefault(); if (adult() && event.shiftKey) seekTo(vid.currentTime - 10); else back(); }
+      else if (key === "arrowright" || key === "s") { event.preventDefault(); if (adult() && event.shiftKey && key === 'arrowright') seekTo(vid.currentTime + 10); else next("skip"); }
+      else if (key === 'l' && adult()) { event.preventDefault(); later(); }
       else if (key === "f") { event.preventDefault(); toggleFullscreen(); }
     });
     if (environment.addEventListener) environment.addEventListener("message", event => {
-      if (event.source === environment.parent && event.data && event.data.type === "onto:pause") vid.pause();
+      if (event.source !== environment.parent || !event.data) return;
+      if (event.data.type === 'onto:export' && environment.ONTO_TASTE_TOKEN && event.data.token === environment.ONTO_TASTE_TOKEN) {
+        exportEnabled = true; publishTaste();
+      }
+      if (event.data.type === "onto:pause") vid.pause();
     });
     updateNavigation();
-    return { state, next, back, startStream, switchStream, showWeights, togglePause, setPreferShort };
+    publishTaste();
+    return { state, next, back, startStream, switchStream, showWeights, togglePause, setPreferShort, seekTo, later, showSaved, resumeSaved };
   }
-  const api = { keyFor, weightFor, encodePath, durationWeight, inStream, STREAMS, STREAM_LABELS,
+  const api = { togetherWeight, bookmarkKey, keyFor, weightFor, encodePath, durationWeight, inStream, STREAMS, STREAM_LABELS,
     readWeights, readStored, saveWeights, appendLog, learnedWeight, pickVideo, createPlayer };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else createPlayer(document, window, VIDEOS);

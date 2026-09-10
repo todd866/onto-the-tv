@@ -17,8 +17,8 @@ class Element {
 }
 function fixture(options={}) {
   const elements={};
-  for (const id of ['vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','closePanel','fullscreen','reset']) elements[id]=new Element();
-  elements.panel.hidden=true;
+  for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','closePanel','fullscreen','reset']) elements[id]=new Element();
+  elements.panel.hidden=true; elements.savedPanel.hidden=true;
   const vid=elements.vid;
   Object.assign(vid,{paused:true,currentTime:0,duration:120,muted:false,playCount:0,readyState:0});
   vid.play=options.play || function () { this.playCount++; this.readyState=1; this.dispatch('loadedmetadata'); this.paused=false; this.dispatch('playing'); return Promise.resolve(); };
@@ -31,7 +31,7 @@ function fixture(options={}) {
   document.documentElement={};
   const entries={};
   let clock=1000;
-  const environment={location:{search:options.search || ''},setTimeout:()=>1,clearTimeout:()=>{},confirm:()=>true,random:options.random || (()=>0),
+  const environment={parent:options.parent,ONTO_TASTE_TOKEN:options.exportToken,ONTO_AUDIENCES:options.audiences,location:{search:options.search || ''},setTimeout:()=>1,clearTimeout:()=>{},confirm:()=>true,random:options.random || (()=>0),
     now:options.now || (()=>clock++),addEventListener:(name,callback)=>{(window.listeners[name] ||= []).push(callback);},
     localStorage:options.storage || {getItem:key=>(key in entries ? entries[key] : null),setItem:(key,value)=>{entries[key]=value;}}};
   const window={listeners:{},dispatch(name,event={}){for (const callback of window.listeners[name] || []) callback(event);}};
@@ -607,4 +607,67 @@ test('the preferences panel names all three streams',()=>{
     assert.match(elements.panelTitle.textContent,new RegExp(label.replace('+','\\+')));
     player.showWeights();
   }
+});
+
+const adultVideos = videos.map(video => ({...video,tier:'grownup'}));
+test('Later is neutral, restores the saved position and survives a new player', () => {
+  const f = fixture({videos:adultVideos});
+  f.player.startStream('dad'); const original=f.player.state.cur;
+  f.vid.currentTime=37; f.player.later();
+  assert.notEqual(f.player.state.cur,original);
+  assert.equal(f.player.state.weights[adultVideos[original].src],undefined);
+  f.player.resumeSaved(original); assert.equal(f.vid.currentTime,37);
+  const other=fixture({videos:adultVideos,storage:f.environment.localStorage});
+  other.player.startStream('dad'); assert.notEqual(other.player.state.cur,original); other.player.resumeSaved(original);
+  assert.equal(other.vid.currentTime,37);
+});
+test('Mum, Dad and Both keep independent feedback and bookmarks', () => {
+  const f=fixture({videos:adultVideos,audiences:true});
+  f.player.startStream('mum'); const original=f.player.state.cur;
+  f.vid.currentTime=30; f.player.later();
+  f.player.startStream('dad'); assert.equal(f.vid.currentTime,0);
+  f.player.next('skip');
+  assert.equal(JSON.parse(f.entries[keyFor('dad')])[adultVideos[original].src],0.7);
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[adultVideos[original].src],undefined);
+  const dad=f.entries[keyFor('dad')];
+  f.player.startStream('both'); f.player.next('skip');
+  assert.equal(f.entries[keyFor('dad')],dad);
+  f.player.startStream('mum'); f.player.resumeSaved(original); assert.equal(f.vid.currentTime,30);
+});
+test('Both favours overlap, while joint choices can develop separately', () => {
+  const {togetherWeight}=require('../player.js');
+  assert.equal(togetherWeight(2,2),2);
+  assert.ok(togetherWeight(4,0.15)<0.3);
+  assert.equal(togetherWeight(1,1),1);
+  assert.equal(togetherWeight(2,1),togetherWeight(1,2));
+  assert.ok(togetherWeight(1,1,1.3)>1);
+});
+test('Seeking preserves pause and does not turn scrubbed progress into a preference', () => {
+  const f=fixture({videos:adultVideos}); f.player.startStream('grown');
+  const original=f.player.state.cur; f.vid.pause(); f.player.seekTo(90);
+  assert.equal(f.vid.currentTime,90); assert.equal(f.vid.paused,true);
+  f.player.next('skip'); assert.equal(f.player.state.weights[adultVideos[original].src],undefined);
+  f.player.seekTo(-10); assert.equal(f.vid.currentTime,0);
+  f.player.seekTo(999); assert.equal(f.vid.currentTime,120);
+});
+test('Deferring every episode stops without a dislike and leaves Saved usable', () => {
+  const f=fixture({videos:adultVideos});f.player.startStream('dad');
+  for (let i=0;i<adultVideos.length;i++) f.player.later();
+  assert.equal(f.player.state.cur,-1); assert.deepEqual(Object.keys(f.player.state.weights),[]);
+  f.player.showSaved(); assert.equal(f.elements.savedRows.children.length,adultVideos.length);
+});
+
+test('Taste export requires the app capability and filters damaged saved data', () => {
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  const f=fixture({videos:adultVideos,parent,exportToken:'test-capability'});
+  f.entries['onto.adult.v1.mum']=JSON.stringify({[adultVideos[0].src]:{time:10,saved:true},bad:{time:-1}});
+  f.entries[keyFor('dad')]=JSON.stringify({[adultVideos[0].src]:9,unknown:2});
+  assert.equal(sent.length,0);
+  f.window.dispatch('message',{source:parent,data:{type:'onto:export',token:'wrong'}});
+  assert.equal(sent.length,0);
+  f.window.dispatch('message',{source:parent,data:{type:'onto:export',token:'test-capability'}});
+  assert.equal(sent.length,1);
+  assert.equal(sent[0].profiles.mum.bookmarks[adultVideos[0].src].updated,0);
+  assert.equal(sent[0].profiles.dad.weights[adultVideos[0].src],4);
+  assert.equal(sent[0].profiles.dad.weights.unknown,undefined);
 });

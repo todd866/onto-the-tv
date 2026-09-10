@@ -66,6 +66,16 @@ html, body { background:#17130f; }
 #back,#pause,#skip { font-size:20px; padding:14px 22px; min-height:50px; }
 #skip { background:#b87928; } #panel { background:#221b14f7; }
 @media(max-width:620px) { #streams { grid-template-columns:repeat(2,minmax(0,1fr)); } .streamBtn { min-height:150px; padding:18px 10px; font-size:21px; } .streamBtn .emoji { font-size:40px; } #sall { grid-column:auto; padding:18px 10px; } #splash { justify-content:flex-start; } }
+#controls { transition:opacity .35s; }
+#controls.dimmed:not(:has(:focus-visible)) { opacity:0; }
+#adultTimeline { display:flex; align-items:center; gap:12px; width:100%; font-size:12px; font-variant-numeric:tabular-nums; }
+#seek { flex:1; min-width:50px; accent-color:#d9a04a; cursor:pointer; }
+#adultTools { display:flex; gap:8px; }
+#savedPanel { position:fixed; inset:8vh max(16px,8vw); z-index:26; overflow:auto; padding:22px; background:#221b14fa; border-radius:20px; }
+#savedPanel h2 { font-size:20px; margin:0; }
+#savedRows { display:grid; gap:10px; margin-top:20px; }
+#savedRows button { text-align:left; padding:16px; border-radius:10px; background:#403426; }
+#smum,#sdad,#sboth { background:linear-gradient(145deg,#74586f,#423047); }
 </style>
 </head>
 <body>
@@ -75,12 +85,17 @@ html, body { background:#17130f; }
     <button class="streamBtn" id="s2"><span class="emoji" aria-hidden="true">🧸</span>Little Kids<small>2+</small></button>
     <button class="streamBtn" id="s6"><span class="emoji" aria-hidden="true">🚀</span>Big Kids<small>6+</small></button>
     <button class="streamBtn" id="sgrown"><span class="emoji" aria-hidden="true">🍿</span>Grown-ups</button>
+    <button class="streamBtn" id="smum" hidden><span class="emoji" aria-hidden="true">Ⅰ</span>Mum</button>
+    <button class="streamBtn" id="sdad" hidden><span class="emoji" aria-hidden="true">Ⅱ</span>Dad</button>
+    <button class="streamBtn" id="sboth" hidden><span class="emoji" aria-hidden="true">Ⅲ</span>Both</button>
     <button class="streamBtn" id="smusic"><span class="emoji" aria-hidden="true">🎧</span>Music</button>
     <button class="streamBtn" id="sall"><span class="emoji" aria-hidden="true">🗝️</span>Everything</button>
   </div>
 </main>
 <video id="vid" playsinline preload="metadata" aria-label="Current episode"></video>
 <nav id="controls" hidden aria-label="Player controls">
+  <div id="adultTimeline" hidden><span id="elapsed">0:00</span><input id="seek" type="range" min="0" max="1" step="0.1" value="0" aria-label="Playback position"><span id="duration">0:00</span></div>
+  <div id="adultTools" hidden><button class="utility" id="rewind" title="Back 10 seconds (Shift+←)">−10s</button><button class="utility" id="forward" title="Forward 10 seconds (Shift+→)">+10s</button><button class="utility" id="later" title="Save for later (L)">Later</button><button class="utility" id="saved">Saved</button></div>
   <div id="utilities">
     <button class="utility" id="switch">Channels</button>
     <button class="utility" id="preferences">Preferences</button>
@@ -90,6 +105,7 @@ html, body { background:#17130f; }
 </nav>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="status" role="status" hidden><p id="statusText"></p><button id="retry">Tap to play</button></div>
+<section id="savedPanel" hidden aria-label="Saved for later"><div class="panelActions"><h2>Later</h2><button class="utility" id="closeSaved">Close</button></div><p id="savedEmpty">Nothing saved yet.</p><div id="savedRows"></div></section>
 <section id="panel" hidden aria-label="Learned preferences">
   <div class="panelActions"><button class="utility" id="closePanel">Close</button><button class="utility" id="reset">Reset preferences</button></div>
   <h2 id="panelTitle"></h2>

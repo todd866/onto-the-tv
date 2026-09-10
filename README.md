@@ -131,3 +131,15 @@ and is included under the same license. Electron and its bundled components
 retain their own licenses; the installer carries their notices into the app.
 FFmpeg and optional tools are installed separately. Samsung is a trademark of
 its owner; this is an independent project.
+
+### Personal audiences and local taste data
+
+Put `{"enabled":true}` in `audiences.json` in the app's user-data directory to replace Grown-ups with **Mum**, **Dad** and **Both**. Existing Grown-ups preferences are retained separately; they are not assigned to either person. On macOS the directory is `~/Library/Application Support/Onto the TV`.
+
+Adult channels offer a timeline, ±10 seconds, and **Later** with saved positions. Left/right moves between episodes; Shift+left/right seeks; L saves for later. Controls fade during playback. Later is neutral. A visit with manual seeking does not teach a preference, since playback position would otherwise mistake seeking for watching. Back still undoes an early skip.
+
+Mum and Dad have independent episode weights and bookmarks. Both uses the harmonic mean of their weights, multiplied by its own learned weight (bounded to 0.15–4). Unknown preferences start at 1; they are not evidence of shared enthusiasm. Joint viewing updates only Both. These are simple local weighted choices, not a trained language model.
+
+The embedded app writes private `taste.json` snapshots and a `library.json` catalogue alongside its settings. Agents can join `profiles.<id>.weights` and `bookmarks` to the catalogue's `src` IDs, titles and show names. Bookmark times are seconds, and `updated` is Unix milliseconds. Weights are per episode; an agent can aggregate by show, but should distinguish actual observations from neutral defaults. The original browser viewing log remains local and is not exported as measured watch time.
+
+These files can inform a later request for viewing suggestions or acquisition from sources you authorize. OtTV does not dispatch agents or download shows automatically. The files and personal audience settings are git-ignored; do not include them in public issues or commits.

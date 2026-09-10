@@ -25,3 +25,8 @@ player-import.json
 audit/
 backups/
 coverage/
+
+# Local audience settings and agent-readable viewing data
+audiences.json
+taste.json
+library.json
