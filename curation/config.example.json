@@ -1,0 +1,19 @@
+{
+  "_comment": "Copy to config.json and fill in. Seeds are where your algorithm looks; filters and channelTrust are how it decides. Get a YouTube Data API v3 key at console.cloud.google.com and export it as YOUTUBE_API_KEY.",
+  "seeds": [
+    { "channel": "@OctonautsOfficial" },
+    { "channel": "@HeyDuggee" },
+    { "playlist": "PLPLACEHOLDER" },
+    { "search": "numberblocks full episode" }
+  ],
+  "filters": {
+    "maxDurationSeconds": 1500,
+    "minDurationSeconds": 120,
+    "license": "any",
+    "publishedAfter": "2025-01-01T00:00:00Z"
+  },
+  "channelTrust": {
+    "UC_PLACEHOLDER": 0.9
+  },
+  "exclude": []
+}

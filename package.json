@@ -11,9 +11,11 @@
     "postinstall": "node node_modules/electron/install.js",
     "start": "electron .",
     "install-app": "python3 scripts/install_mac_app.py",
-    "test": "node --test src/*.test.js casting/test/*.test.js shuffler/tests/player.test.js",
+    "test": "node --test src/*.test.js casting/test/*.test.js curation/src/*.test.js shuffler/tests/player.test.js",
     "test:python": "cd shuffler && python3 -m unittest discover -s tests && python3 -m unittest test_sync_phone && cd ../scripts && python3 -m unittest test_install_mac_app",
-    "cast": "node casting/src/cli.js"
+    "cast": "node casting/src/cli.js",
+    "refresh": "node bin/refresh.js",
+    "curate": "node curation/src/cli.js"
   },
   "devDependencies": {
     "electron": "44.3.0"

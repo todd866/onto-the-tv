@@ -30,3 +30,7 @@ coverage/
 audiences.json
 taste.json
 library.json
+
+# Curation: real config (seeds/trust) and generated whitelist
+curation/config.json
+curation/whitelist.json
