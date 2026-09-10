@@ -2,30 +2,18 @@
 
 # Onto the TV
 
-**Your videos, on the Mac or the big screen.**
+**A few channels, fed by the videos you already have.**
 
-Onto the TV brings Kids Shuffler and Samsung TV playback into one small Mac app.
-Open an offline family player, or drop a video into a queue for your TV. No
-account, subscription, catalogue, or analytics service.
+Open the app, choose a channel, and watch. Each channel picks its next episode
+from its library, learning from skips and completions and avoiding recent repeats.
+Playback is built into the app. Left and right arrows go back and forward;
+returning to a skipped episode cancels its penalty.
 
-![The combined Mac app with Kids Shuffler ready to open](brand/app-preview.png)
+![Channels in Onto the TV](brand/app-preview.png)
 
-## Two places to watch
-
-**On this Mac — Kids Shuffler.** Choose Little Kids, Big Kids, Grown-ups, Music,
-or Everything. The player mixes shows, learns gently from skips and completions,
-and avoids recent repeats. Left and right arrows move back and forward through
-recent episodes. Going back cancels an early-skip penalty. Each stream learns
-separately; empty streams are hidden.
-
-**On the TV.** Drop a local video or choose a folder. The first video starts on
-a compatible Samsung DLNA renderer; the rest queue up. Pause, resume, or stop
-from the app. Compatible media streams directly; other formats are converted
-with FFmpeg and temporary files are cleaned up when playback stops.
-
-The shuffler plays in your default browser. TV playback uses the files you
-choose; it does not yet follow the shuffler automatically. The Mac must stay
-awake and on the same network while serving the TV.
+The TV tab sends selected files to a compatible Samsung DLNA renderer. It does
+not yet follow the automatic channel sequence. The Mac must stay awake and on
+the same network while serving a TV.
 
 ## Install on a Mac
 
@@ -53,24 +41,31 @@ For development, use `npm start`. To stage a build without registering it:
 python3 scripts/install_mac_app.py --output "dist/Onto the TV.app" --no-register
 ```
 
-## Set up Kids Shuffler
+## Set up channels
 
 1. Keep one show per folder inside a video library.
 2. Copy [shuffler/tiers.example.json](shuffler/tiers.example.json) to a private
    `tiers.json`. Put your show folder names into the appropriate groups.
-3. In **On this Mac → Your video library**, choose the folder and show groups,
-   then **Build / refresh player**.
-4. Open Kids Shuffler and pick a stream.
+3. In **Library settings**, choose the folder and show groups,
+   then **Refresh**.
+4. Choose a channel.
 
-Unknown shows go only to Everything. Group choices are yours; they are not
+Unassigned shows go only to Everything. Group choices are yours; they are not
 verified age ratings, and the stream picker is not a parental lock. Extra
 folders and individual films can be included using the optional
 [sources example](shuffler/sources.example.json).
 
-Already have Kids Shuffler? **Use existing player…** opens the same HTML file
-in your usual browser, retaining its local preferences. Select your original
-show-group and source configurations before rebuilding. Keep using the same
-browser profile and HTML location.
+Already have a generated library? **Library settings → Channel setup → Import
+library…** reads its video list. The app renders its own player; imported HTML
+scripts are never executed. Select your original show-group and source
+configurations before refreshing. The browser version remains usable separately.
+
+The app's preferences are separate from your browser's. To migrate saved data,
+place a JSON object of storage-key/string-value pairs in
+`~/Library/Application Support/Onto the TV/player-import.json` before first use.
+Only the documented `kidshuffle.*` preference and viewing-log keys are accepted;
+existing app values are never overwritten. This file is private and must stay
+outside the repository. There is no continuing browser sync.
 
 The [shuffler guide](shuffler/README.md) covers configuration, shortcuts,
 learning, browser compatibility, and safe Android copying with VLC playlists.
@@ -78,7 +73,7 @@ Phone playback uses VLC; it does not run the browser learner.
 
 ## Set up a TV
 
-In **On the TV → TV settings**, enter the TV's IPv4 address from its network
+In **TV → Connection**, enter the TV's IPv4 address from its network
 settings. The default control endpoint is
 `http://TV_ADDRESS:9197/upnp/control/AVTransport1`. If your Samsung uses a different
 UPnP AVTransport endpoint, enter it under advanced settings. You can also choose
@@ -95,9 +90,9 @@ app works with local files. Supply your own media and permissions to use it.
 ## Privacy and network access
 
 - Videos stay in your folders. The app has no cloud account or telemetry.
-- Browser preferences and up to 3,000 viewing records stay in local storage.
+- Channel preferences and up to 3,000 viewing records stay in app local storage.
   The [guide](shuffler/README.md#watching-and-learning) explains exactly what is
-  recorded. Clearing browser storage removes them.
+  recorded. Clearing app storage removes them.
 - TV settings and selected paths live in
   `~/Library/Application Support/Onto the TV/settings.json`, outside the repo.
 - During casting, a temporary HTTP server serves only selected files through
@@ -123,7 +118,7 @@ foreground playback is required.
 
 | Folder | Purpose |
 | --- | --- |
-| `src/` | Electron shell, private settings, TV queue and local-player bridge |
+| `src/` | Electron shell, private settings, TV queue and embedded channels |
 | `ui/` | Offline app interface |
 | `casting/` | Media preparation, HTTP serving and Samsung control |
 | `shuffler/` | Offline player, generator, Android sync and playlist tools |

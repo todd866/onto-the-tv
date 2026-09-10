@@ -1,11 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, isAbsolute } from 'node:path';
 import { createLiveSession } from './live.js';
 import { loadConfig } from '../casting/src/config.js';
 import { filesFromArgv } from './launch-files.js';
 import { defaults, readSettings, writeSettings, validateTvSettings } from './settings.js';
-import { playerExists, buildPlayer } from './shuffler.js';
+import { playerExists, buildPlayer, prepareChannels } from './shuffler.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, '..');
@@ -60,7 +60,7 @@ async function createWindow() {
   catch (error) { settings = defaults(); settingsError = error.message; }
   newSession();
   win = new BrowserWindow({
-    width: 660, height: 790, minWidth: 460, minHeight: 600,
+    width: 980, height: 720, minWidth: 520, minHeight: 560,
     backgroundColor: '#17130f', title: 'Onto the TV', titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 19 }, show: false,
     webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true,
@@ -68,7 +68,8 @@ async function createWindow() {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
-  win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(
+    wc === win.webContents && permission === 'fullscreen'));
   win.once('ready-to-show', () => win.show());
   await win.loadURL(uiUrl);
   if (settingsError) win.webContents.send('app:error', settingsError);
@@ -106,16 +107,15 @@ handle('settings:tv', async (input) => {
   } finally { changingTv = false; }
 });
 handle('shuffler:open', async () => {
-  if (!await playerExists(settings)) throw new Error('Choose your video folder, then build the player first.');
-  const error = await shell.openPath(settings.playerPath);
-  if (error) throw new Error(error);
+  if (!await playerExists(settings)) throw new Error('Choose a folder, then refresh the library.');
+  return prepareChannels(appRoot, settings, app.getPath('userData'));
 });
 handle('shuffler:choose', async (kind) => {
   if (changingTv) throw new Error('Wait for TV settings to finish saving.');
   if (building) throw new Error('Wait for the player to finish building.');
   if (!['library', 'player', 'tiers', 'sources'].includes(kind)) throw new Error('Unknown selection.');
   const result = await dialog.showOpenDialog(win, {
-    title: { library: 'Choose the video library', player: 'Choose an existing Kids Shuffler player',
+    title: { library: 'Choose the video library', player: 'Choose an existing library',
       tiers: 'Choose show groups', sources: 'Choose extra video sources' }[kind],
     properties: [kind === 'library' ? 'openDirectory' : 'openFile'],
     ...(kind === 'library' ? {} : { filters: [{ name: kind === 'player' ? 'HTML player' : 'JSON configuration', extensions: [kind === 'player' ? 'html' : 'json'] }] }),

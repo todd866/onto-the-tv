@@ -131,13 +131,13 @@
     }
     function saveFull() {
       // A decayed reload and a reset replace the whole record deliberately.
-      if (!saveWeights(storage, state.stream, state.weights)) showToast("Preferences work for this session; this browser cannot save them.");
+      if (!saveWeights(storage, state.stream, state.weights)) showToast("Preferences cannot be saved.");
     }
     function save() {
       // Merge, so a second open tab's learning is never discarded by this one.
       const stored = readStored(storage, state.stream);
       for (const src of state.dirty) stored[src] = state.weights[src];
-      if (!saveWeights(storage, state.stream, stored)) showToast("Preferences work for this session; this browser cannot save them.");
+      if (!saveWeights(storage, state.stream, stored)) showToast("Preferences cannot be saved.");
     }
     function logDeparture(reason) {
       // One record per visit to a video: what was reached, and where it began.
@@ -297,7 +297,7 @@
       if (selected < 0) {
         stopVideo();
         updateNavigation();
-        status(state.pool.length ? "These episodes could not be played. Use Switch to choose a playlist or try again." : "No episodes are available in this playlist. Use Switch to choose another.", false);
+        status(state.pool.length ? "These episodes could not be played. Use Channels to choose a channel or try again." : "No episodes are available in this channel. Use Channels to choose another.", false);
         return;
       }
       state.navigation.push({ index:selected, time:0, duration:0, played:false, completed:false, graded:false, feedback:null });
@@ -355,7 +355,6 @@
       splash.hidden = true;
       el("controls").hidden = false;
       saveFull();
-      if (!document.fullscreenElement) toggleFullscreen();
       next("start");
     }
     function switchStream() {
@@ -471,6 +470,9 @@
       else if (key === "arrowleft") { event.preventDefault(); back(); }
       else if (key === "arrowright" || key === "s") { event.preventDefault(); next("skip"); }
       else if (key === "f") { event.preventDefault(); toggleFullscreen(); }
+    });
+    if (environment.addEventListener) environment.addEventListener("message", event => {
+      if (event.source === environment.parent && event.data && event.data.type === "onto:pause") vid.pause();
     });
     updateNavigation();
     return { state, next, back, startStream, switchStream, showWeights, togglePause, setPreferShort };

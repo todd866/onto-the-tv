@@ -1,6 +1,6 @@
 {
   "name": "onto-the-tv",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Offline family shuffle and local-network Samsung TV playback, together on your Mac.",
   "license": "MIT",
   "private": true,
@@ -15,6 +15,10 @@
     "test:python": "cd shuffler && python3 -m unittest discover -s tests && python3 -m unittest test_sync_phone",
     "cast": "node casting/src/cli.js"
   },
-  "devDependencies": { "electron": "44.3.0" },
-  "engines": { "node": ">=22.12.0" }
+  "devDependencies": {
+    "electron": "44.3.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
 }

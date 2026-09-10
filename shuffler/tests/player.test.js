@@ -184,11 +184,13 @@ test('stale media events from a previous or cleared source do not fail the new f
   vid.dispatch('error');
   assert.equal(player.state.cur,-1);
 });
-test('choosing a stream requests full screen within the start action',()=>{
-  const {player,document}=fixture();
+test('choosing a channel stays in the app until full screen is requested',()=>{
+  const {player,document,elements}=fixture();
   let calls=0;
   document.documentElement.requestFullscreen=()=>{calls++;return Promise.resolve();};
   player.startStream(2);
+  assert.equal(calls,0);
+  elements.fullscreen.dispatch('click');
   assert.equal(calls,1);
 });
 

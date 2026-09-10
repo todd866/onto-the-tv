@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Kids Shuffler</title>
+<title>Onto the TV</title>
 <style>
 * { box-sizing:border-box; }
 html, body { margin:0; width:100%; height:100%; background:#05080f; color:#fff; overflow:hidden; font-family:-apple-system,system-ui,sans-serif; }
@@ -49,24 +49,40 @@ button:disabled { opacity:.45; cursor:default; }
   #back, #pause, #skip { flex:1; min-width:0; padding:16px 8px; font-size:18px; } #panel { padding:16px; }
 }
 @media(max-height:430px) { #splash { gap:12px; } .streamBtn { padding:14px; gap:4px; } .streamBtn .emoji { font-size:40px; } #splash p { display:none; } }
+/* Shared app styling; the channel picker is the home screen. */
+html, body { background:#17130f; }
+#splash { background:#17130f; gap:26px; padding:28px; }
+#splash h1 { font-size:14px; text-transform:uppercase; letter-spacing:2px; color:#bda788; font-weight:500; align-self:flex-start; width:min(100%,900px); margin:0 auto; text-align:left; }
+#streams { grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+.streamBtn { border:1px solid #ffffff16; border-radius:18px; padding:28px 14px; font-size:24px; gap:15px; min-height:195px; box-shadow:inset 0 1px #ffffff12; }
+.streamBtn .emoji { font-size:54px; }
+.streamBtn small { font-size:13px; }
+#s2 { background:linear-gradient(145deg,#277a68,#16473d); }
+#s6 { background:linear-gradient(145deg,#9e4843,#592a31); }
+#sgrown { background:linear-gradient(145deg,#74586f,#423047); }
+#smusic { background:linear-gradient(145deg,#356d80,#213e52); }
+#sall { background:linear-gradient(145deg,#686051,#3a342c); }
+.streamBtn:hover { border-color:#f2ad43; transform:translateY(-2px); }
+#back,#pause,#skip { font-size:20px; padding:14px 22px; min-height:50px; }
+#skip { background:#b87928; } #panel { background:#221b14f7; }
+@media(max-width:620px) { #streams { grid-template-columns:repeat(2,minmax(0,1fr)); } .streamBtn { min-height:150px; padding:18px 10px; font-size:21px; } .streamBtn .emoji { font-size:40px; } #sall { grid-column:auto; padding:18px 10px; } #splash { justify-content:flex-start; } }
 </style>
 </head>
 <body>
 <main id="splash">
-  <h1>Who's watching?</h1>
-  <p>Pick a playlist. We'll mix up the shows.</p>
+  <h1>Channels</h1>
   <div id="streams">
     <button class="streamBtn" id="s2"><span class="emoji" aria-hidden="true">🧸</span>Little Kids<small>2+</small></button>
     <button class="streamBtn" id="s6"><span class="emoji" aria-hidden="true">🚀</span>Big Kids<small>6+</small></button>
-    <button class="streamBtn" id="sgrown"><span class="emoji" aria-hidden="true">🍿</span>Grown-ups<small>films &amp; TV</small></button>
-    <button class="streamBtn" id="smusic"><span class="emoji" aria-hidden="true">🎧</span>Music<small>music videos</small></button>
-    <button class="streamBtn" id="sall"><span class="emoji" aria-hidden="true">🗝️</span>Everything<small>the whole library</small></button>
+    <button class="streamBtn" id="sgrown"><span class="emoji" aria-hidden="true">🍿</span>Grown-ups</button>
+    <button class="streamBtn" id="smusic"><span class="emoji" aria-hidden="true">🎧</span>Music</button>
+    <button class="streamBtn" id="sall"><span class="emoji" aria-hidden="true">🗝️</span>Everything</button>
   </div>
 </main>
 <video id="vid" playsinline preload="metadata" aria-label="Current episode"></video>
 <nav id="controls" hidden aria-label="Player controls">
   <div id="utilities">
-    <button class="utility" id="switch">Switch</button>
+    <button class="utility" id="switch">Channels</button>
     <button class="utility" id="preferences">Preferences</button>
     <button class="utility" id="fullscreen">Full screen</button>
   </div>
@@ -77,8 +93,8 @@ button:disabled { opacity:.45; cursor:default; }
 <section id="panel" hidden aria-label="Learned preferences">
   <div class="panelActions"><button class="utility" id="closePanel">Close</button><button class="utility" id="reset">Reset preferences</button></div>
   <h2 id="panelTitle"></h2>
-  <p><label id="shortRow"><input type="checkbox" id="preferShort" checked> Prefer short episodes</label> — on, a four-hour compilation is far less likely than a seven-minute episode. Turn it off for a long drive.</p>
-  <p>Skipping early gently lowers a video's chance. Watching most of it raises it. Each new session gives old favourites another chance. Back (←) returns to the previous episode and cancels an early-skip penalty. Forward (→ or S) follows your recent episodes before picking a new one. Episode visits and playback positions are saved in this browser. Nothing is sent online.</p>
+  <p><label id="shortRow"><input type="checkbox" id="preferShort" checked> Shorter episodes</label></p>
+  <p>Skips and finishes shape this channel. Back undoes a skip.</p>
   <table><thead><tr><th>Show</th><th>Video</th><th>Weight</th></tr></thead><tbody id="weightRows"></tbody></table>
 </section>
 <script>const VIDEOS = __VIDEOS__;</script>

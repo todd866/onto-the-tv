@@ -3,6 +3,7 @@ const $ = id => document.getElementById(id);
 let mode = 'local';
 let latestTv;
 let busy = false;
+let loadedLibrary = null;
 
 function message(text = '', fault = false) {
   $('status').textContent = text;
@@ -15,6 +16,7 @@ async function act(work) {
 }
 
 function setMode(value) {
+  if (value !== 'local') $('channel-player').contentWindow?.postMessage({ type: 'onto:pause' }, '*');
   mode = value;
   $('local-view').hidden = mode !== 'local';
   $('tv-view').hidden = mode !== 'tv';
@@ -33,7 +35,7 @@ function clock(seconds) {
 
 function renderTv(state) {
   latestTv = state;
-  $('room').textContent = state.tvHost ? `Samsung · ${state.tvHost}` : 'Add your TV below to get started.';
+  $('room').textContent = state.tvHost ? `Samsung · ${state.tvHost}` : 'Connect a TV below.';
   if (mode === 'tv') {
     message(state.error || (state.status === 'preparing' ? 'Getting it ready for the TV…'
       : state.status === 'paused' ? 'Paused on the TV.' : state.status === 'finished' ? 'All done.'
@@ -57,17 +59,28 @@ function renderSettings(state) {
   $('av-transport').value = state.avTransportUrl;
   $('bind-host').value = state.bindHost;
   $('library-path').textContent = state.library;
-  $('config-summary').textContent = [state.tiersPath ? 'Show groups selected.' : 'No show groups selected.',
-    state.sourcesPath ? 'Extra sources selected.' : ''].filter(Boolean).join(' ');
-  $('open-shuffler').disabled = !state.hasPlayer;
-  if (!state.hasPlayer) $('library-settings').open = true;
+  $('config-summary').textContent = [state.tiersPath ? 'Groups set.' : 'No groups yet.',
+    state.sourcesPath ? 'Extra folders set.' : ''].filter(Boolean).join(' ');
+  $('empty-library').hidden = state.hasPlayer;
+  $('channel-player').hidden = !state.hasPlayer;
+  if (state.hasPlayer && loadedLibrary !== state.playerPath) {
+    loadedLibrary = state.playerPath;
+    void act(() => loadChannels());
+  }
+  if (!state.hasPlayer) { loadedLibrary = null; $('channel-player').src = 'about:blank'; }
   if (!state.tvHost) $('tv-settings').open = true;
   renderTv(state.tv);
 }
 
 $('mode-local').onclick = () => setMode('local');
 $('mode-tv').onclick = () => setMode('tv');
-$('open-shuffler').onclick = () => act(async () => { await api.openShuffler(); message('Opened in your browser.'); });
+async function loadChannels() {
+  const result = await api.openShuffler();
+  $('channel-player').src = result.url;
+}
+$('library-toggle').onclick = () => { $('library-settings').hidden = !$('library-settings').hidden; };
+$('library-close').onclick = () => { $('library-settings').hidden = true; };
+$('start-library').onclick = () => { $('library-settings').hidden = false; $('choose-library').click(); };
 for (const kind of ['library', 'player', 'tiers', 'sources']) {
   $('choose-' + kind).onclick = () => act(async () => renderSettings(await api.chooseShuffler(kind)));
 }
@@ -75,11 +88,12 @@ $('build-shuffler').onclick = () => act(async () => {
   if (busy) return;
   busy = true;
   $('build-shuffler').disabled = true;
-  message('Checking the videos and building your player…');
+  message('Refreshing…');
   try {
     const result = await api.buildShuffler();
     renderSettings(result.state);
-    message(result.message);
+    await loadChannels();
+    message('Library updated.');
   } finally { busy = false; $('build-shuffler').disabled = false; }
 });
 $('tv-form').onsubmit = event => {
@@ -90,7 +104,7 @@ $('tv-form').onsubmit = event => {
     try {
       renderSettings(await api.saveTv({ tvHost: $('tv-host').value,
         avTransportUrl: $('av-transport').value, bindHost: $('bind-host').value }));
-      message('TV settings saved. Choose a video when you’re ready.');
+      message('Saved.');
     } finally { button.disabled = false; }
   });
 };

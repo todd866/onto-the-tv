@@ -14,6 +14,8 @@ phone-exclusions.json
 phone-files.nul
 phone-playlists/
 kids-shuffler.html
+channels.html
+player-import.json
 *.mp4
 *.mkv
 *.m4v
