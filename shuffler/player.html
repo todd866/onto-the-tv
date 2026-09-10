@@ -5,91 +5,92 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Onto the TV</title>
 <style>
+:root { color-scheme:dark; --ink:#f3efdf; --muted:#8e9ba5; --amber:#f2b45d; --base:#101a22; }
 * { box-sizing:border-box; }
-html, body { margin:0; width:100%; height:100%; background:#05080f; color:#fff; overflow:hidden; font-family:-apple-system,system-ui,sans-serif; }
+html,body { margin:0; width:100%; height:100%; background:var(--base); color:var(--ink); overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif; }
 button { font:inherit; color:inherit; cursor:pointer; touch-action:manipulation; border:0; }
-button:focus-visible { outline:3px solid #ffdd73; outline-offset:4px; }
-button:disabled { opacity:.45; cursor:default; }
-[hidden] { display:none !important; }
+button:focus-visible,input:focus-visible { outline:2px solid var(--amber); outline-offset:5px; }
+button:disabled { opacity:.4; cursor:default; }
+[hidden] { display:none!important; }
 #vid { width:100%; height:100%; object-fit:contain; background:#000; }
-#splash { position:fixed; inset:0; z-index:30; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px; padding:24px; overflow:auto; background:radial-gradient(circle at 50% 25%,#1c2c53,#05080f 75%); }
-#splash h1 { margin:0; font-size:clamp(28px,5vw,52px); text-align:center; }
-#splash p { margin:0; color:#c4cede; text-align:center; }
-#streams { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; width:min(100%,900px); }
-.streamBtn { display:flex; flex-direction:column; align-items:center; gap:12px; padding:36px 14px; border-radius:28px; font-size:clamp(23px,4vw,36px); font-weight:800; min-width:0; }
-.streamBtn .emoji { font-size:clamp(54px,9vw,80px); }
-.streamBtn small { font-size:19px; font-weight:500; }
-#s2 { background:#198a7d; } #s6 { background:#cf3544; } #sgrown { background:#6b3f7a; } #smusic { background:#1d6a8c; } #sall { background:#3f4a66; }
-.streamBtn small { opacity:.85; }
-#controls { position:fixed; z-index:20; inset:auto 0 0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:28px max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left)); background:linear-gradient(transparent,#000c); }
-#utilities { display:flex; gap:8px; flex-wrap:wrap; }
-.utility { background:#263244e8; border-radius:12px; padding:12px; min-height:44px; font-size:14px; }
-#transport { display:flex; gap:10px; margin-left:auto; }
-#back, #pause, #skip { border-radius:18px; font-weight:800; font-size:clamp(18px,3vw,30px); padding:18px 24px; min-height:58px; }
-#back, #pause { background:#233751ee; } #skip { background:#d93446; }
-#toast { position:fixed; top:max(18px,env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:15; padding:12px 18px; border-radius:14px; background:#07111ce6; font-size:17px; opacity:0; transition:opacity .3s; pointer-events:none; width:max-content; max-width:calc(100% - 32px); text-align:center; overflow-wrap:anywhere; }
-#status { position:fixed; inset:25% 16px auto; z-index:21; max-width:540px; margin:0 auto; padding:24px; background:#17243bf5; border-radius:20px; text-align:center; }
-#status p { margin:0 0 16px; line-height:1.5; }
-#retry { padding:14px 24px; border-radius:12px; background:#238f80; font-weight:700; }
-#panel { position:fixed; inset:5vh max(16px,5vw); z-index:25; overflow:auto; padding:22px; background:#111b2bf7; border-radius:20px; }
-.panelActions { display:flex; gap:10px; justify-content:space-between; flex-wrap:wrap; }
-#panel h2 { margin:20px 0 8px; } #panel p { line-height:1.5; color:#bdc9d9; }
-#shortRow { display:inline-flex; align-items:center; gap:8px; color:#fff; font-weight:600; cursor:pointer; }
-#preferShort { width:20px; height:20px; accent-color:#238f80; }
-#panel table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:14px; }
-#panel th, #panel td { text-align:left; border-bottom:1px solid #354052; padding:10px 4px; overflow-wrap:anywhere; }
-#panel th:first-child { width:27%; } #panel th:last-child { width:62px; }
-#panel td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
-@media(max-width:480px) {
-  #splash { padding:20px; gap:22px; } #streams { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-  #sall { grid-column:1 / -1; padding:16px 8px; } #sall .emoji { font-size:34px; }
-  .streamBtn { padding:28px 8px; border-radius:22px; font-size:23px; }
-  #controls { gap:10px; } #utilities { width:100%; justify-content:center; }
-  .utility { padding:10px; font-size:13px; } #transport { width:100%; margin:0; }
-  #back, #pause, #skip { flex:1; min-width:0; padding:16px 8px; font-size:18px; } #panel { padding:16px; }
-}
-@media(max-height:430px) { #splash { gap:12px; } .streamBtn { padding:14px; gap:4px; } .streamBtn .emoji { font-size:40px; } #splash p { display:none; } }
-/* Shared app styling; the channel picker is the home screen. */
-html, body { background:#17130f; }
-#splash { background:#17130f; gap:26px; padding:28px; }
-#splash h1 { font-size:14px; text-transform:uppercase; letter-spacing:2px; color:#bda788; font-weight:500; align-self:flex-start; width:min(100%,900px); margin:0 auto; text-align:left; }
-#streams { grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
-.streamBtn { border:1px solid #ffffff16; border-radius:18px; padding:28px 14px; font-size:24px; gap:15px; min-height:195px; box-shadow:inset 0 1px #ffffff12; }
-.streamBtn .emoji { font-size:54px; }
-.streamBtn small { font-size:13px; }
-#s2 { background:linear-gradient(145deg,#277a68,#16473d); }
-#s6 { background:linear-gradient(145deg,#9e4843,#592a31); }
-#sgrown { background:linear-gradient(145deg,#74586f,#423047); }
-#smusic { background:linear-gradient(145deg,#356d80,#213e52); }
-#sall { background:linear-gradient(145deg,#686051,#3a342c); }
-.streamBtn:hover { border-color:#f2ad43; transform:translateY(-2px); }
-#back,#pause,#skip { font-size:20px; padding:14px 22px; min-height:50px; }
-#skip { background:#b87928; } #panel { background:#221b14f7; }
-@media(max-width:620px) { #streams { grid-template-columns:repeat(2,minmax(0,1fr)); } .streamBtn { min-height:150px; padding:18px 10px; font-size:21px; } .streamBtn .emoji { font-size:40px; } #sall { grid-column:auto; padding:18px 10px; } #splash { justify-content:flex-start; } }
-#controls { transition:opacity .35s; }
+#splash { position:fixed; inset:0; z-index:30; overflow:auto; padding:34px clamp(24px,5vw,64px) 28px; background:radial-gradient(ellipse at 90% 0%,#25364455,transparent 65%),var(--base); }
+#splash h1 { max-width:1120px; margin:0 auto 26px; font-size:clamp(26px,4vw,42px); font-weight:500; letter-spacing:-1.5px; }
+#streams { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; max-width:1120px; margin:auto; }
+.streamBtn { --accent:#c8d9a4; position:relative; isolation:isolate; min-height:180px; overflow:hidden; text-align:left; padding:22px; border:1px solid #ffffff14; border-radius:16px; background:#1c2b35; transition:background .2s,transform .2s,border-color .2s; }
+.streamBtn::after { content:'↗'; position:absolute; right:20px; bottom:22px; color:var(--accent); font-size:21px; opacity:0; transform:translate(-5px,5px); transition:.2s; }
+.streamBtn:hover { background:#273a47; border-color:var(--accent); transform:translateY(-3px); }
+.streamBtn:hover::after,.streamBtn:focus-visible::after { opacity:1; transform:none; }
+.channel-art { height:92px; display:flex; align-items:center; color:var(--accent); }
+.channel-art svg { width:82px; height:82px; overflow:visible; }
+.channel-name { display:block; margin-top:16px; font-size:21px; font-weight:600; letter-spacing:-.5px; }
+.streamBtn small { position:absolute; right:20px; top:20px; font-size:10px; letter-spacing:1px; border:1px solid #ffffff28; padding:4px 6px; border-radius:5px; color:#bac6ce; }
+#s2 { --accent:#d6df98; order:1; } #s6 { --accent:#f2a578; order:2; } #smusic { --accent:#b8a6de; order:3; }
+#sgrown { --accent:#edc692; order:4; grid-column:span 2; }
+#smum { --accent:#e3a6aa; order:4; } #sdad { --accent:#9bc4dc; order:5; } #sboth { --accent:#edc692; order:6; }
+#sall { --accent:#96b5bc; order:7; }
+#splash:has(#sboth:not([hidden])) #sall { grid-column:1/-1; min-height:68px; display:flex; align-items:center; gap:18px; padding:12px 22px; background:transparent; }
+#splash:has(#sboth:not([hidden])) #sall .channel-art { height:36px; }
+#splash:has(#sboth:not([hidden])) #sall svg { width:30px; height:30px; }
+#splash:has(#sboth:not([hidden])) #sall .channel-name { margin:0; font-size:15px; }
+#controls { position:fixed; z-index:20; inset:auto 20px 20px; max-width:1040px; margin:auto; display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:16px; border:1px solid #ffffff1c; border-radius:18px; background:#101a22ed; backdrop-filter:blur(18px); box-shadow:0 8px 40px #0005; transition:opacity .35s; }
 #controls.dimmed:not(:has(:focus-visible)) { opacity:0; }
-#adultTimeline { display:flex; align-items:center; gap:12px; width:100%; font-size:12px; font-variant-numeric:tabular-nums; }
-#seek { flex:1; min-width:50px; accent-color:#d9a04a; cursor:pointer; }
-#adultTools { display:flex; gap:8px; }
-#savedPanel { position:fixed; inset:8vh max(16px,8vw); z-index:26; overflow:auto; padding:22px; background:#221b14fa; border-radius:20px; }
-#savedPanel h2 { font-size:20px; margin:0; }
-#savedRows { display:grid; gap:10px; margin-top:20px; }
-#savedRows button { text-align:left; padding:16px; border-radius:10px; background:#403426; }
-#smum,#sdad,#sboth { background:linear-gradient(145deg,#74586f,#423047); }
+#utilities,#adultTools,#transport { display:flex; gap:6px; align-items:center; }
+#utilities { margin-right:auto; }
+.utility { background:transparent; border-radius:9px; padding:10px 11px; min-height:42px; font-size:12px; color:#c0cbd2; }
+.utility:hover { background:#ffffff10; color:#fff; }
+#transport { margin-left:auto; }
+#back,#pause,#skip { border-radius:10px; font-weight:600; font-size:14px; padding:12px 17px; min-height:44px; background:#ffffff0c; }
+#skip { background:var(--amber); color:#172029; }
+#adultTimeline { display:flex; align-items:center; gap:12px; width:100%; font-size:11px; color:#b4c1ca; font-variant-numeric:tabular-nums; }
+#seek { flex:1; min-width:50px; height:4px; accent-color:var(--amber); cursor:pointer; }
+#adultTools { border-right:1px solid #ffffff18; padding-right:10px; }
+#later { color:var(--amber); }
+#toast { position:fixed; top:24px; left:50%; transform:translateX(-50%); z-index:15; padding:10px 16px; border:1px solid #ffffff15; border-radius:10px; background:#101a22e8; color:#e1e7e9; font-size:13px; opacity:0; transition:opacity .3s; pointer-events:none; width:max-content; max-width:calc(100% - 40px); text-align:center; overflow-wrap:anywhere; }
+#status { position:fixed; inset:25% 24px auto; z-index:21; max-width:480px; margin:auto; padding:24px; background:#1c2b35f5; border-radius:16px; text-align:center; }
+#status p { margin:0 0 16px; line-height:1.5; } #retry { padding:12px 20px; border-radius:8px; background:var(--amber); color:#101a22; }
+#panel,#savedPanel { position:fixed; inset:5vh max(20px,8vw); z-index:25; overflow:auto; padding:24px; background:#15232df7; backdrop-filter:blur(20px); border:1px solid #ffffff20; border-radius:18px; box-shadow:0 20px 80px #0008; }
+.panelActions { display:flex; align-items:center; gap:10px; justify-content:space-between; flex-wrap:wrap; }
+#panel h2,#savedPanel h2 { font-size:22px; font-weight:500; } #panel p,#savedEmpty { font-size:13px; color:var(--muted); line-height:1.5; }
+#shortRow { display:inline-flex; align-items:center; gap:8px; cursor:pointer; } #preferShort { accent-color:var(--amber); }
+#panel table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:13px; }
+#panel th,#panel td { text-align:left; border-bottom:1px solid #ffffff12; padding:12px 4px; overflow-wrap:anywhere; }
+#panel th:first-child { width:27%; } #panel th:last-child { width:62px; } #panel td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+#savedRows { display:grid; gap:10px; margin-top:20px; } #savedRows button { text-align:left; padding:16px; border-radius:10px; background:#243744; } #savedRows button:hover { background:#304a5c; }
+@media(max-width:680px) { #splash { padding:24px; } #streams { gap:10px; } .streamBtn { min-height:152px; padding:16px; } .channel-art { height:66px; } .channel-art svg { width:62px; height:62px; } .channel-name { font-size:17px; } .streamBtn small { top:12px; right:12px; } #controls { inset:auto 10px 10px; padding:12px; gap:6px; } #utilities { order:3; flex:1; justify-content:center; } #adultTools { border:0; padding:0; } #back,#pause,#skip { padding:10px 12px; } }
+@media(max-width:420px) { #streams { grid-template-columns:repeat(2,minmax(0,1fr)); } #sgrown { grid-column:auto; } #splash h1 { font-size:28px; } }
+@media(prefers-reduced-motion:reduce) { *,*::after { transition:none!important; } }
+#profiles { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; max-width:840px; margin:36px auto; }
+#profiles .streamBtn { min-height:210px; text-align:center; background:transparent; border-color:transparent; }
+#profiles .channel-art { width:112px; height:112px; margin:auto; justify-content:center; border-radius:50%; background:#1c2b35; }
+#profiles .channel-art svg { width:66px; height:66px; }
+#profiles .streamBtn:hover { border-color:#ffffff18; background:#ffffff04; }
+#profiles .streamBtn::after { display:none; }
+#profiles .streamBtn small { position:static; display:inline-block; margin-top:8px; border:0; padding:0; font-size:11px; color:#8e9ba5; }
+#pmum { --accent:#e3a6aa; } #pdad { --accent:#9bc4dc; } #pboth,#pgrown { --accent:#edc692; } #p2 { --accent:#d6df98; } #p6 { --accent:#f2a578; }
+.picker-heading { display:flex; justify-content:space-between; align-items:center; gap:16px; max-width:1120px; margin:0 auto 26px; }
+#splash .picker-heading h1 { margin:0; }
+.audience-switch { display:flex; align-items:center; gap:9px; padding:9px 14px; border:1px solid #ffffff24; border-radius:30px; background:transparent; color:#c7d2d8; font-size:13px; }
+.audience-switch::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--amber); }
+#streams #sgrown { grid-column:auto; order:1; }
+#streams #sall { grid-column:auto; order:3; }
+#streams #smusic { order:2; }
+@media(max-width:680px) { #profiles { gap:8px; margin:20px auto; } #profiles .streamBtn { padding:14px 8px; min-height:165px; } #profiles .channel-art { width:86px; height:86px; } }
+@media(max-width:420px) { #profiles { grid-template-columns:repeat(2,minmax(0,1fr)); } .picker-heading { align-items:flex-start; } }
 </style>
 </head>
 <body>
 <main id="splash">
-  <h1>Channels</h1>
-  <div id="streams">
-    <button class="streamBtn" id="s2"><span class="emoji" aria-hidden="true">🧸</span>Little Kids<small>2+</small></button>
-    <button class="streamBtn" id="s6"><span class="emoji" aria-hidden="true">🚀</span>Big Kids<small>6+</small></button>
-    <button class="streamBtn" id="sgrown"><span class="emoji" aria-hidden="true">🍿</span>Grown-ups</button>
-    <button class="streamBtn" id="smum" hidden><span class="emoji" aria-hidden="true">Ⅰ</span>Mum</button>
-    <button class="streamBtn" id="sdad" hidden><span class="emoji" aria-hidden="true">Ⅱ</span>Dad</button>
-    <button class="streamBtn" id="sboth" hidden><span class="emoji" aria-hidden="true">Ⅲ</span>Both</button>
-    <button class="streamBtn" id="smusic"><span class="emoji" aria-hidden="true">🎧</span>Music</button>
-    <button class="streamBtn" id="sall"><span class="emoji" aria-hidden="true">🗝️</span>Everything</button>
+  <div class="picker-heading"><h1 id="pickerTitle">Who’s watching?</h1><button id="audienceSwitch" class="audience-switch" hidden></button></div>
+  <div id="profiles"><button class="streamBtn" id="pmum" hidden><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><g fill="none" stroke="currentColor" stroke-width="8"><path d="M12 64V33a14 14 0 0 1 28 0v31M40 33a14 14 0 0 1 28 0v31"/></g></svg></span><span class="channel-name">Mum</span></button><button class="streamBtn" id="pdad" hidden><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><path d="M20 12h17a28 28 0 0 1 0 56H20z" fill="none" stroke="currentColor" stroke-width="9"/><path d="M20 40h36" stroke="currentColor" stroke-width="5"/></svg></span><span class="channel-name">Dad</span></button><button class="streamBtn" id="pboth" hidden><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><g fill="none" stroke="currentColor" stroke-width="7"><circle cx="28" cy="40" r="23"/><circle cx="52" cy="40" r="23"/></g></svg></span><span class="channel-name">Both</span></button><button class="streamBtn" id="pgrown"><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><rect x="7" y="17" width="66" height="48" rx="15" fill="none" stroke="currentColor" stroke-width="6"/><path d="m33 29 19 12-19 12z" fill="currentColor"/></svg></span><span class="channel-name">Grown-ups</span></button><button class="streamBtn" id="p2"><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><g fill="currentColor"><circle cx="40" cy="23" r="15"/><circle cx="57" cy="40" r="15"/><circle cx="40" cy="57" r="15"/><circle cx="23" cy="40" r="15"/></g><circle cx="40" cy="40" r="7" fill="#1c2b35"/></svg></span><span class="channel-name">Little Kids</span><small>2+</small></button><button class="streamBtn" id="p6"><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><path d="M46 6 14 45h23l-4 29 34-42H44z" fill="currentColor"/></svg></span><span class="channel-name">Big Kids</span><small>6+</small></button></div>
+  <div id="streams" hidden>
+    <button class="streamBtn" id="s2"><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><g fill="currentColor"><circle cx="40" cy="23" r="15"/><circle cx="57" cy="40" r="15"/><circle cx="40" cy="57" r="15"/><circle cx="23" cy="40" r="15"/></g><circle cx="40" cy="40" r="7" fill="#1c2b35"/></svg></span><span class="channel-name">Little Kids</span><small>2+</small></button>
+    <button class="streamBtn" id="s6"><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><path d="M46 6 14 45h23l-4 29 34-42H44z" fill="currentColor"/></svg></span><span class="channel-name">Big Kids</span><small>6+</small></button>
+    <button class="streamBtn" id="sgrown"><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><rect x="7" y="17" width="66" height="48" rx="15" fill="none" stroke="currentColor" stroke-width="6"/><path d="m33 29 19 12-19 12z" fill="currentColor"/></svg></span><span class="channel-name">Grown-ups</span></button>
+    <button class="streamBtn" id="smum" hidden><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><g fill="none" stroke="currentColor" stroke-width="8"><path d="M12 64V33a14 14 0 0 1 28 0v31M40 33a14 14 0 0 1 28 0v31"/></g></svg></span><span class="channel-name">Mum</span></button>
+    <button class="streamBtn" id="sdad" hidden><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><path d="M20 12h17a28 28 0 0 1 0 56H20z" fill="none" stroke="currentColor" stroke-width="9"/><path d="M20 40h36" stroke="currentColor" stroke-width="5"/></svg></span><span class="channel-name">Dad</span></button>
+    <button class="streamBtn" id="sboth" hidden><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><g fill="none" stroke="currentColor" stroke-width="7"><circle cx="28" cy="40" r="23"/><circle cx="52" cy="40" r="23"/></g></svg></span><span class="channel-name">Both</span></button>
+    <button class="streamBtn" id="smusic"><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><g stroke="currentColor" stroke-width="9" stroke-linecap="round"><path d="M12 34v12M26 20v40M40 10v60M54 25v30M68 34v12"/></g></svg></span><span class="channel-name">Music</span></button>
+    <button class="streamBtn" id="sall"><span class="channel-art" aria-hidden="true"><svg viewBox="0 0 80 80"><g fill="currentColor"><rect x="10" y="10" width="24" height="24" rx="6"/><rect x="46" y="10" width="24" height="24" rx="6"/><rect x="10" y="46" width="24" height="24" rx="6"/><rect x="46" y="46" width="24" height="24" rx="6"/></g></svg></span><span class="channel-name">Everything</span></button>
   </div>
 </main>
 <video id="vid" playsinline preload="metadata" aria-label="Current episode"></video>
@@ -98,10 +99,10 @@ html, body { background:#17130f; }
   <div id="adultTools" hidden><button class="utility" id="rewind" title="Back 10 seconds (Shift+←)">−10s</button><button class="utility" id="forward" title="Forward 10 seconds (Shift+→)">+10s</button><button class="utility" id="later" title="Save for later (L)">Later</button><button class="utility" id="saved">Saved</button></div>
   <div id="utilities">
     <button class="utility" id="switch">Channels</button>
-    <button class="utility" id="preferences">Preferences</button>
+    <button class="utility" id="preferences">Taste</button>
     <button class="utility" id="fullscreen">Full screen</button>
   </div>
-  <div id="transport"><button id="back" disabled title="Previous episode (←)" aria-keyshortcuts="ArrowLeft">⏮ Back</button><button id="pause" title="Pause or play (Space)" aria-keyshortcuts="Space">Pause</button><button id="skip" title="Forward or skip (→ or S)" aria-keyshortcuts="ArrowRight S">Skip ⏭</button></div>
+  <div id="transport"><button id="back" disabled title="Previous episode (←)" aria-keyshortcuts="ArrowLeft">Back</button><button id="pause" title="Pause or play (Space)" aria-keyshortcuts="Space">Pause</button><button id="skip" title="Forward or skip (→ or S)" aria-keyshortcuts="ArrowRight S">Next</button></div>
 </nav>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="status" role="status" hidden><p id="statusText"></p><button id="retry">Tap to play</button></div>

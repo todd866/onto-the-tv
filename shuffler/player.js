@@ -12,13 +12,14 @@
   const STREAMS = { 2:["preschool", "shared"], 6:["shared", "big"], grown:["grownup"], mum:["grownup"], dad:["grownup"], both:["grownup"], music:["music"],
     all:["preschool", "shared", "big", "older", "grownup", "music"] };
   const STREAM_LABELS = { 2:"Little Kids 2+", 6:"Big Kids 6+", grown:"Grown-ups", mum:"Mum", dad:"Dad", both:"Both", music:"Music", all:"Everything" };
-  const keyFor = age => "kidshuffle.weights.v2.s" + age;
+  const audienceFor = stream => String(stream).split(".")[0];
+  const keyFor = age => "kidshuffle.weights.v2.s" + audienceFor(age);
   const clamp = value => Math.max(FLOOR, Math.min(CAP, value));
   const weightFor = (weights, src) => typeof weights[src] === "number" && Number.isFinite(weights[src]) ? clamp(weights[src]) : 1;
   const togetherWeight = (mum, dad, both = 1) => clamp((2 * clamp(mum) * clamp(dad) / (clamp(mum) + clamp(dad))) * clamp(both));
-  const bookmarkKey = stream => ADULT_KEY + (stream === "grown" ? "" : "." + stream);
+  const bookmarkKey = stream => ADULT_KEY + (audienceFor(stream) === "grown" ? "" : "." + audienceFor(stream));
   const encodePath = path => path.split("/").map(encodeURIComponent).join("/");
-  const inStream = (video, age) => (STREAMS[age] || []).indexOf(video.tier) >= 0;
+  const inStream = (video, age) => (STREAMS[String(age).split(".")[1] || age] || []).indexOf(video.tier) >= 0;
   function durationWeight(video, preferShort) {
     if (preferShort === false) return 1;
     const duration = video && video.duration;
@@ -116,6 +117,8 @@
       navigation:[], navIndex:-1, direction:1, pendingSeek:null, feedback:new Map(), dirty:new Set(),
       preferShort:true, visitLogged:false, visitStart:0, deferred:new Set(), scrubbing:false };
     let toastTimer = null;
+    let audience = null;
+    const profileFlow = !!el("profiles");
     let controlsTimer = null, lastBookmarkSave = 0, resumeAfterSaved = false;
     let bookmarks = Object.create(null), exportEnabled = false;
     function loadBookmarks() {
@@ -124,7 +127,7 @@
         const raw = JSON.parse(storage.getItem(bookmarkKey(state.stream)));
         if (raw && typeof raw === 'object') for (const video of videos) {
           const value = raw[video.src];
-          if (video.tier === 'grownup' && value && Number.isFinite(value.time) && value.time >= 0) {
+          if (value && Number.isFinite(value.time) && value.time >= 0) {
             bookmarks[video.src] = {time:value.time, saved:!!value.saved, updated:Number(value.updated) || 0};
           }
         }
@@ -138,7 +141,6 @@
         try { places = JSON.parse(storage.getItem(bookmarkKey(id))) || {}; } catch (_) {}
         const weights = Object.create(null), clean = Object.create(null), raw = readStored(storage,id);
         for (const video of videos) {
-          if (video.tier !== 'grownup') continue;
           if (Number.isFinite(raw[video.src])) weights[video.src] = clamp(raw[video.src]);
           const value = places && places[video.src];
           if (value && Number.isFinite(value.time) && value.time >= 0) clean[video.src] = {
@@ -150,14 +152,14 @@
       environment.parent.postMessage({type:'onto:taste', profiles}, '*');
     }
     function selectionWeights() {
-      if (state.stream !== 'both') return state.weights;
+      if (audienceFor(state.stream) !== 'both') return state.weights;
       const mum = readStored(storage,'mum'), dad = readStored(storage,'dad'), weights = Object.create(null);
       for (const video of videos) weights[video.src] = togetherWeight(weightFor(mum,video.src),weightFor(dad,video.src),weightFor(state.weights,video.src));
       return weights;
     }
     const random = environment.random || Math.random;
     const now = environment.now || (() => Date.now());
-    const adult = () => ['grown','mum','dad','both'].includes(state.stream);
+    const adult = () => ['grown','mum','dad','both'].includes(audienceFor(state.stream));
     const clock = time => {
       const seconds = Math.max(0, Math.floor(Number(time) || 0));
       const hours = Math.floor(seconds / 3600);
@@ -289,7 +291,7 @@
         d: Math.round(Number.isFinite(duration) && duration > 0 ? duration : fallback),
       });
     }
-    function updatePause() { el("pause").textContent = vid.paused ? "Play ▶" : "Pause ⏸"; }
+    function updatePause() { el("pause").textContent = vid.paused ? "Play" : "Pause"; }
     function stopVideo() {
       state.scrubbing = false;
       state.cur = -1;
@@ -547,7 +549,7 @@
     function showWeights() {
       if (state.stream === null) return;
       if (!panel.hidden) { panel.hidden = true; return; }
-      el("panelTitle").textContent = "Preferences — " + (STREAM_LABELS[state.stream] || "Stream " + state.stream);
+      el("panelTitle").textContent = "Preferences — " + (STREAM_LABELS[audienceFor(state.stream)] || "Channel");
       const box = el("preferShort");
       if (box) box.checked = state.preferShort;
       const rows = el("weightRows");
@@ -596,14 +598,50 @@
       el('saved').addEventListener('click', showSaved);
       el('closeSaved').addEventListener('click', closeSaved);
     }
+    function chooseAudience(id) {
+      if (!Object.prototype.hasOwnProperty.call(STREAMS,id) || ['music','all'].includes(id)) return;
+      audience = String(id);
+      try { storage.setItem('onto.audience.v1',audience); } catch (_) {}
+      el('profiles').hidden = true; el('streams').hidden = false;
+      el('pickerTitle').textContent = 'What’s on?';
+      el('audienceSwitch').textContent = STREAM_LABELS[id].replace(/ [26]\+$/, '');
+      el('audienceSwitch').hidden = false;
+      for (const age of Object.keys(STREAMS)) {
+        const button = el('s' + age); if (!button) continue;
+        const allowed = ['2','6'].includes(audience) ? age === audience || age === 'music' : ['grown','music','all'].includes(age);
+        button.hidden = !allowed || !videos.some(video => inStream(video,age));
+      }
+      const label = el('sgrown').querySelector?.('.channel-name');
+      if (label) label.textContent = 'For you';
+    }
+    function chooseChannel(age) {
+      if (!profileFlow || !audience) return startStream(age);
+      const allowed = ['2','6'].includes(audience) ? age === audience || age === 'music' : ['grown','music','all'].includes(age);
+      if (!allowed) return;
+      startStream(age === 'grown' || age === audience ? audience : audience + '.' + age);
+    }
     for (const age of Object.keys(STREAMS)) {
       const button = el("s" + age);
       if (!button) continue;
-      // A stream with nothing in it is not offered, so no button is ever a dead end.
       const enabled = environment.ONTO_AUDIENCES === true;
       const stocked = (age === "grown" ? !enabled : ["mum","dad","both"].includes(age) ? enabled : true) && videos.some(video => inStream(video, age));
-      button.hidden = !stocked;
-      if (stocked) button.addEventListener("click", () => startStream(age));
+      button.hidden = profileFlow || !stocked;
+      if (profileFlow || stocked) button.addEventListener("click", () => chooseChannel(age));
+      const profile = el('p' + age);
+      if (profile) {
+        profile.hidden = !stocked;
+        if (stocked) profile.addEventListener('click', () => chooseAudience(age));
+      }
+    }
+    if (profileFlow) {
+      el('audienceSwitch').addEventListener('click', () => {
+        el('profiles').hidden = false; el('streams').hidden = true;
+        el('pickerTitle').textContent = 'Who’s watching?'; el('audienceSwitch').hidden = true;
+      });
+      try {
+        const previous = storage.getItem('onto.audience.v1');
+        if (previous && el('p'+previous) && !el('p'+previous).hidden) chooseAudience(previous);
+      } catch (_) {}
     }
     el("skip").addEventListener("click", () => next("skip"));
     el("back").addEventListener("click", back);
@@ -654,7 +692,7 @@
     });
     updateNavigation();
     publishTaste();
-    return { state, next, back, startStream, switchStream, showWeights, togglePause, setPreferShort, seekTo, later, showSaved, resumeSaved };
+    return { state, next, back, startStream, switchStream, showWeights, togglePause, setPreferShort, seekTo, later, showSaved, resumeSaved, chooseAudience, chooseChannel };
   }
   const api = { togetherWeight, bookmarkKey, keyFor, weightFor, encodePath, durationWeight, inStream, STREAMS, STREAM_LABELS,
     readWeights, readStored, saveWeights, appendLog, learnedWeight, pickVideo, createPlayer };

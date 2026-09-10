@@ -134,7 +134,7 @@ its owner; this is an independent project.
 
 ### Personal audiences and local taste data
 
-Put `{"enabled":true}` in `audiences.json` in the app's user-data directory to replace Grown-ups with **Mum**, **Dad** and **Both**. Existing Grown-ups preferences are retained separately; they are not assigned to either person. On macOS the directory is `~/Library/Application Support/Onto the TV`.
+Put `{"enabled":true}` in `audiences.json` in the app's user-data directory to use **Mum**, **Dad** and **Both** as adult audiences. Existing Grown-ups preferences are retained separately; they are not assigned to either person. On macOS the directory is `~/Library/Application Support/Onto the TV`.
 
 Adult channels offer a timeline, ±10 seconds, and **Later** with saved positions. Left/right moves between episodes; Shift+left/right seeks; L saves for later. Controls fade during playback. Later is neutral. A visit with manual seeking does not teach a preference, since playback position would otherwise mistake seeking for watching. Back still undoes an early skip.
 
@@ -143,3 +143,6 @@ Mum and Dad have independent episode weights and bookmarks. Both uses the harmon
 The embedded app writes private `taste.json` snapshots and a `library.json` catalogue alongside its settings. Agents can join `profiles.<id>.weights` and `bookmarks` to the catalogue's `src` IDs, titles and show names. Bookmark times are seconds, and `updated` is Unix milliseconds. Weights are per episode; an agent can aggregate by show, but should distinguish actual observations from neutral defaults. The original browser viewing log remains local and is not exported as measured watch time.
 
 These files can inform a later request for viewing suggestions or acquisition from sources you authorize. OtTV does not dispatch agents or download shows automatically. The files and personal audience settings are git-ignored; do not include them in public issues or commits.
+
+
+The home screen now separates **Who’s watching?** from **What’s on?**. It remembers the last audience without starting playback. Adults can choose For you, Music or Everything; children get their age group and Music when available. The audience switcher returns to profile selection. All channel choices retain the selected audience's preferences; changing channels does not attribute feedback to a different viewer.

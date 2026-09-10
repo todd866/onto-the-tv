@@ -18,6 +18,7 @@ class Element {
 function fixture(options={}) {
   const elements={};
   for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','closePanel','fullscreen','reset']) elements[id]=new Element();
+  if (options.profileFlow) for (const id of ['profiles','streams','pickerTitle','audienceSwitch','pmum','pdad','pboth','pgrown','p2','p6']) elements[id]=new Element();
   elements.panel.hidden=true; elements.savedPanel.hidden=true;
   const vid=elements.vid;
   Object.assign(vid,{paused:true,currentTime:0,duration:120,muted:false,playCount:0,readyState:0});
@@ -670,4 +671,35 @@ test('Taste export requires the app capability and filters damaged saved data', 
   assert.equal(sent[0].profiles.mum.bookmarks[adultVideos[0].src].updated,0);
   assert.equal(sent[0].profiles.dad.weights[adultVideos[0].src],4);
   assert.equal(sent[0].profiles.dad.weights.unknown,undefined);
+});
+
+test('Audience selection opens channels without playing and scopes subsequent choices', () => {
+  const f=fixture({videos:[...adultVideos,{src:'Music/a.mp4',title:'Music',tier:'music'}],profileFlow:true,audiences:true});
+  f.player.chooseAudience('dad');
+  assert.equal(f.vid.playCount,0);
+  assert.equal(f.elements.profiles.hidden,true);
+  assert.equal(f.elements.streams.hidden,false);
+  assert.equal(f.elements.sgrown.hidden,false);
+  f.player.chooseChannel('music');
+  assert.equal(f.player.state.stream,'dad.music');
+  assert.equal(f.player.state.pool.length,1);
+  f.player.next('skip');
+  assert.ok(f.entries[keyFor('dad')]);
+  assert.equal(f.entries[keyFor('mum')],undefined);
+  f.player.switchStream();
+  f.player.chooseChannel('grown');
+  assert.equal(f.player.state.stream,'dad');
+  const reopened=fixture({videos:adultVideos,profileFlow:true,audiences:true,storage:f.environment.localStorage});
+  assert.equal(reopened.elements.profiles.hidden,true);
+  assert.equal(reopened.vid.playCount,0);
+});
+test('Kids get their age group and music, without the adult or Everything channels', () => {
+  const f=fixture({profileFlow:true,audiences:true});
+  f.player.chooseAudience('2');
+  assert.equal(f.elements.s2.hidden,false);
+  assert.equal(f.elements.s6.hidden,true);
+  assert.equal(f.elements.sgrown.hidden,true);
+  assert.equal(f.elements.sall.hidden,true);
+  assert.equal(f.elements.smum.hidden,true);
+  f.player.chooseChannel("all"); assert.equal(f.vid.playCount,0);
 });

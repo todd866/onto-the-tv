@@ -1,6 +1,6 @@
 {
   "name": "onto-the-tv",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Offline family shuffle and local-network Samsung TV playback, together on your Mac.",
   "license": "MIT",
   "private": true,

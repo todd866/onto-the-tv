@@ -49,3 +49,21 @@ form .primary { margin-top:16px; font-size:12px; }
 .status:empty { display:none; }
 .status.is-fault { color:#ffac99; }
 @media(max-width:620px) { .toolbar { padding-right:14px; gap:12px; } .brand img { display:none; } h1 { font-size:16px; } .modes button { padding:8px 10px; } }
+
+/* Broadcast identity */
+:root { --bg:#101a22; --panel:#1c2b35; --text:#f3efdf; --muted:#8e9ba5; --gold:#f2b45d; --line:#ffffff16; }
+.toolbar { min-height:70px; background:#101a22; border-bottom:1px solid #ffffff0d; }
+.brand { gap:11px; } .brand img { width:34px; height:34px; object-fit:contain; }
+h1 { font:750 26px -apple-system,BlinkMacSystemFont,system-ui,sans-serif; letter-spacing:-1.5px; }
+h1 span { display:inline-block; margin-left:5px; font-size:10px; font-weight:600; letter-spacing:1px; vertical-align:top; padding-top:5px; color:var(--gold); }
+.modes { background:#080f15; border:1px solid #ffffff0b; border-radius:9px; }
+.modes button.selected { background:#2b3b46; color:var(--text); }
+#library-toggle { color:#a1b0ba; }
+.library-drawer { background:#15232d; border-color:#ffffff24; }
+summary { color:#b8c6cf; }
+input { background:#0c151c; border-color:#354955; }
+.status { background:#15232df5; }
+.gate { border-color:#49616e; background:radial-gradient(ellipse at center,#253b48,var(--panel)); }
+.gate.over,.gate:hover { background:#2b414e; }
+.invite { font:500 30px -apple-system,BlinkMacSystemFont,system-ui,sans-serif; letter-spacing:-1px; }
+@media(max-width:620px) { h1 { font-size:24px; } .brand img { display:block; width:28px; height:28px; } .toolbar { padding-left:78px; gap:10px; } }
