@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Onto the TV</title>
+  <link rel="icon" href="../brand/onto-the-tv-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="chrome" aria-hidden="true"></div>
+  <main>
+    <header class="brand">
+      <img src="../brand/onto-the-tv-icon.png" width="64" height="64" alt="">
+      <div><h1>Onto the TV</h1><p>Your videos. A good place to watch.</p></div>
+    </header>
+    <nav class="modes" aria-label="Where to watch">
+      <button id="mode-local" class="selected" aria-pressed="true">On this Mac</button>
+      <button id="mode-tv" aria-pressed="false">On the TV</button>
+    </nav>
+    <section id="local-view" aria-label="Kids Shuffler">
+      <div class="shuffle-card">
+        <div class="eyebrow">KIDS SHUFFLER</div>
+        <h2>Less choosing.<br>More watching.</h2>
+        <p>Pick a stream. We'll mix up the shows,<br class="wide"> and learn what gets watched.</p>
+        <div class="stream-tags" aria-label="Available stream types"><span>Little Kids</span><span>Big Kids</span><span>Grown-ups</span><span>Music</span></div>
+        <button class="primary" id="open-shuffler">Open Kids Shuffler <span aria-hidden="true">↗</span></button>
+        <p class="quiet small">Plays offline in your usual browser.</p>
+      </div>
+      <p class="shortcut"><kbd>←</kbd> Previous show <span>·</span> <kbd>→</kbd> Next show <span>·</span> <kbd>Space</kbd> Pause</p>
+      <details class="settings" id="library-settings">
+        <summary>Your video library</summary>
+        <p class="path" id="library-path"></p>
+        <div class="actions"><button id="choose-library">Choose folder…</button><button id="build-shuffler">Build / refresh player</button></div>
+        <p class="small quiet">New shows appear in Everything until you assign them to a kids group. Group labels are your choices, not age ratings.</p>
+        <div class="actions subtle"><button id="choose-player">Use existing player…</button><button id="choose-tiers">Choose show groups…</button><button id="choose-sources">Extra sources…</button></div>
+        <p class="small quiet" id="config-summary"></p>
+      </details>
+    </section>
+    <section id="tv-view" hidden aria-label="Samsung TV playback">
+      <button class="gate" id="gate">
+        <span class="drop-symbol" aria-hidden="true">↗</span>
+        <span class="invite">Drop a video here</span>
+        <span class="hint">It starts on your Samsung.<br>More files line up after it.</span>
+        <span class="browse">or choose a video</span>
+      </button>
+      <p class="quiet small" id="room">Add your TV below to get started.</p>
+      <section class="deck" id="deck" hidden aria-label="TV queue">
+        <div class="now"><p id="now-title"></p><p id="now-time"></p></div>
+        <progress id="progress" max="100" value="0" aria-label="TV playback progress"></progress>
+        <div class="actions"><button id="pause">Pause</button><button id="resume">Resume</button><button id="stop">Stop &amp; clear</button></div>
+        <ol id="queue"></ol>
+      </section>
+      <details class="settings" id="tv-settings">
+        <summary>TV settings</summary>
+        <form id="tv-form">
+          <label>TV address<input id="tv-host" placeholder="192.168.1.50" autocomplete="off" spellcheck="false"></label>
+          <p class="small quiet">Find it in your TV's network settings. Keep both devices on the same Wi-Fi.</p>
+          <details><summary class="small">Advanced connection settings</summary>
+            <label>TV control address<input id="av-transport" type="url" placeholder="Leave blank for the Samsung default" spellcheck="false"></label>
+            <label>Mac Wi-Fi address<input id="bind-host" placeholder="Automatic" spellcheck="false"></label>
+          </details>
+          <button class="primary" type="submit">Save TV</button>
+        </form>
+      </details>
+    </section>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+    <footer>Made for the videos you already have.</footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

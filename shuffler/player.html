@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kids Shuffler</title>
+<style>
+* { box-sizing:border-box; }
+html, body { margin:0; width:100%; height:100%; background:#05080f; color:#fff; overflow:hidden; font-family:-apple-system,system-ui,sans-serif; }
+button { font:inherit; color:inherit; cursor:pointer; touch-action:manipulation; border:0; }
+button:focus-visible { outline:3px solid #ffdd73; outline-offset:4px; }
+button:disabled { opacity:.45; cursor:default; }
+[hidden] { display:none !important; }
+#vid { width:100%; height:100%; object-fit:contain; background:#000; }
+#splash { position:fixed; inset:0; z-index:30; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px; padding:24px; overflow:auto; background:radial-gradient(circle at 50% 25%,#1c2c53,#05080f 75%); }
+#splash h1 { margin:0; font-size:clamp(28px,5vw,52px); text-align:center; }
+#splash p { margin:0; color:#c4cede; text-align:center; }
+#streams { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; width:min(100%,900px); }
+.streamBtn { display:flex; flex-direction:column; align-items:center; gap:12px; padding:36px 14px; border-radius:28px; font-size:clamp(23px,4vw,36px); font-weight:800; min-width:0; }
+.streamBtn .emoji { font-size:clamp(54px,9vw,80px); }
+.streamBtn small { font-size:19px; font-weight:500; }
+#s2 { background:#198a7d; } #s6 { background:#cf3544; } #sgrown { background:#6b3f7a; } #smusic { background:#1d6a8c; } #sall { background:#3f4a66; }
+.streamBtn small { opacity:.85; }
+#controls { position:fixed; z-index:20; inset:auto 0 0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:28px max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left)); background:linear-gradient(transparent,#000c); }
+#utilities { display:flex; gap:8px; flex-wrap:wrap; }
+.utility { background:#263244e8; border-radius:12px; padding:12px; min-height:44px; font-size:14px; }
+#transport { display:flex; gap:10px; margin-left:auto; }
+#back, #pause, #skip { border-radius:18px; font-weight:800; font-size:clamp(18px,3vw,30px); padding:18px 24px; min-height:58px; }
+#back, #pause { background:#233751ee; } #skip { background:#d93446; }
+#toast { position:fixed; top:max(18px,env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:15; padding:12px 18px; border-radius:14px; background:#07111ce6; font-size:17px; opacity:0; transition:opacity .3s; pointer-events:none; width:max-content; max-width:calc(100% - 32px); text-align:center; overflow-wrap:anywhere; }
+#status { position:fixed; inset:25% 16px auto; z-index:21; max-width:540px; margin:0 auto; padding:24px; background:#17243bf5; border-radius:20px; text-align:center; }
+#status p { margin:0 0 16px; line-height:1.5; }
+#retry { padding:14px 24px; border-radius:12px; background:#238f80; font-weight:700; }
+#panel { position:fixed; inset:5vh max(16px,5vw); z-index:25; overflow:auto; padding:22px; background:#111b2bf7; border-radius:20px; }
+.panelActions { display:flex; gap:10px; justify-content:space-between; flex-wrap:wrap; }
+#panel h2 { margin:20px 0 8px; } #panel p { line-height:1.5; color:#bdc9d9; }
+#shortRow { display:inline-flex; align-items:center; gap:8px; color:#fff; font-weight:600; cursor:pointer; }
+#preferShort { width:20px; height:20px; accent-color:#238f80; }
+#panel table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:14px; }
+#panel th, #panel td { text-align:left; border-bottom:1px solid #354052; padding:10px 4px; overflow-wrap:anywhere; }
+#panel th:first-child { width:27%; } #panel th:last-child { width:62px; }
+#panel td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+@media(max-width:480px) {
+  #splash { padding:20px; gap:22px; } #streams { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  #sall { grid-column:1 / -1; padding:16px 8px; } #sall .emoji { font-size:34px; }
+  .streamBtn { padding:28px 8px; border-radius:22px; font-size:23px; }
+  #controls { gap:10px; } #utilities { width:100%; justify-content:center; }
+  .utility { padding:10px; font-size:13px; } #transport { width:100%; margin:0; }
+  #back, #pause, #skip { flex:1; min-width:0; padding:16px 8px; font-size:18px; } #panel { padding:16px; }
+}
+@media(max-height:430px) { #splash { gap:12px; } .streamBtn { padding:14px; gap:4px; } .streamBtn .emoji { font-size:40px; } #splash p { display:none; } }
+</style>
+</head>
+<body>
+<main id="splash">
+  <h1>Who's watching?</h1>
+  <p>Pick a playlist. We'll mix up the shows.</p>
+  <div id="streams">
+    <button class="streamBtn" id="s2"><span class="emoji" aria-hidden="true">🧸</span>Little Kids<small>2+</small></button>
+    <button class="streamBtn" id="s6"><span class="emoji" aria-hidden="true">🚀</span>Big Kids<small>6+</small></button>
+    <button class="streamBtn" id="sgrown"><span class="emoji" aria-hidden="true">🍿</span>Grown-ups<small>films &amp; TV</small></button>
+    <button class="streamBtn" id="smusic"><span class="emoji" aria-hidden="true">🎧</span>Music<small>music videos</small></button>
+    <button class="streamBtn" id="sall"><span class="emoji" aria-hidden="true">🗝️</span>Everything<small>the whole library</small></button>
+  </div>
+</main>
+<video id="vid" playsinline preload="metadata" aria-label="Current episode"></video>
+<nav id="controls" hidden aria-label="Player controls">
+  <div id="utilities">
+    <button class="utility" id="switch">Switch</button>
+    <button class="utility" id="preferences">Preferences</button>
+    <button class="utility" id="fullscreen">Full screen</button>
+  </div>
+  <div id="transport"><button id="back" disabled title="Previous episode (←)" aria-keyshortcuts="ArrowLeft">⏮ Back</button><button id="pause" title="Pause or play (Space)" aria-keyshortcuts="Space">Pause</button><button id="skip" title="Forward or skip (→ or S)" aria-keyshortcuts="ArrowRight S">Skip ⏭</button></div>
+</nav>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="status" role="status" hidden><p id="statusText"></p><button id="retry">Tap to play</button></div>
+<section id="panel" hidden aria-label="Learned preferences">
+  <div class="panelActions"><button class="utility" id="closePanel">Close</button><button class="utility" id="reset">Reset preferences</button></div>
+  <h2 id="panelTitle"></h2>
+  <p><label id="shortRow"><input type="checkbox" id="preferShort" checked> Prefer short episodes</label> — on, a four-hour compilation is far less likely than a seven-minute episode. Turn it off for a long drive.</p>
+  <p>Skipping early gently lowers a video's chance. Watching most of it raises it. Each new session gives old favourites another chance. Back (←) returns to the previous episode and cancels an early-skip penalty. Forward (→ or S) follows your recent episodes before picking a new one. Episode visits and playback positions are saved in this browser. Nothing is sent online.</p>
+  <table><thead><tr><th>Show</th><th>Video</th><th>Weight</th></tr></thead><tbody id="weightRows"></tbody></table>
+</section>
+<script>const VIDEOS = __VIDEOS__;</script>
+<script>__PLAYER_JS__</script>
+</body>
+</html>
