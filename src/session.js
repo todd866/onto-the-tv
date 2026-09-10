@@ -29,10 +29,10 @@ export function createSession({ config, prepareMedia, createServer, createRender
     const current = started ? items[currentIndex] : null;
     return {
       status, error, tvHost: config?.tvHost ?? '', transportState,
-      current: current ? { title: current.title, url: current.url,
+      current: current ? { title: current.title, url: current.url, path: current.sourcePath || '',
         positionSeconds: position.positionSeconds || 0,
         durationSeconds: current.durationSeconds || position.durationSeconds || 0 } : null,
-      upcoming: items.slice(current ? currentIndex + 1 : 0).map(({ title }) => ({ title })),
+      upcoming: items.slice(current ? currentIndex + 1 : 0).map(({ title, sourcePath }) => ({ title, path: sourcePath || '' })),
       count: items.length,
     };
   }
@@ -62,6 +62,12 @@ export function createSession({ config, prepareMedia, createServer, createRender
   }
   async function playAt(index) {
     await renderer.play(items[index]);
+    // A handed-over episode carries on where the laptop had reached. Renderers
+    // that refuse to seek keep playing from the start rather than failing.
+    const start = items[index].startSeconds;
+    if (Number.isFinite(start) && start > 5 && renderer.seek) {
+      try { await renderer.seek(start); } catch {}
+    }
     currentIndex = index;
     started = true;
     armedIndex = -1;
@@ -86,11 +92,14 @@ export function createSession({ config, prepareMedia, createServer, createRender
       status = 'preparing';
       emit();
       try {
-        const files = fs ? await expandPaths(paths, fs) : paths.filter(Boolean);
+        // A drop is a list of paths; a channel hands over {path, startSeconds}.
+        const requested = paths.map((entry) => (entry && typeof entry === 'object' ? entry : { path: entry }));
+        const starts = new Map(requested.map(({ path, startSeconds }) => [path, startSeconds]));
+        const files = fs ? await expandPaths(requested.map(({ path }) => path), fs) : requested.map(({ path }) => path).filter(Boolean);
         if (!files.length) throw new Error('No video files in that drop.');
         await ensure();
         for (const path of files) {
-          prepared.push(await prepareMedia(path, config, { log: () => {} }));
+          prepared.push({ ...await prepareMedia(path, config, { log: () => {} }), sourcePath: path, startSeconds: starts.get(path) });
           if (requestedGeneration !== generation || closed) {
             await dispose(prepared);
             return getState();
@@ -138,7 +147,7 @@ export function createSession({ config, prepareMedia, createServer, createRender
             status = 'playing';
           } else {
             await clearQueue();
-            status = 'idle';
+            status = 'finished';
           }
         } else if (reportedIndex < 0 && pos.uri) {
           // Another controller has taken over. Relinquish our queued files.
@@ -153,6 +162,31 @@ export function createSession({ config, prepareMedia, createServer, createRender
       emit();
       return getState();
     });
+  }
+  function playNext() {
+    // The remote asked for the next episode before this one finished.
+    return serialize(async () => {
+      if (!renderer || !started || closed) return getState();
+      const following = currentIndex + 1;
+      if (following >= items.length) return getState();
+      await playAt(following);
+      await armNext();
+      status = 'playing';
+      error = null;
+      emit();
+      return getState();
+    });
+  }
+  function playOnly(paths) {
+    // A channel changed episode: this file replaces whatever the TV was given.
+    generation += 1;
+    return serialize(async () => {
+      if (renderer && started) { try { await renderer.stop(); } catch {} }
+      await clearQueue();
+      transportState = 'STOPPED';
+      status = 'idle';
+      error = null;
+    }).then(() => addFiles(paths));
   }
   function pause() {
     return serialize(async () => {
@@ -200,5 +234,5 @@ export function createSession({ config, prepareMedia, createServer, createRender
       listeners.clear();
     });
   }
-  return { addFiles, tick, pause, resume, stop, getState, onChange, close };
+  return { addFiles, playNext, playOnly, tick, pause, resume, stop, getState, onChange, close };
 }

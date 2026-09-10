@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readdir, rm, stat, writeFile, readFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaults, validateTvSettings, readSettings, writeSettings } from './settings.js';
-import { buildPlayer, generatorArgs, readCatalogue, prepareChannels } from './shuffler.js';
+import { buildPlayer, generatorArgs, readCatalogue, prepareChannels, castTarget } from './shuffler.js';
 import { fileURLToPath } from 'node:url';
 
 test('TV settings reject credentials and mismatched endpoints', () => {
@@ -86,5 +86,22 @@ test('preference import seeds audience keys but not the retired Music and Everyt
     assert.ok(content.includes('kidshuffle.weights.v2.s2'));
     assert.ok(!content.includes('kidshuffle.weights.v2.smusic'));
     assert.ok(!content.includes('kidshuffle.weights.v2.sall'));
+  } finally { await rm(dir, { recursive:true, force:true }); }
+});
+
+test('only catalogue entries can be sent to the TV', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-cast-'));
+  try {
+    const original = join(dir, 'old.html');
+    const videos = [{ src: 'Family/one.mp4', path: 'shows/one.mp4', title: 'One', channel: 'Family', tier: 'shared', duration: 5 }];
+    await writeFile(original, `<script>const VIDEOS = ${JSON.stringify(videos)};</script>`);
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const result = await prepareChannels(root, { playerPath: original }, join(dir, 'private'));
+    assert.equal(castTarget(result.catalogue, 'Family/one.mp4'), join(dir, 'shows/one.mp4'));
+    for (const bad of ['Family/two.mp4', '', null, '../escape.mp4', '/etc/passwd']) {
+      assert.throws(() => castTarget(result.catalogue, bad), /not in this library/i);
+    }
+    const content = await readFile(fileURLToPath(result.url), 'utf8');
+    assert.ok(!content.includes(dir), 'absolute library paths must stay out of the player');
   } finally { await rm(dir, { recursive:true, force:true }); }
 });

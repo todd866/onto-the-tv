@@ -12,8 +12,10 @@ contextBridge.exposeInMainWorld('tv', {
   openShuffler: () => ipcRenderer.invoke('shuffler:open'),
   chooseShuffler: kind => ipcRenderer.invoke('shuffler:choose', kind),
   buildShuffler: () => ipcRenderer.invoke('shuffler:build'),
+  castPlay: (src, seconds) => ipcRenderer.invoke('channel:play', src, seconds),
   pathFor(file) { try { return webUtils.getPathForFile(file); } catch { return ''; } },
   onState: listener => ipcRenderer.on('drop:state', (_event, state) => listener(state)),
+  onCast: listener => ipcRenderer.on('channel:notice', (_event, notice) => listener(notice)),
   onMode: listener => ipcRenderer.on('app:mode', (_event, mode) => listener(mode)),
   onError: listener => ipcRenderer.on('app:error', (_event, message) => listener(message)),
 });

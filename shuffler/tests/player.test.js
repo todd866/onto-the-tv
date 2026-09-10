@@ -17,7 +17,7 @@ class Element {
 }
 function fixture(options={}) {
   const elements={};
-  for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','closePanel','fullscreen','reset']) elements[id]=new Element();
+  for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','music','cast','fullscreen','closePanel','reset']) elements[id]=new Element();
   if (options.profileFlow) for (const id of ['profiles','streams','pickerTitle','audienceSwitch','pmum','pdad','pboth','pgrown','p2','p6']) {
     elements[id]=new Element();
     if (id.startsWith('p') && id.length<=6) { const name=new Element('SPAN'); name.className='channel-name'; elements[id].appendChild(name); elements[id].querySelector=selector=>selector==='.channel-name'?name:null; }
@@ -692,19 +692,22 @@ test('Audience selection opens channels without playing and scopes subsequent ch
   f.player.switchStream();
   f.player.chooseChannel('grown');
   assert.equal(f.player.state.stream,'dad');
+  // An adult library alone still opens on its own channel rather than waiting.
   const reopened=fixture({videos:adultVideos,profileFlow:true,audiences:true,storage:f.environment.localStorage});
   assert.equal(reopened.elements.profiles.hidden,true);
-  assert.equal(reopened.vid.playCount,0);
 });
 test('Kids get their age group and music, without the adult or Everything channels', () => {
   const f=fixture({profileFlow:true,audiences:true});
+  f.player.switchStream();
   f.player.chooseAudience('2');
+  f.player.switchStream();
   assert.equal(f.elements.s2.hidden,false);
   assert.equal(f.elements.s6.hidden,true);
   assert.equal(f.elements.sgrown.hidden,true);
   assert.equal(f.elements.sall.hidden,true);
   assert.equal(f.elements.smum.hidden,true);
-  f.player.chooseChannel("all"); assert.equal(f.vid.playCount,0);
+  const before=f.vid.playCount;
+  f.player.chooseChannel("all"); assert.equal(f.vid.playCount,before);
 });
 
 test('A music-only library still offers an audience and a playable channel', () => {
@@ -807,7 +810,8 @@ test('a media error while stepping back un-defers the item it lands on', () => {
   assert.equal(f.player.state.deferred.has(first),false);
 });
 test('channels cannot start before an audience is chosen in profile flow', () => {
-  const f=fixture({videos:filmVideos,profileFlow:true,audiences:true});
+  const f=fixture({videos:[],profileFlow:true,audiences:true});
+  assert.equal(f.player.state.stream,null);
   f.player.chooseChannel('grown');
   assert.equal(f.vid.playCount,0);
   assert.equal(f.player.state.stream,null);
@@ -837,4 +841,157 @@ test('audience names come from the household configuration, defaulting to Mum an
   assert.equal(plain.elements.pmum.children[0].textContent,'');
   plain.player.chooseAudience('dad');
   assert.equal(plain.elements.audienceSwitch.textContent,'Dad');
+});
+const kidLibrary = [
+  {src:'Preschool/a.mp4',channel:'Preschool',title:'A',tier:'preschool',duration:400},
+  {src:'Family/b.mp4',channel:'Family',title:'B',tier:'shared',duration:400},
+  {src:'Big/c.mp4',channel:'Big',title:'C',tier:'big',duration:400},
+  {src:'Music/d.mp4',channel:'Music',title:'D',tier:'music',duration:200},
+  ...filmVideos,
+];
+test('opening the app starts the family channel without anyone choosing anything', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  assert.equal(String(f.player.state.stream),'2');
+  assert.equal(f.vid.playCount,1);
+  assert.equal(f.elements.splash.hidden,true);
+  assert.deepEqual(f.player.state.pool,[0,1]);
+});
+test('the family channel is the default even after a grown-up watched last', () => {
+  const entries={'onto.audience.v1':'dad'};
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true,
+    storage:{getItem:k=>(k in entries?entries[k]:null),setItem:(k,v)=>{entries[k]=v;}}});
+  assert.equal(String(f.player.state.stream),'2');
+});
+test('a child taps one face and their channel starts, with no channel screen', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  f.elements.audienceSwitch.dispatch('click');
+  assert.equal(f.elements.profiles.hidden,false);
+  const before=f.vid.playCount;
+  f.player.chooseAudience('6');
+  assert.equal(String(f.player.state.stream),'6');
+  assert.equal(f.vid.playCount,before+1);
+  assert.equal(f.elements.splash.hidden,true);
+});
+test('a grown-up still chooses a channel after choosing a face', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  f.elements.audienceSwitch.dispatch('click');
+  const before=f.vid.playCount;
+  f.player.chooseAudience('dad');
+  assert.equal(f.vid.playCount,before);
+  assert.equal(f.elements.streams.hidden,false);
+});
+test('children reach music from the player instead of a menu, and are offered no Taste panel', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  assert.equal(f.elements.preferences.hidden,true);
+  assert.equal(f.elements.music.hidden,false);
+  f.elements.music.dispatch('click');
+  assert.equal(f.player.state.stream,'2.music');
+  assert.equal(f.elements.music.textContent,'Shows');
+  f.elements.music.dispatch('click');
+  assert.equal(String(f.player.state.stream),'2');
+  f.elements.audienceSwitch.dispatch('click'); f.player.chooseAudience('dad'); f.player.chooseChannel('grown');
+  assert.equal(f.elements.preferences.hidden,false);
+});
+test('a library with no music never offers children a music button', () => {
+  const f=fixture({videos:kidLibrary.filter(video=>video.tier!=='music'),profileFlow:true,audiences:true});
+  assert.equal(f.elements.music.hidden,true);
+});
+function castFixture(options={}) {
+  const sent=[]; const parent={postMessage:data=>sent.push(data)};
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true,parent,...options});
+  f.sent=sent; f.parent=parent;
+  f.tv=state=>f.window.dispatch('message',{source:parent,data:{type:'onto:tv',tv:state}});
+  f.last=type=>[...sent].reverse().find(message=>message.type===type);
+  return f;
+}
+test('sending the channel to the TV hands over the episode and its position', () => {
+  const f=castFixture();
+  f.vid.currentTime=42;
+  f.elements.cast.dispatch('click');
+  const handover=f.last('onto:cast-play');
+  assert.equal(handover.src,kidLibrary[f.player.state.cur].src);
+  assert.equal(handover.seconds,42);
+  assert.equal(f.vid.paused,true);
+  assert.equal(f.elements.cast.textContent,'Stop the TV');
+});
+test('while the TV is playing, its position drives what the learner is told', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:20,durationSeconds:400,status:'playing'});
+  f.player.next('skip');
+  assert.equal(f.player.state.weights[src],0.7);
+});
+test('a film watched through on the TV earns its reward, not a bail-out', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:390,durationSeconds:400,status:'playing'});
+  f.player.next('skip');
+  assert.equal(f.player.state.weights[src],1.3);
+});
+test('when the TV finishes an episode the channel sends the next one', () => {
+  const f=castFixture();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:first,positionSeconds:400,durationSeconds:400,status:'playing'});
+  f.tv({path:'',positionSeconds:0,durationSeconds:0,status:'finished'});
+  const next=f.last('onto:cast-play');
+  assert.notEqual(next.src,first);
+  assert.equal(f.player.state.weights[first],1.3);
+});
+test('a stop on the TV remote brings the episode back rather than skipping', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:40,durationSeconds:400,status:'playing'});
+  f.tv({path:'',positionSeconds:40,durationSeconds:400,status:'idle'});
+  assert.equal(f.player.state.cast,null);
+  assert.equal(f.last('onto:cast-play').src,src);
+  assert.equal(f.player.state.weights[src],undefined);
+  assert.equal(f.vid.currentTime,40);
+});
+test('stopping the TV brings the episode back to the laptop where it left off', () => {
+  const f=castFixture();
+  f.elements.cast.dispatch('click');
+  const src=kidLibrary[f.player.state.cur].src;
+  f.tv({path:src,positionSeconds:75,durationSeconds:400,status:'playing'});
+  f.elements.cast.dispatch('click');
+  assert.ok(f.last('onto:cast-stop'));
+  assert.equal(f.vid.currentTime,75);
+  assert.equal(f.elements.cast.textContent,'Onto the TV');
+});
+test('leaving the channel while it is on the TV stops the TV', () => {
+  const f=castFixture();
+  f.elements.cast.dispatch('click');
+  f.elements.switch.dispatch('click');
+  assert.ok(f.last('onto:cast-stop'));
+  assert.equal(f.player.state.cast,null);
+});
+test('a finished report is not a skip for every later poll', () => {
+  const f=castFixture();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:first,positionSeconds:400,durationSeconds:400,status:'playing'});
+  f.tv({status:'finished'});
+  const second=f.last('onto:cast-play').src;
+  f.tv({status:'finished'});
+  assert.equal(f.last('onto:cast-play').src,second);
+});
+test('the TV losing the connection returns playback to the laptop without teaching a dislike', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:30,durationSeconds:400,status:'playing'});
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:cast-off',reason:'The TV stopped responding.'}});
+  assert.equal(f.player.state.cast,null);
+  assert.equal(f.player.state.weights[src],undefined);
+  assert.match(f.elements.toast.textContent,/TV/);
+});
+test('leaving a playing channel returns to who is watching', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  f.elements.switch.dispatch('click');
+  assert.equal(f.elements.splash.hidden,false);
+  assert.equal(f.elements.profiles.hidden,false);
+  assert.equal(f.elements.streams.hidden,true);
 });

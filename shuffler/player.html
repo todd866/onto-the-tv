@@ -45,6 +45,13 @@ button:disabled { opacity:.4; cursor:default; }
 #seek { flex:1; min-width:50px; height:4px; accent-color:var(--amber); cursor:pointer; }
 #adultTools { border-right:1px solid #ffffff18; padding-right:10px; }
 #later { color:var(--amber); }
+#controls.kid { gap:16px; padding:20px; border-radius:24px; }
+#controls.kid #back,#controls.kid #pause,#controls.kid #skip { min-width:104px; min-height:88px; font-size:34px; border-radius:22px; line-height:1; }
+#controls.kid #skip { box-shadow:0 6px 0 #00000026; }
+#controls.kid .utility { min-height:64px; padding:16px 20px; font-size:16px; border-radius:14px; background:#ffffff0f; color:#e7eef2; }
+#controls.kid #utilities { gap:12px; }
+#controls.kid.dimmed:not(:has(:focus-visible)) { opacity:1; }
+#cast.casting { color:var(--amber); background:#f2b45d1f; }
 #toast { position:fixed; top:24px; left:50%; transform:translateX(-50%); z-index:15; padding:10px 16px; border:1px solid #ffffff15; border-radius:10px; background:#101a22e8; color:#e1e7e9; font-size:13px; opacity:0; transition:opacity .3s; pointer-events:none; width:max-content; max-width:calc(100% - 40px); text-align:center; overflow-wrap:anywhere; }
 #status { position:fixed; inset:25% 24px auto; z-index:21; max-width:480px; margin:auto; padding:24px; background:#1c2b35f5; border-radius:16px; text-align:center; }
 #status p { margin:0 0 16px; line-height:1.5; } #retry { padding:12px 20px; border-radius:8px; background:var(--amber); color:#101a22; }
@@ -56,7 +63,8 @@ button:disabled { opacity:.4; cursor:default; }
 #panel th,#panel td { text-align:left; border-bottom:1px solid #ffffff12; padding:12px 4px; overflow-wrap:anywhere; }
 #panel th:first-child { width:27%; } #panel th:last-child { width:62px; } #panel td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
 #savedRows { display:grid; gap:10px; margin-top:20px; } #savedRows button { text-align:left; padding:16px; border-radius:10px; background:#243744; } #savedRows button:hover { background:#304a5c; }
-@media(max-width:680px) { #splash { padding:24px; } #streams { gap:10px; } .streamBtn { min-height:152px; padding:16px; } .channel-art { height:66px; } .channel-art svg { width:62px; height:62px; } .channel-name { font-size:17px; } .streamBtn small { top:12px; right:12px; } #controls { inset:auto 10px 10px; padding:12px; gap:6px; } #utilities { order:3; flex:1; justify-content:center; } #adultTools { border:0; padding:0; } #back,#pause,#skip { padding:10px 12px; } }
+@media(max-width:680px) { #controls.kid #back,#controls.kid #pause,#controls.kid #skip { min-width:80px; min-height:72px; font-size:28px; }
+  #splash { padding:24px; } #streams { gap:10px; } .streamBtn { min-height:152px; padding:16px; } .channel-art { height:66px; } .channel-art svg { width:62px; height:62px; } .channel-name { font-size:17px; } .streamBtn small { top:12px; right:12px; } #controls { inset:auto 10px 10px; padding:12px; gap:6px; } #utilities { order:3; flex:1; justify-content:center; } #adultTools { border:0; padding:0; } #back,#pause,#skip { padding:10px 12px; } }
 @media(max-width:420px) { #streams { grid-template-columns:repeat(2,minmax(0,1fr)); } #sgrown { grid-column:auto; } #splash h1 { font-size:28px; } }
 @media(prefers-reduced-motion:reduce) { *,*::after { transition:none!important; } }
 #profiles { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; max-width:840px; margin:36px auto; }
@@ -99,6 +107,8 @@ button:disabled { opacity:.4; cursor:default; }
   <div id="adultTools" hidden><button class="utility" id="rewind" title="Back 10 seconds (Shift+←)">−10s</button><button class="utility" id="forward" title="Forward 10 seconds (Shift+→)">+10s</button><button class="utility" id="later" title="Save for later (L)">Later</button><button class="utility" id="saved">Saved</button></div>
   <div id="utilities">
     <button class="utility" id="switch">Channels</button>
+    <button class="utility" id="music" hidden>Music</button>
+    <button class="utility" id="cast" hidden>Onto the TV</button>
     <button class="utility" id="preferences">Taste</button>
     <button class="utility" id="fullscreen">Full screen</button>
   </div>

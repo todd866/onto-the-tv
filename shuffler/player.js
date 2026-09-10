@@ -123,7 +123,7 @@
     try { storage = environment.localStorage; } catch (_) { storage = null; }
     const state = { stream:null, pool:[], weights:Object.create(null), cur:-1, history:[], failed:new Set(), token:0, played:false,
       navigation:[], navIndex:-1, direction:1, pendingSeek:null, feedback:new Map(), dirty:new Set(),
-      preferShort:true, visitLogged:false, visitStart:0, watchFrom:0, deferred:new Set(), scrubbing:false };
+      preferShort:true, visitLogged:false, visitStart:0, watchFrom:0, deferred:new Set(), scrubbing:false, cast:null };
     const decayed = new Set();
     let toastTimer = null;
     let audience = null;
@@ -190,6 +190,18 @@
       for (const video of videos) weights[video.src] = togetherWeight(weightFor(mum,video.src),weightFor(dad,video.src),weightFor(state.weights,video.src));
       return weights;
     }
+    // While the TV has the channel, the TV's own reports are the playhead.
+    const casting = () => state.cast !== null;
+    const mediaTime = () => (casting() ? state.cast.position : vid.currentTime);
+    const mediaDuration = () => {
+      if (casting()) return state.cast.duration || (videos[state.cur] && videos[state.cur].duration) || 0;
+      return vid.duration;
+    };
+    function tell(message) {
+      if (!environment.parent || environment.parent === environment) return false;
+      environment.parent.postMessage(message, '*');
+      return true;
+    }
     const random = environment.random || Math.random;
     const now = environment.now || (() => Date.now());
     const adult = () => ['grown','mum','dad','both'].includes(audienceFor(state.stream));
@@ -224,7 +236,7 @@
       if (finished) delete bookmarks[src];
       else {
         const entry = state.navigation[state.navIndex];
-        const time = state.pendingSeek ? entry.time : vid.currentTime;
+        const time = state.pendingSeek ? entry.time : mediaTime();
         bookmarks[src] = { time:Number.isFinite(time) ? Math.max(0,time) : 0,
           saved:saved || !!bookmarks[src]?.saved, updated:now() };
       }
@@ -328,8 +340,8 @@
       // One record per visit to a video: what was reached, and where it began.
       if (state.stream === null || state.cur < 0 || state.visitLogged) return;
       const entry = state.navigation[state.navIndex];
-      const time = state.pendingSeek ? (entry ? entry.time : 0) : vid.currentTime;
-      const duration = state.pendingSeek ? (entry ? entry.duration : 0) : vid.duration;
+      const time = state.pendingSeek ? (entry ? entry.time : 0) : mediaTime();
+      const duration = state.pendingSeek ? (entry ? entry.duration : 0) : mediaDuration();
       if (!state.played && !(time > 0)) return;
       state.visitLogged = true;
       const video = videos[state.cur];
@@ -341,7 +353,11 @@
         d: Math.round(Number.isFinite(duration) && duration > 0 ? duration : fallback),
       });
     }
-    function updatePause() { el("pause").textContent = vid.paused ? "Play" : "Pause"; }
+    function updatePause() {
+      const paused = casting() ? state.cast.status === 'paused' : vid.paused;
+      const grown = adult();
+      el("pause").textContent = paused ? (grown ? "Play" : "▶") : (grown ? "Pause" : "⏸");
+    }
     function stopVideo() {
       state.scrubbing = false;
       state.cur = -1;
@@ -384,13 +400,14 @@
       if (!entry || state.cur < 0) return;
       entry.played = entry.played || state.played;
       if (!state.pendingSeek) {
-        if (Number.isFinite(vid.currentTime)) {
-          entry.time = Math.max(0, vid.currentTime);
+        const at = mediaTime(), length = mediaDuration();
+        if (Number.isFinite(at)) {
+          entry.time = Math.max(0, at);
           // Footage watched since arriving or since the last seek, never a resumed position.
-          entry.watched = (entry.watched || 0) + Math.max(0, vid.currentTime - state.watchFrom);
-          state.watchFrom = vid.currentTime;
+          entry.watched = (entry.watched || 0) + Math.max(0, at - state.watchFrom);
+          state.watchFrom = at;
         }
-        if (Number.isFinite(vid.duration) && vid.duration > 0) entry.duration = vid.duration;
+        if (Number.isFinite(length) && length > 0) entry.duration = length;
       }
     }
     function applyFeedback(value, event) {
@@ -411,10 +428,10 @@
       // Keep that visit neutral; a fresh uninterrupted visit can still teach us.
       if (adult() && entry.sought) return;
       const video = videos[entry.index];
-      const time = state.pendingSeek ? entry.time : vid.currentTime;
+      const time = state.pendingSeek ? entry.time : mediaTime();
       // Before metadata arrives the catalogue duration keeps the verdict consistent.
       const catalogue = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
-      const duration = (state.pendingSeek ? entry.duration : vid.duration) || catalogue;
+      const duration = (state.pendingSeek ? entry.duration : mediaDuration()) || catalogue;
       const watched = entry.watched || 0;
       if (!entry.played && !state.played && !(watched > 0) && reason !== "ended") return;
       // An unobserved or neutral departure is not a final judgement. Returning
@@ -491,9 +508,16 @@
       state.history = state.history.slice(-6);
       updateNavigation();
       const video = videos[entry.index];
-      vid.src = encodePath(video.path || video.src);
       showToast((video.channel ? video.channel + " — " : "") + video.title);
-      attemptPlay();
+      if (casting()) {
+        state.cast = { path:video.src, position:state.pendingSeek ? state.pendingSeek.time : 0, duration:video.duration || 0, status:'playing' };
+        state.pendingSeek = null;
+        state.played = true;
+        tell({ type:'onto:cast-play', src:video.src, seconds:Math.round(state.watchFrom) || 0 });
+      } else {
+        vid.src = encodePath(video.path || video.src);
+        attemptPlay();
+      }
       updateTimeline(); revealControls();
     }
     function chooseNew() {
@@ -571,11 +595,13 @@
       panel.hidden = true;
       splash.hidden = true;
       el("controls").hidden = false;
+      updateChrome();
       saveFull();
       next("start");
     }
     function switchStream() {
       rememberPosition();
+      if (casting()) stopCasting('Back on the laptop', { resume:false });
       publishTaste(true);
       logDeparture("switch");
       state.stream = null;
@@ -593,6 +619,13 @@
       status("", false);
       el("controls").hidden = true;
       splash.hidden = false;
+      if (profileFlow) {
+        el('profiles').hidden = false;
+        el('streams').hidden = true;
+        el('pickerTitle').textContent = 'Who’s watching?';
+        el('audienceSwitch').hidden = true;
+      }
+      updateChrome();
       if (el('savedPanel')) el('savedPanel').hidden = true;
       updateNavigation();
       environment.clearTimeout(toastTimer);
@@ -601,8 +634,65 @@
     }
     function togglePause() {
       if (state.cur < 0) return;
+      if (casting()) {
+        const playing = state.cast.status !== 'paused';
+        tell({ type: playing ? 'onto:cast-pause' : 'onto:cast-resume' });
+        state.cast.status = playing ? 'paused' : 'playing';
+        updatePause();
+        return;
+      }
       if (vid.paused) attemptPlay(); else vid.pause();
       updatePause();
+    }
+    function startCasting() {
+      if (state.cur < 0 || casting()) return;
+      capturePosition();
+      const video = videos[state.cur];
+      const seconds = Math.max(0, Math.round(Number.isFinite(vid.currentTime) ? vid.currentTime : 0));
+      if (!tell({ type:'onto:cast-play', src:video.src, seconds })) { showToast('The TV is only available in the app.'); return; }
+      vid.pause();
+      state.cast = { path:video.src, position:seconds, duration:mediaDuration() || video.duration || 0, status:'playing' };
+      state.watchFrom = seconds;
+      updateChrome(); updatePause(); updateTimeline();
+      showToast('Playing on the TV');
+    }
+    function stopCasting(reason, { fromTv = false, resume = true } = {}) {
+      if (!casting()) return;
+      const at = state.cast.position;
+      if (!fromTv) tell({ type:'onto:cast-stop' });
+      state.cast = null;
+      // Pick the episode back up on the laptop where the TV had reached.
+      if (resume && state.cur >= 0) {
+        const entry = state.navigation[state.navIndex];
+        if (entry) entry.time = at;
+        state.token++;
+        state.pendingSeek = { token:state.token, time:at };
+        state.watchFrom = at;
+        vid.src = encodePath(videos[state.cur].path || videos[state.cur].src);
+        attemptPlay();
+      }
+      updateChrome(); updatePause(); updateTimeline();
+      showToast(reason || 'Back on the laptop');
+    }
+    function castReport(tv) {
+      if (!casting() || !tv) return;
+      if (tv.status === 'finished') {
+        // A later poll of the same empty renderer must not skip again.
+        if (state.cast.done || !state.cast.acked) return;
+        state.cast.done = true;
+        next('ended');
+        return;
+      }
+      if (tv.status === 'idle') {
+        stopCasting(tv.error || 'The TV stopped playing.', { fromTv:true });
+        return;
+      }
+      if (tv.path && tv.path !== state.cast.path) return;
+      state.cast.acked = true;
+      state.cast.status = tv.status;
+      if (Number.isFinite(tv.positionSeconds)) state.cast.position = tv.positionSeconds;
+      if (Number.isFinite(tv.durationSeconds) && tv.durationSeconds > 0) state.cast.duration = tv.durationSeconds;
+      capturePosition(); rememberPosition(); updatePause(); updateTimeline();
     }
     function setPreferShort(value) {
       state.preferShort = !!value;
@@ -668,9 +758,15 @@
       if (!Object.prototype.hasOwnProperty.call(STREAMS,id) || ['music','all'].includes(id)) return;
       audience = String(id);
       try { storage.setItem('onto.audience.v1',audience); } catch (_) {}
+      showChannels();
+      // A child has one channel, so tapping their face starts it. Music is a
+      // button on the player, not a menu standing between them and a show.
+      if (['2','6'].includes(audience) && videos.some(video => inStream(video,audience))) startStream(audience);
+    }
+    function showChannels() {
       el('profiles').hidden = true; el('streams').hidden = false;
       el('pickerTitle').textContent = 'What’s on?';
-      el('audienceSwitch').textContent = labelFor(id).replace(/ [26]\+$/, '');
+      el('audienceSwitch').textContent = labelFor(audience).replace(/ [26]\+$/, '');
       el('audienceSwitch').hidden = false;
       for (const age of Object.keys(STREAMS)) {
         const button = el('s' + age); if (!button) continue;
@@ -679,6 +775,37 @@
       }
       const label = el('sgrown').querySelector?.('.channel-name');
       if (label) label.textContent = 'For you';
+    }
+    function musicStream() {
+      // The music channel beside whichever audience is watching.
+      if (!audience || !videos.some(video => video.tier === 'music')) return null;
+      return audience === 'music' ? null : audience + '.music';
+    }
+    function updateChrome() {
+      const grown = adult();
+      const music = el('music');
+      if (music) {
+        const available = !grown && !!musicStream() && state.stream !== null;
+        music.hidden = !available;
+        music.textContent = audienceFor(state.stream) === audience && String(state.stream).endsWith('.music') ? 'Shows' : 'Music';
+      }
+      // Learned-preference tables are grown-up furniture; children get a show.
+      if (el('preferences')) el('preferences').hidden = !grown;
+      el('controls').className = grown ? '' : 'kid';
+      el('back').textContent = grown ? 'Back' : '⏮';
+      el('skip').textContent = grown ? 'Next' : '⏭';
+      updatePause();
+      const cast = el('cast');
+      if (cast) {
+        cast.hidden = state.stream === null || !environment.parent || environment.parent === environment;
+        cast.textContent = casting() ? 'Stop the TV' : 'Onto the TV';
+        cast.className = casting() ? 'utility casting' : 'utility';
+      }
+    }
+    function toggleMusic() {
+      const target = musicStream();
+      if (!target || state.stream === null) return;
+      startStream(String(state.stream).endsWith('.music') ? audience : target);
     }
     function chooseChannel(age) {
       if (!profileFlow) return startStream(age);
@@ -706,11 +833,16 @@
         el('profiles').hidden = false; el('streams').hidden = true;
         el('pickerTitle').textContent = 'Who’s watching?'; el('audienceSwitch').hidden = true;
       });
-      try {
-        const previous = storage.getItem('onto.audience.v1');
-        if (previous && el('p'+previous) && !el('p'+previous).hidden) chooseAudience(previous);
-      } catch (_) {}
+      // Turning the app on is like turning a television on: the family-friendly
+      // channel plays. Changing viewer or channel is a deliberate step from here.
+      const opening = ['2','6','grown','mum','dad','both'].find(id => {
+        const button = el('p'+id);
+        return button && !button.hidden && videos.some(video => inStream(video,id));
+      });
+      if (opening) chooseAudience(opening);
     }
+    if (el('music')) el('music').addEventListener('click', toggleMusic);
+    if (el('cast')) el('cast').addEventListener('click', () => (casting() ? stopCasting() : startCasting()));
     el("skip").addEventListener("click", () => next("skip"));
     el("back").addEventListener("click", back);
     el("switch").addEventListener("click", switchStream);
@@ -757,11 +889,14 @@
       if (event.data.type === 'onto:export' && environment.ONTO_TASTE_TOKEN && event.data.token === environment.ONTO_TASTE_TOKEN) {
         exportEnabled = true; publishTaste(true);
       }
+      if (event.data.type === 'onto:tv') castReport(event.data.tv);
+      if (event.data.type === 'onto:cast-off') stopCasting(event.data.reason || 'The TV stopped playing.', { fromTv:true });
       if (event.data.type === "onto:pause") vid.pause();
     });
     updateNavigation();
+    updateChrome();
     publishTaste();
-    return { state, next, back, startStream, switchStream, showWeights, togglePause, setPreferShort, seekTo, later, showSaved, resumeSaved, chooseAudience, chooseChannel };
+    return { state, next, back, startStream, switchStream, showWeights, togglePause, setPreferShort, seekTo, later, showSaved, resumeSaved, chooseAudience, chooseChannel, toggleMusic, startCasting, stopCasting };
   }
   const api = { togetherWeight, bookmarkKey, keyFor, weightFor, encodePath, durationWeight, inStream, STREAMS, STREAM_LABELS,
     readWeights, readStored, saveWeights, appendLog, learnedWeight, pickVideo, createPlayer };

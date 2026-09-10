@@ -17,11 +17,19 @@ export function readCatalogue(html, sourcePath, outputPath) {
     const path = video.path || video.src;
     if (typeof path !== 'string' || !path || path.includes('\0') || /^[a-z][\w+.-]*:/i.test(path)
         || typeof video.src !== 'string' || !tiers.has(video.tier)) throw new Error('Invalid library entry.');
-    return { src: video.src, path: relative(dirname(outputPath), resolve(dirname(sourcePath), path)),
+    return { src: video.src, file: resolve(dirname(sourcePath), path),
+      path: relative(dirname(outputPath), resolve(dirname(sourcePath), path)),
       title: typeof video.title === 'string' ? video.title : '',
       channel: typeof video.channel === 'string' ? video.channel : '', tier: video.tier,
       duration: Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0 };
   });
+}
+
+export function castTarget(catalogue, src) {
+  // The channel names an episode; only the library this app generated can be sent.
+  const file = typeof src === 'string' && src ? catalogue?.[src] : undefined;
+  if (typeof file !== 'string' || !file) throw new Error('That episode is not in this library.');
+  return file;
 }
 
 function safeJSON(value) { return JSON.stringify(value).replaceAll('<', '\\u003c').replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029'); }
@@ -61,17 +69,20 @@ export async function prepareChannels(root, settings, userData) {
     localStorage.setItem('onto.imported.v1','1');
   } } catch (_) {}`;
   const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src file:; base-uri 'none'; form-action 'none'">`;
+  const catalogue = Object.create(null);
+  for (const video of videos) catalogue[video.src] = video.file;
+  const payload = videos.map(({ file, ...video }) => video);
   const content = template.replace('<head>', '<head>\n' + policy)
-    .replace('__PLAYER_JS__', 'window.ONTO_TASTE_TOKEN = ' + safeJSON(exportToken) + '; window.ONTO_AUDIENCES = ' + audiences + '; window.ONTO_AUDIENCE_NAMES = ' + safeJSON(audienceNames) + ';\n' + seed + '\n' + javascript).replace('__VIDEOS__', safeJSON(videos));
+    .replace('__PLAYER_JS__', 'window.ONTO_TASTE_TOKEN = ' + safeJSON(exportToken) + '; window.ONTO_AUDIENCES = ' + audiences + '; window.ONTO_AUDIENCE_NAMES = ' + safeJSON(audienceNames) + ';\n' + seed + '\n' + javascript).replace('__VIDEOS__', safeJSON(payload));
   await mkdir(userData, { recursive: true });
   const temporary = output + '.' + randomUUID() + '.tmp';
   await writeFile(temporary, content, { mode: 0o600 });
   await rename(temporary, output);
-  const catalogue = join(userData, 'library.json');
-  const catalogueTemp = catalogue + '.' + randomUUID() + '.tmp';
-  await writeFile(catalogueTemp, JSON.stringify({version:1, videos:videos.map(({path, ...video}) => video)}, null, 2) + '\n', {mode:0o600});
-  await rename(catalogueTemp, catalogue);
-  return { url: pathToFileURL(output).href, count: videos.length, exportToken };
+  const libraryFile = join(userData, 'library.json');
+  const libraryTemp = libraryFile + '.' + randomUUID() + '.tmp';
+  await writeFile(libraryTemp, JSON.stringify({version:1, videos:payload.map(({path, ...video}) => video)}, null, 2) + '\n', {mode:0o600});
+  await rename(libraryTemp, libraryFile);
+  return { url: pathToFileURL(output).href, count: videos.length, exportToken, catalogue };
 }
 
 export async function playerExists(settings) {

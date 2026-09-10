@@ -92,7 +92,7 @@ it('serializes concurrent drops and never starts the first file twice', async ()
     await Promise.all([session.addFiles(['/a.mp4']), session.addFiles(['/b.mp4'])]);
     assert.deepEqual(session.prepared, ['a.mp4', 'b.mp4']);
     assert.equal(session.renderer.calls.filter(([action]) => action === 'play').length, 1);
-    assert.deepEqual(session.getState().upcoming, [{ title: 'b.mp4' }]);
+    assert.deepEqual(session.getState().upcoming, [{ title: 'b.mp4', path: '/b.mp4' }]);
   } finally { await session.close(); }
 });
 
@@ -105,7 +105,7 @@ it('finishes the final item when the TV clears its URI, and starts fresh on the 
     session.renderer.uri = '';
     session.renderer.state = 'NO_MEDIA_PRESENT';
     await session.tick();
-    assert.equal(session.getState().status, 'idle');
+    assert.equal(session.getState().status, 'finished');
     assert.equal(session.getState().current, null);
     assert.equal(session.getState().count, 0);
     await session.addFiles(['/c.mp4']);
@@ -169,5 +169,84 @@ it('requires TV configuration without opening a media server', async () => {
   try {
     await assert.rejects(session.addFiles(['/a.mp4']), /Choose a TV/);
     assert.equal(session.getState().status, 'idle');
+  } finally { await session.close(); }
+});
+
+describe('handing a channel to the TV', () => {
+  it('reports the source path of the current and queued files', async () => {
+    const session = createTestSession();
+    try {
+      await session.addFiles(['/videos/Luxo.mp4', '/videos/Presto.mp4']);
+      assert.equal(session.getState().current.path, '/videos/Luxo.mp4');
+      assert.deepEqual(session.getState().upcoming.map((item) => item.path), ['/videos/Presto.mp4']);
+    } finally { await session.close(); }
+  });
+
+  it('jumps to the queued episode when the remote asks for the next one', async () => {
+    const session = createTestSession();
+    try {
+      await session.addFiles(['/videos/Luxo.mp4', '/videos/Presto.mp4']);
+      await session.playNext();
+      assert.equal(session.getState().current.title, 'Presto.mp4');
+      assert.equal(session.getState().upcoming.length, 0);
+      assert.equal(session.renderer.calls.filter(([action]) => action === 'play').length, 2);
+    } finally { await session.close(); }
+  });
+
+  it('does nothing when the remote asks for a next episode that is not queued', async () => {
+    const session = createTestSession();
+    try {
+      await session.addFiles(['/videos/Luxo.mp4']);
+      await session.playNext();
+      assert.equal(session.getState().current.title, 'Luxo.mp4');
+      assert.equal(session.renderer.calls.filter(([action]) => action === 'play').length, 1);
+    } finally { await session.close(); }
+  });
+
+  it('replaces the whole queue when the channel starts a different episode', async () => {
+    const session = createTestSession();
+    try {
+      await session.addFiles(['/videos/Luxo.mp4', '/videos/Presto.mp4']);
+      await session.playOnly(['/videos/Geri.mp4']);
+      assert.equal(session.getState().current.title, 'Geri.mp4');
+      assert.equal(session.getState().count, 1);
+      assert.deepEqual(session.getState().upcoming, []);
+    } finally { await session.close(); }
+  });
+});
+
+it('resumes a handed-over episode near where the laptop left it', async () => {
+  const renderer = mockRenderer();
+  renderer.seek = async function (seconds) { this.calls.push(['seek', seconds]); };
+  const session = createTestSession(renderer);
+  try {
+    await session.addFiles([{ path: '/videos/Luxo.mp4', startSeconds: 90 }]);
+    assert.deepEqual(session.renderer.calls, [['play', 'Luxo.mp4'], ['seek', 90]]);
+    await session.playOnly([{ path: '/videos/Presto.mp4', startSeconds: 2 }]);
+    assert.ok(!session.renderer.calls.some(([action, value]) => action === 'seek' && value === 2));
+  } finally { await session.close(); }
+});
+
+it('keeps playing when the TV refuses to seek', async () => {
+  const renderer = mockRenderer();
+  renderer.seek = async () => { throw new Error('UPnP 710: seek mode not supported'); };
+  const session = createTestSession(renderer);
+  try {
+    await session.addFiles([{ path: '/videos/Luxo.mp4', startSeconds: 90 }]);
+    assert.equal(session.getState().current.title, 'Luxo.mp4');
+    assert.equal(session.getState().error, null);
+  } finally { await session.close(); }
+});
+
+it('reports finished when the last file ends on its own', async () => {
+  const renderer = mockRenderer();
+  renderer.positionInfo = async function () { return { uri: this.uri || '', positionSeconds: 97, durationSeconds: 100 }; };
+  const session = createTestSession(renderer);
+  try {
+    await session.addFiles(['/videos/Luxo.mp4']);
+    session.renderer.state = 'STOPPED';
+    await session.tick();
+    assert.equal(session.getState().status, 'finished');
+    assert.equal(session.getState().current, null);
   } finally { await session.close(); }
 });

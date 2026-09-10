@@ -4,16 +4,17 @@
 
 **A few channels, fed by the videos you already have.**
 
-Open the app, pick who is watching, choose a channel, and watch. Each channel
-draws its next episode from your own library, learns from skips and completions,
-and avoids recent repeats. Playback happens inside the app. Left and right arrows
-move between episodes, and returning to a skipped episode cancels its penalty.
+Open the app and the family-friendly channel starts. Changing who is watching
+takes a further tap; grown-ups then pick a channel. Each channel draws its next
+episode from your own library, learns from skips and completions, and avoids
+recent repeats. Playback happens inside the app. **Onto the TV** hands that
+channel to a Samsung on the same network, and the Mac stays the remote: skip,
+pause and next run there, and the next episode follows when one ends.
 
 ![Channels in Onto the TV](brand/app-preview.png)
 
-The TV tab is a separate tool: it sends files you choose to a Samsung DLNA
-renderer on your network. It does not yet follow a channel's automatic sequence.
-The Mac stays awake and on the same network while it serves the TV.
+The TV tab remains for dropping a file that is not on a channel. The Mac stays
+awake and on the same network while it serves the TV.
 
 ## Install on a Mac
 
@@ -49,7 +50,8 @@ python3 scripts/install_mac_app.py --output "dist/Onto the TV.app" --no-register
    `tiers.json` and put your show folder names into the groups.
 3. In **Library settings**, choose the folder and the show groups, then
    **Refresh**.
-4. Pick an audience, then a channel.
+4. Open the app. The family channel starts; use **Channels** if you need a
+   different viewer.
 
 Unassigned shows appear only in Everything. The groups are your own judgement,
 not age ratings, and the picker is not a parental lock. Extra folders and
@@ -75,7 +77,11 @@ playlists. Phone playback does not run the learner.
 
 ## Who is watching
 
-By default the app offers Grown-ups, Little Kids and Big Kids. To split the
+The app boots into Little Kids when that library has anything to play. **Channels**
+returns to **Who’s watching?**; a child’s face starts their channel in one tap,
+and Music lives on the player rather than as a menu in front of a show.
+
+By default the app also offers Grown-ups and Big Kids. To split the
 adults into separate viewers, put this in `audiences.json` in the app's user-data
 directory, which on macOS is `~/Library/Application Support/Onto the TV`:
 
@@ -113,10 +119,15 @@ The default control endpoint is
 different UPnP AVTransport endpoint, set it under advanced settings, where you
 can also pin the Mac's Wi-Fi address if the automatic choice is wrong.
 
+While a channel is playing, **Onto the TV** sends the current episode and
+picks up from the laptop’s position. Skip and pause on the Mac control the TV.
+When the file ends, the channel’s next pick follows. Stop on the Samsung remote
+brings the episode back to the laptop rather than skipping.
+
 This drives Samsung's DLNA renderer, not AirPlay, Chromecast or the TV's YouTube
 app. It grew from a 2017 Samsung; other models depend on their own renderer.
-There is no device discovery yet. Stopping playback from the TV's own remote
-stops the queue rather than starting the next file.
+There is no device discovery yet. The TV tab is still there if you want to drop
+a single file instead of handing over the channel.
 
 For command-line use, `npm run cast -- --help` exposes the casting tools.
 YouTube URLs there need `yt-dlp`; the desktop app works with local files.

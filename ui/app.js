@@ -129,6 +129,7 @@ window.addEventListener('drop', event => {
 
 if (api) {
   api.onState(renderTv); api.onMode(setMode); api.onError(text => message(text, true));
+  if (api.onCast) api.onCast(notice => $('channel-player').contentWindow?.postMessage(notice, '*'));
   void act(async () => renderSettings(await api.get()));
 } else {
   message('Open this view with the Onto the TV app.');
@@ -136,6 +137,10 @@ if (api) {
 }
 
 window.addEventListener('message', event => {
-  if (event.source !== $('channel-player').contentWindow || event.origin !== 'null' || event.data?.type !== 'onto:taste') return;
-  if (api.saveTaste) void act(() => api.saveTaste(event.data.profiles));
+  if (!api || event.source !== $('channel-player').contentWindow || event.origin !== 'null' || !event.data) return;
+  if (event.data.type === 'onto:taste' && api.saveTaste) void act(() => api.saveTaste(event.data.profiles));
+  if (event.data.type === 'onto:cast-play' && api.castPlay) void act(() => api.castPlay(event.data.src, event.data.seconds));
+  if (event.data.type === 'onto:cast-pause') void act(() => api.pause());
+  if (event.data.type === 'onto:cast-resume') void act(() => api.resume());
+  if (event.data.type === 'onto:cast-stop') void act(() => api.stop());
 });
