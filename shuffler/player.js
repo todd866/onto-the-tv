@@ -629,8 +629,9 @@
       if (profileFlow || stocked) button.addEventListener("click", () => chooseChannel(age));
       const profile = el('p' + age);
       if (profile) {
-        profile.hidden = !stocked;
-        if (stocked) profile.addEventListener('click', () => chooseAudience(age));
+        const available = ['2','6'].includes(age) ? stocked : videos.length > 0 && (age === 'grown' ? !enabled : enabled);
+        profile.hidden = !available;
+        if (available) profile.addEventListener('click', () => chooseAudience(age));
       }
     }
     if (profileFlow) {

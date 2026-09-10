@@ -703,3 +703,13 @@ test('Kids get their age group and music, without the adult or Everything channe
   assert.equal(f.elements.smum.hidden,true);
   f.player.chooseChannel("all"); assert.equal(f.vid.playCount,0);
 });
+
+test('A music-only library still offers an audience and a playable channel', () => {
+  const f=fixture({profileFlow:true,videos:[{src:'Music/a.mp4',title:'Music',tier:'music'}]});
+  assert.equal(f.elements.pgrown.hidden,false);
+  f.player.chooseAudience('grown');
+  assert.equal(f.elements.smusic.hidden,false);
+  assert.equal(f.elements.sgrown.hidden,true);
+  f.player.chooseChannel('music');
+  assert.equal(f.vid.playCount,1);
+});
