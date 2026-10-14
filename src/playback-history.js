@@ -59,11 +59,13 @@ function validateEntry(entry) {
  * and reported to the caller, never silently replaced with an empty history.
  */
 // Drop the least recently watched files beyond the limit, sparing those with
-// scene bookmarks until only bookmarked files remain.
+// scene bookmarks until only bookmarked files remain. The newest file is never
+// dropped: it has no bookmarks yet because it has only just been watched.
 function trim(entries) {
+  const newest = [...entries.keys()].at(-1);
   for (const [path, entry] of entries) {
     if (entries.size <= MAX_ENTRIES) return;
-    if (!entry.points.length) entries.delete(path);
+    if (!entry.points.length && path !== newest) entries.delete(path);
   }
   while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
 }

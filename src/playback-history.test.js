@@ -276,3 +276,17 @@ test('the 500-file limit evicts files without scene bookmarks before bookmarked 
     assert.deepEqual(restored.getPoints('/films/marked.mp4').map(point => point.title), ['Best bit']);
   });
 });
+
+test('a new file is kept even when every older file has scene bookmarks', async () => {
+  await withHistory(async path => {
+    const history = await loadPlaybackHistory(path);
+    for (let i = 0; i < 500; i++) {
+      history.set(`/films/${i}.mp4`, { positionSeconds: 5, durationSeconds: 100 });
+      history.addPoint(`/films/${i}.mp4`, { title: 'Mark', positionSeconds: 1 });
+    }
+    history.set('/films/new.mp4', { positionSeconds: 5, durationSeconds: 100 });
+    assert.equal(history.get('/films/new.mp4'), 5);
+    assert.equal(history.list().length, 500);
+    assert.equal(history.getPoints('/films/0.mp4').length, 0);
+  });
+});

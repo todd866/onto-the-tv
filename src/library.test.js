@@ -70,3 +70,14 @@ test('scanMediaLibrary keeps explicitly listed files even when folders fill the 
     assert.equal(found.truncated, true);
   } finally { await rm(base, { recursive: true, force: true }); }
 });
+
+test('a watched file listed explicitly keeps its folder classification', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'onto-library-'));
+  try {
+    await mkdir(join(base, 'Films'));
+    await writeFile(join(base, 'Films', 'Piper.mp4'), '');
+    const [item] = await scanMediaLibrary([{ path: join(base, 'Films'), label: 'Films' }, join(base, 'Films', 'Piper.mp4')]);
+    assert.equal(item.kind, 'film');
+    assert.equal(item.channel, 'Films');
+  } finally { await rm(base, { recursive: true, force: true }); }
+});

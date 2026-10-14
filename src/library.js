@@ -109,11 +109,12 @@ export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 10
   if (!Array.isArray(roots)) throw new TypeError('Media roots must be an array.');
   const found = [];
   const seen = new Set();
+  let limit = maxItems;
   function addFile(root, path) {
     if (seen.has(path) || !MEDIA_EXTENSIONS.has(extname(path).toLowerCase())) return;
     // Hidden entries inside a chosen folder are skipped; a chosen folder may itself live under one.
     if (relative(root.path, path).split('/').some(part => part.startsWith('.'))) return;
-    if (found.length >= maxItems) { found.truncated = true; return; }
+    if (found.length >= limit) { found.truncated = true; return; }
     seen.add(path);
     const channel = root.label || (path === root.path ? '' : relative(root.path, dirname(path)).split('/')[0]) || '';
     found.push({ id: `file:${path}`, src: path, path, title: cleanTitle(basename(path)), channel,
@@ -137,7 +138,7 @@ export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 10
     }
   }
   const folders = [];
-  // Explicit files (such as watched history) come first so a full folder scan cannot crowd them out.
+  const files = [];
   for (const input of roots) {
     const root = validRoot(input);
     let info;
@@ -146,9 +147,14 @@ export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 10
       throw error;
     }
     if (info.isSymbolicLink()) continue;
-    if (info.isFile()) addFile(root, root.path);
+    if (info.isFile()) files.push(root);
     else if (info.isDirectory()) folders.push(root);
   }
+  // Folders go first so their files keep the folder's classification, but they
+  // leave room for explicit files (watched history) so those are never crowded out.
+  limit = Math.max(0, maxItems - files.length);
   for (const root of folders) await visit(root, root.path, 0);
+  limit = maxItems;
+  for (const root of files) addFile(root, root.path);
   return found;
 }
