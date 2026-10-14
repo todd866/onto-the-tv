@@ -690,12 +690,14 @@
       updateChrome(); updatePause(); updateTimeline();
       showToast('Playing on the TV');
     }
-    function stopCasting(reason, { fromTv = false, resume = true } = {}) {
+    function stopCasting(reason, { fromTv = false, resume = true, play = true } = {}) {
       if (!casting()) return;
       const at = state.cast.position;
       if (!fromTv) tell({ type:'onto:cast-stop' });
       state.cast = null;
-      // Pick the episode back up on the laptop where the TV had reached.
+      // Pick the episode back up on the laptop where the TV had reached. When
+      // another source took the TV, keep that place but stay paused: this
+      // channel may be hidden behind the app's other views.
       if (resume && state.cur >= 0) {
         const entry = state.navigation[state.navIndex];
         if (entry) entry.time = at;
@@ -703,7 +705,7 @@
         state.pendingSeek = { token:state.token, time:at };
         state.watchFrom = at;
         vid.src = encodePath(videos[state.cur].path || videos[state.cur].src);
-        attemptPlay();
+        if (play) attemptPlay();
       }
       updateChrome(); updatePause(); updateTimeline();
       showToast(reason || 'Back on the laptop');
@@ -959,7 +961,7 @@
       }
       if (event.data.type === 'onto:tv') castReport(event.data.tv);
       if (event.data.type === 'onto:cast-queue-result') castQueueResult(event.data);
-      if (event.data.type === 'onto:cast-off') stopCasting(event.data.reason || 'The TV stopped playing.', { fromTv:true });
+      if (event.data.type === 'onto:cast-off') stopCasting(event.data.reason || 'The TV stopped playing.', { fromTv:true, play:event.data.resume !== false });
       if (event.data.type === "onto:pause") vid.pause();
     });
     updateNavigation();

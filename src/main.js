@@ -100,7 +100,7 @@ function newSession() {
   };
   session = createLiveSession(loadConfig(process.env, settings), history);
   ambient = createAmbientPlayer({ session,
-    beforePlay: takeOverFromChannel,
+    beforePlay: () => takeOverFromChannel('The screensaver is on the TV.'),
     onStatus: state => send('ambient:state', state),
     build: async (options, signal) => {
       const snapshot = await ambientContent(options);
@@ -115,10 +115,11 @@ function newSession() {
   unsubscribe = session.onChange(forwardChannel);
 }
 
-function takeOverFromChannel() {
+function takeOverFromChannel(reason = 'Playing a dropped file on the TV.') {
   if (!channelCasting) return false;
   channelCasting = false;
-  send('channel:notice', { type: 'onto:cast-off', reason: 'Playing a dropped file on the TV.' });
+  // The channel keeps its place but stays paused; it may be hidden behind another view.
+  send('channel:notice', { type: 'onto:cast-off', reason, resume: false });
   return true;
 }
 

@@ -1222,3 +1222,15 @@ test('confirmed one-second TV skip records a dislike before continuing the prepa
   assert.equal(f.player.state.weights[src],0.7);
   assert.equal(JSON.parse(f.entries[keyFor(2)])[src],0.7);
 });
+test('another source taking the TV leaves the channel paused on the laptop at the TV position', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:30,durationSeconds:400,status:'playing'});
+  const plays=f.vid.playCount;
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:cast-off',reason:'The screensaver is on the TV.',resume:false}});
+  assert.equal(f.player.state.cast,null);
+  assert.equal(f.vid.playCount,plays,'the hidden channel must not start playing on the laptop');
+  assert.equal(f.player.state.navigation[f.player.state.navIndex].time,30);
+  assert.equal(f.player.state.weights[src],undefined);
+});
