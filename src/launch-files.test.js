@@ -14,4 +14,10 @@ describe('filesFromArgv', () => {
     );
     assert.deepEqual(files, ['/home/example/Videos/Luxo Jr. - Pixar (1986).mp4']);
   });
+
+  it('resolves relative paths against the launching working directory', () => {
+    const files = filesFromArgv(['/Applications/Onto the TV.app/Contents/MacOS/Onto the TV', 'clip.mp4', '../films/Piper.mkv'],
+      { appRoot: '/home/example/onto-the-tv', cwd: '/home/example/Videos' });
+    assert.deepEqual(files, ['/home/example/Videos/clip.mp4', '/home/example/films/Piper.mkv']);
+  });
 });

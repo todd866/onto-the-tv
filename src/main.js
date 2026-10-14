@@ -8,7 +8,7 @@ import { createLiveSession } from './live.js';
 import { loadConfig } from '../casting/src/config.js';
 import { createFileOpenBatcher } from './file-open-batch.js';
 import { filesFromArgv } from './launch-files.js';
-import { defaults, readSettings, writeSettings, validateTvSettings } from './settings.js';
+import { defaults, readSettings, writeSettings, validateTvSettings, preserveUnreadableSettings } from './settings.js';
 import { playerExists, buildPlayer, prepareChannels, readCatalogue } from './shuffler.js';
 import { playOnTv, queueOnTv, tvNotice, recordLocalHistory } from './channel-cast.js';
 import { buildLibrary, scanMediaLibrary } from './library.js';
@@ -30,6 +30,7 @@ const finderFiles = createFileOpenBatcher(paths => queueOrAdd(paths), {
 });
 let win, session, settings, settingsPath, unsubscribe;
 let building = false;
+let settingsReadOnly = false;
 let quitting = false;
 let changingTv = false;
 let catalogue = null;
@@ -67,7 +68,8 @@ async function libraryIndex() {
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   const scanned = await scanMediaLibrary([...(settings.mediaFolders || []), ...history.map(item => item.path)]);
   libraryPaths = new Set([...videos.map(item => item.file), ...scanned.map(item => item.path)]);
-  return buildLibrary(videos, history.filter(item => libraryPaths.has(item.path)), scanned);
+  return { ...buildLibrary(videos, history.filter(item => libraryPaths.has(item.path)), scanned),
+    truncated: Boolean(scanned.truncated) };
 }
 
 function send(channel, value) {
@@ -124,7 +126,10 @@ async function snapshot() {
   return { ...settings, hasPlayer: await playerExists(settings), building, tv: session.getState() };
 }
 
-async function persist() { await writeSettings(settingsPath, settings); }
+async function persist() {
+  if (settingsReadOnly) throw new Error('Settings could not be read, so changes are not being saved.');
+  await writeSettings(settingsPath, settings);
+}
 
 async function queueOrAdd(paths) {
   if (!paths.length) return;
@@ -149,7 +154,14 @@ async function createWindow() {
   settingsPath = join(app.getPath('userData'), 'settings.json');
   let settingsError;
   try { settings = await readSettings(settingsPath); }
-  catch (error) { settings = defaults(); settingsError = error.message; }
+  catch (error) {
+    settings = defaults(); settingsError = error.message;
+    // Keep the unreadable file before any later save replaces it with defaults.
+    try {
+      const kept = await preserveUnreadableSettings(settingsPath);
+      if (kept) settingsError += ` A copy was kept at ${kept}.`;
+    } catch (copyError) { settingsReadOnly = true; settingsError += ` Settings will not be saved: ${copyError.message}`; }
+  }
   try { playbackHistory = await loadPlaybackHistory(join(app.getPath('userData'), 'playback-history.json')); }
   catch (error) { settingsError = [settingsError, error.message].filter(Boolean).join(' '); }
   newSession();
@@ -324,8 +336,8 @@ handle('shuffler:build', async () => {
 app.setName('Onto the TV');
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', (_event, argv) => {
-    void queueOrAdd(filesFromArgv(argv, { appRoot }));
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    void queueOrAdd(filesFromArgv(argv, { appRoot, cwd: workingDirectory }));
     if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
   });
   app.on('open-file', (event, path) => { event.preventDefault(); finderFiles.add(path); });

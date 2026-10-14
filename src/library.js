@@ -105,12 +105,15 @@ function validRoot(root) {
  * Bounded read-only scan for explicitly supplied media folders. It does not
  * follow symlinks, hidden entries, or descend beyond maxDepth.
  */
-export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 2000 } = {}) {
+export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 10000 } = {}) {
   if (!Array.isArray(roots)) throw new TypeError('Media roots must be an array.');
   const found = [];
   const seen = new Set();
   function addFile(root, path) {
-    if (found.length >= maxItems || seen.has(path) || path.split('/').some(part => part.startsWith('.')) || !MEDIA_EXTENSIONS.has(extname(path).toLowerCase())) return;
+    if (seen.has(path) || !MEDIA_EXTENSIONS.has(extname(path).toLowerCase())) return;
+    // Hidden entries inside a chosen folder are skipped; a chosen folder may itself live under one.
+    if (relative(root.path, path).split('/').some(part => part.startsWith('.'))) return;
+    if (found.length >= maxItems) { found.truncated = true; return; }
     seen.add(path);
     const channel = root.label || (path === root.path ? '' : relative(root.path, dirname(path)).split('/')[0]) || '';
     found.push({ id: `file:${path}`, src: path, path, title: cleanTitle(basename(path)), channel,
@@ -119,7 +122,7 @@ export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 20
       positionSeconds: 0, durationSeconds: 0, completed: false });
   }
   async function visit(root, directory, depth) {
-    if (found.length >= maxItems || depth > maxDepth) return;
+    if (found.truncated || depth > maxDepth) return;
     let entries;
     try { entries = await readdir(directory, { withFileTypes: true }); } catch (error) {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR' || error.code === 'EACCES') return;
@@ -127,12 +130,14 @@ export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 20
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
-      if (found.length >= maxItems || !entry.name || entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
+      if (found.truncated || !entry.name || entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) { await visit(root, path, depth + 1); continue; }
       if (entry.isFile()) addFile(root, path);
     }
   }
+  const folders = [];
+  // Explicit files (such as watched history) come first so a full folder scan cannot crowd them out.
   for (const input of roots) {
     const root = validRoot(input);
     let info;
@@ -142,7 +147,8 @@ export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 20
     }
     if (info.isSymbolicLink()) continue;
     if (info.isFile()) addFile(root, root.path);
-    else if (info.isDirectory()) await visit(root, root.path, 0);
+    else if (info.isDirectory()) folders.push(root);
   }
+  for (const root of folders) await visit(root, root.path, 0);
   return found;
 }

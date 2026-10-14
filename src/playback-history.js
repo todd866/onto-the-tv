@@ -1,6 +1,7 @@
-import { readFile, mkdir, rename, writeFile, unlink } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { basename, dirname, isAbsolute } from 'node:path';
+import { basename, isAbsolute } from 'node:path';
+import { writeAtomically } from './atomic-write.js';
 
 const VERSION = 1;
 const MAX_ENTRIES = 500;
@@ -50,16 +51,6 @@ function validateEntry(entry) {
     durationSeconds: entry.durationSeconds, completed: entry.completed, updatedAt: entry.updatedAt, points };
 }
 
-async function writeAtomically(path, content) {
-  await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, content, { mode: 0o600, flag: 'wx' });
-    await rename(temporary, path);
-  } finally {
-    await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
-  }
-}
 
 /**
  * Private, path-keyed watching history. Call set only after playback starts;

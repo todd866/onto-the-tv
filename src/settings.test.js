@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readdir, rm, stat, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { defaults, validateTvSettings, readSettings, writeSettings } from './settings.js';
+import { defaults, validateTvSettings, readSettings, writeSettings, preserveUnreadableSettings } from './settings.js';
 import { buildPlayer, generatorArgs, readCatalogue, prepareChannels, castTarget } from './shuffler.js';
 import { fileURLToPath } from 'node:url';
 
@@ -104,4 +104,18 @@ test('only catalogue entries can be sent to the TV', async () => {
     const content = await readFile(fileURLToPath(result.url), 'utf8');
     assert.ok(!content.includes(dir), 'absolute library paths must stay out of the player');
   } finally { await rm(dir, { recursive:true, force:true }); }
+});
+
+test('unreadable settings are kept aside before defaults can overwrite them', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-settings-'));
+  try {
+    const path = join(dir, 'settings.json');
+    await writeFile(path, '{"tvHost": "192.0.2.10", "library": ', { mode: 0o600 });
+    await assert.rejects(readSettings(path, '/example'), /Cannot read settings/);
+    const kept = await preserveUnreadableSettings(path, () => 1700000000000);
+    assert.equal(kept, `${path}.unreadable-1700000000000`);
+    assert.equal(await readFile(kept, 'utf8'), '{"tvHost": "192.0.2.10", "library": ');
+    assert.equal((await stat(kept)).mode & 0o777, 0o600);
+    assert.equal(await preserveUnreadableSettings(join(dir, 'missing.json')), null);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

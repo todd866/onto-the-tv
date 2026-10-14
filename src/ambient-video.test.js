@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ambientAnimationGraph, buildAmbientVideo } from './ambient-video.js';
@@ -71,4 +71,20 @@ test('animation graph feeds a repeated first frame for a continuous transition l
   assert.match(graph, /\[3:v\]/);
   assert.match(graph, /\[mix3\]trim=start=2:duration=30/);
   assert.match(graph, /zoompan=.*fps=24/);
+});
+
+test('a slide that failed to render is left out without shifting the others', async () => {
+  const f = await fixture();
+  try {
+    const capture = async frames => frames.map((_, index) => index === 1 ? null : Buffer.from(`png-${index}`));
+    let contents;
+    const execute = async (command, args) => {
+      if (!contents) contents = await Promise.all(args.filter((_, i) => args[i - 1] === '-i' && args[i].endsWith('.png'))
+        .map(path => readFile(path, 'utf8')));
+      return f.execute(command, args);
+    };
+    const built = await buildAmbientVideo({ slides, pace:20, seconds:45, directory:f.directory, capture, execute });
+    assert.deepEqual(contents, ['png-0', 'png-2', 'png-0']);
+    await built.cleanup();
+  } finally { await rm(f.directory, { recursive:true, force:true }); }
 });

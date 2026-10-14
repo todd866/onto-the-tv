@@ -1,6 +1,6 @@
-import { readFile, mkdir, rename, writeFile, unlink } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { dirname, join, isAbsolute } from 'node:path';
+import { readFile, copyFile, chmod, constants } from 'node:fs/promises';
+import { join, isAbsolute } from 'node:path';
+import { writeAtomically } from './atomic-write.js';
 import { homedir } from 'node:os';
 import { isIPv4 } from 'node:net';
 import { DEFAULT_AMBIENT_OPTIONS, validateAmbientOptions } from './ambient-sources.js';
@@ -52,10 +52,14 @@ export async function readSettings(path, home) {
 }
 
 export async function writeSettings(path, settings) {
-  await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, JSON.stringify(settings, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
-    await rename(temporary, path);
-  } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+  await writeAtomically(path, JSON.stringify(settings, null, 2) + '\n');
+}
+
+/** Copy an unreadable settings file aside; returns the copy's path, or null if there was none. */
+export async function preserveUnreadableSettings(path, now = Date.now) {
+  const kept = `${path}.unreadable-${now()}`;
+  try { await copyFile(path, kept, constants.COPYFILE_EXCL); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  await chmod(kept, 0o600);
+  return kept;
 }

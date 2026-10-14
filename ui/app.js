@@ -11,6 +11,7 @@ let scrubbing = false;
 const historyRows = new Map();
 let pointsSignature = '';
 let libraryItems = [];
+let libraryTruncated = false;
 let libraryLoaded = false;
 let libraryLoading;
 let libraryFilter = 'home';
@@ -161,7 +162,9 @@ function renderLibrary() {
   $('library-list').replaceChildren(...(home ? [] : selected.map(libraryTile)));
   $('library-empty').hidden = home ? continued.length + films.length > 0 : selected.length > 0;
   $('library-empty').textContent = !libraryItems.length ? 'Add a folder to start your library.' : 'No videos found.';
-  $('library-count').textContent = query ? `${selected.length} ${selected.length === 1 ? 'video' : 'videos'}` : '';
+  $('library-count').textContent = query ? `${selected.length} ${selected.length === 1 ? 'video' : 'videos'}`
+    : libraryTruncated ? `First ${libraryItems.length.toLocaleString()} videos` : '';
+  $('library-count').title = libraryTruncated ? 'The library folders hold more videos than the app lists. Remove a folder or split it to see the rest.' : '';
   for (const button of document.querySelectorAll('[data-library-filter]')) {
     const active = button.dataset.libraryFilter === libraryFilter;
     button.classList.toggle('selected', active); button.setAttribute('aria-pressed', String(active));
@@ -176,7 +179,7 @@ async function loadLibrary(force = false) {
   $('library-count').textContent = 'Loading…';
   libraryLoading = (async () => {
     const result = await api.getLibrary();
-    libraryItems = result.items; libraryLoaded = true;
+    libraryItems = result.items; libraryTruncated = Boolean(result.truncated); libraryLoaded = true;
     updateLibraryProgress(latestTv?.history || []); renderLibrary();
   })();
   try { await libraryLoading; } finally { libraryLoading = null; }

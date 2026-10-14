@@ -37,8 +37,11 @@ export async function buildAmbientVideo({ slides, pace = 20, capture, signal,
   await chmod(root, 0o700);
   const cleanup = () => rm(root, { recursive: true, force: true });
   try {
-    const chosen = (slides || []).slice(0, 18);
-    const frames = chosen.length ? await capture(chosen, signal) : [];
+    const requested = (slides || []).slice(0, 18);
+    const captured = requested.length ? await capture(requested, signal) : [];
+    // Capture returns null for a slide it could not render; keep slides and frames paired.
+    const chosen = requested.filter((_, i) => captured[i]);
+    const frames = captured.filter(Boolean);
     signal?.throwIfAborted();
     if (!frames.length && !weatherVideo) throw new Error('No screensaver frames could be prepared.');
     const segments = [];
