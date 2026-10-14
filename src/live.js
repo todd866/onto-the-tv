@@ -5,9 +5,9 @@ import { SamsungRenderer } from '../casting/src/renderer.js';
 import { prepareMedia } from '../casting/src/pipeline.js';
 import { createSession } from './session.js';
 
-export function createLiveSession(config = loadConfig(process.env)) {
+export function createLiveSession(config = loadConfig(process.env), history) {
   return createSession({
-    config,
+    config, history,
     prepareMedia,
     createServer: (opts) => new MediaServer(opts),
     createRenderer: (opts) => new SamsungRenderer(opts),

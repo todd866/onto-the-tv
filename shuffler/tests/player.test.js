@@ -49,12 +49,12 @@ test('component URLs preserve spaces, Unicode, hashes and question marks',()=>{
   assert.equal(encodePath(path),'Another%20Show/%E4%BD%A0%E5%A5%BD%20%231%3F%20100%25.mp4');
   assert.equal(encodePath('../Shows/A.mp4'),'../Shows/A.mp4');
 });
-test('storage accepts only known finite numeric weights, clamps and forgives them',()=>{
+test('storage accepts only known finite numeric weights and preserves clamped preferences',()=>{
   const data=JSON.stringify({[videos[0].src]:-99,[videos[1].src]:99,[videos[2].src]:'2',removed:3});
   const result=readWeights({getItem:()=>data},2,videos);
   assert.equal(Object.getPrototypeOf(result),null);
-  assert.equal(result[videos[0].src],0.3625);
-  assert.equal(result[videos[1].src],3.25);
+  assert.equal(result[videos[0].src],0.15);
+  assert.equal(result[videos[1].src],4);
   assert.equal(result[videos[2].src],undefined);
   assert.equal(result.removed,undefined);
   for (const raw of ['null','[]','"bad"','{broken']) assert.equal(Object.keys(readWeights({getItem:()=>raw},2,videos)).length,0);
@@ -723,16 +723,16 @@ test('A music-only library still offers an audience and a playable channel', () 
 // --- Review fixes 2026-09-10 ---
 const filmVideos = adultVideos.map(video => ({...video,duration:120}));
 const musicVideo = {src:'Music/a.mp4',channel:'Music',title:'Music',tier:'music',duration:200};
-test('preference decay applies once per session, not on every channel start', () => {
+test('channel starts and switches preserve existing preferences', () => {
   const f=fixture({videos:[...filmVideos,musicVideo],audiences:true});
   const src=filmVideos[0].src;
   f.entries[keyFor('mum')]=JSON.stringify({[src]:2});
   f.player.startStream('mum');
-  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],1.75);
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],2);
   f.player.switchStream(); f.player.startStream('mum.music');
-  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],1.75);
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],2);
   f.player.switchStream(); f.player.startStream('mum');
-  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],1.75);
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],2);
 });
 test('Reset on a channel clears only the episodes on that channel', () => {
   const f=fixture({videos:[...filmVideos,musicVideo],audiences:true});
@@ -818,16 +818,17 @@ test('channels cannot start before an audience is chosen in profile flow', () =>
 });
 test('taste snapshots are throttled during playback and flushed on leaving', () => {
   const sent=[], parent={postMessage:data=>sent.push(data)};
+  const tastes=()=>sent.filter(message=>message.type==='onto:taste');
   let t=0;
   const f=fixture({videos:filmVideos,parent,exportToken:'cap',now:()=>t});
   f.window.dispatch('message',{source:parent,data:{type:'onto:export',token:'cap'}});
-  assert.equal(sent.length,1);
+  assert.equal(tastes().length,1);
   f.player.startStream('dad');
   for (let i=0;i<12;i++) { t+=5000; f.vid.currentTime=i*5; f.vid.dispatch('timeupdate'); }
-  assert.ok(sent.length<=4,`sent ${sent.length} snapshots in a minute`);
-  const before=sent.length;
+  assert.ok(tastes().length<=4,`sent ${tastes().length} taste snapshots in a minute`);
+  const before=tastes().length;
   f.window.dispatch('pagehide');
-  assert.equal(sent.length,before+1);
+  assert.equal(tastes().length,before+1);
 });
 test('audience names come from the household configuration, defaulting to Mum and Dad', () => {
   const f=fixture({videos:filmVideos,profileFlow:true,audiences:true,names:{mum:'Mama',dad:'Papa',both:'Us'}});
@@ -904,6 +905,59 @@ function castFixture(options={}) {
   f.last=type=>[...sent].reverse().find(message=>message.type===type);
   return f;
 }
+
+test('native cast queue results ignore stale replies and retry one rejected lookahead', () => {
+  const f=castFixture();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:first,positionSeconds:20,durationSeconds:400,status:'playing'});
+  const firstRequest=f.last('onto:cast-queue-next');
+  assert.ok(firstRequest);
+  const planned=f.player.state.cast.next;
+  assert.equal(firstRequest.src,kidLibrary[planned.index].src);
+
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:cast-queue-result',requestId:'stale',currentSrc:first,src:firstRequest.src,queued:true}});
+  assert.equal(f.player.state.cast.next.pending,true);
+  f.window.dispatch('message',{source:f.parent,data:{...firstRequest,type:'onto:cast-queue-result',queued:false}});
+  assert.equal(f.player.state.cast.next.pending,false);
+
+  f.tv({path:first,positionSeconds:24,durationSeconds:400,status:'playing'});
+  const retries=f.sent.filter(message=>message.type==='onto:cast-queue-next');
+  assert.equal(retries.length,2);
+  assert.equal(retries[1].requestId,firstRequest.requestId);
+});
+
+test('native cast transition is accepted only for the planned next item and teaches the prior item once', () => {
+  const f=castFixture();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:first,positionSeconds:390,durationSeconds:400,status:'playing'});
+  const planned=f.player.state.cast.next;
+  const nextSrc=kidLibrary[planned.index].src;
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:cast-queue-result',requestId:f.last('onto:cast-queue-next').requestId,currentSrc:first,src:nextSrc,queued:true}});
+  f.tv({path:'Unknown/file.mp4',positionSeconds:0,durationSeconds:400,status:'playing',transition:{fromPath:first,toPath:'Unknown/file.mp4',positionSeconds:390,durationSeconds:400,completed:true}});
+  assert.equal(f.player.state.cur,kidLibrary.findIndex(video=>video.src===first));
+  f.tv({path:nextSrc,positionSeconds:0,durationSeconds:400,status:'playing',transition:{fromPath:first,toPath:nextSrc,positionSeconds:390,durationSeconds:400,completed:true}});
+  assert.equal(kidLibrary[f.player.state.cur].src,nextSrc);
+  assert.equal(f.player.state.weights[first],1.3);
+  assert.equal(f.sent.filter(message=>message.type==='onto:cast-play').length,1,'native transition must not issue a second Play');
+  f.tv({path:nextSrc,positionSeconds:4,durationSeconds:400,status:'playing'});
+  assert.equal(f.player.state.weights[first],1.3);
+});
+
+test('adult lookaheads with a saved bookmark stay on the software path', () => {
+  const f=castFixture({videos:adultVideos,profileFlow:false});
+  const saved={};
+  for (const video of adultVideos.slice(1)) saved[video.src]={time:10,saved:false,updated:1};
+  f.entries['onto.adult.v1']=JSON.stringify(saved);
+  f.player.startStream('grown');
+  f.player.startCasting();
+  const first=adultVideos[f.player.state.cur].src;
+  f.tv({path:first,positionSeconds:20,durationSeconds:400,status:'playing'});
+  assert.equal(f.player.state.cast.next.software,true);
+  assert.equal(f.sent.some(message=>message.type==='onto:cast-queue-next'),false);
+});
+
 test('sending the channel to the TV hands over the episode and its position', () => {
   const f=castFixture();
   f.vid.currentTime=42;
@@ -988,10 +1042,183 @@ test('the TV losing the connection returns playback to the laptop without teachi
   assert.equal(f.player.state.weights[src],undefined);
   assert.match(f.elements.toast.textContent,/TV/);
 });
+test('adult cast timeline and seek controls use TV time without moving the paused laptop', () => {
+  const f=castFixture({videos:adultVideos,profileFlow:false});
+  f.player.startStream('grown');
+  f.vid.currentTime=23; f.player.startCasting();
+  const src=adultVideos[f.player.state.cur].src;
+  f.tv({path:src,positionSeconds:200,durationSeconds:400,status:'playing'});
+  assert.equal(f.elements.seek.value,200);
+  assert.equal(f.elements.seek.max,400);
+  assert.equal(f.elements.elapsed.textContent,'3:20');
+  assert.equal(f.elements.duration.textContent,'6:40');
+  const watched=f.player.state.navigation[f.player.state.navIndex].watched;
+  f.player.seekTo(250);
+  assert.deepEqual(f.last('onto:cast-seek'),{type:'onto:cast-seek',seconds:250});
+  assert.equal(f.elements.seek.value,250);
+  assert.equal(f.player.state.navigation[f.player.state.navIndex].watched,watched);
+  f.elements.forward.dispatch('click');
+  assert.equal(f.last('onto:cast-seek').seconds,260);
+  f.elements.rewind.dispatch('click');
+  assert.equal(f.last('onto:cast-seek').seconds,250);
+  f.document.dispatch('keydown',{key:'ArrowRight',shiftKey:true,preventDefault(){}});
+  assert.equal(f.last('onto:cast-seek').seconds,260);
+  f.document.dispatch('keydown',{key:'ArrowLeft',shiftKey:true,preventDefault(){}});
+  assert.equal(f.last('onto:cast-seek').seconds,250);
+  f.elements.seek.value='350'; f.elements.seek.dispatch('input'); f.elements.seek.dispatch('change');
+  assert.equal(f.last('onto:cast-seek').seconds,350);
+  f.player.seekTo(999); assert.equal(f.last('onto:cast-seek').seconds,400);
+  f.player.seekTo(-10); assert.equal(f.last('onto:cast-seek').seconds,0);
+  assert.equal(f.vid.currentTime,23);
+  assert.equal(f.vid.paused,true);
+  assert.equal(f.last('onto:history').positionSeconds,0);
+});
+test('local channel history reports played progress every five seconds and flushes on closing', () => {
+  let time=0;
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  const f=fixture({parent,now:()=>time});
+  const history=()=>sent.filter(message=>message.type==='onto:history');
+  f.player.startStream(2);
+  assert.deepEqual(history(),[{type:'onto:history',src:videos[0].src,title:videos[0].title,
+    positionSeconds:0,durationSeconds:120,completed:false}]);
+  for (let i=1;i<50;i++) { time=i*100; f.vid.currentTime=i/10; f.vid.dispatch('timeupdate'); }
+  assert.equal(history().length,1);
+  time=5000; f.vid.currentTime=5; f.vid.dispatch('timeupdate');
+  assert.equal(history().length,2);
+  assert.equal(history()[1].positionSeconds,5);
+  time=5500; f.vid.currentTime=5.5; f.window.dispatch('pagehide');
+  assert.equal(history().length,3);
+  assert.equal(history()[2].positionSeconds,5.5);
+  assert.equal(history()[2].completed,false);
+});
+test('pending or failed local selections cannot replace the last genuinely played history item', () => {
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  const library=videos.map(video=>({...video,tier:'shared'}));
+  const f=fixture({parent,videos:library,play(){return Promise.resolve();}});
+  const history=()=>sent.filter(message=>message.type==='onto:history');
+  f.player.startStream(2);
+  assert.equal(history().length,0);
+  f.vid.readyState=1; f.vid.currentSrc=f.vid.src; f.vid.dispatch('loadedmetadata'); f.vid.dispatch('playing');
+  const played=library[f.player.state.cur].src;
+  f.vid.currentTime=42; f.player.next('skip');
+  assert.equal(history().at(-1).src,played);
+  assert.equal(history().at(-1).positionSeconds,42);
+  const count=history().length;
+  // Events still queued for the outgoing source must not name the selection.
+  f.vid.dispatch('playing'); f.vid.dispatch('timeupdate');
+  f.vid.currentSrc=f.vid.src; f.vid.error={code:3}; f.vid.dispatch('error');
+  f.window.dispatch('pagehide');
+  assert.equal(history().length,count);
+  assert.ok(history().every(message=>message.src===played && !message.completed));
+});
+test('history marks completion only when an actually played channel item ends', () => {
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  const f=fixture({parent});
+  f.player.startStream(2);
+  f.vid.currentTime=119; f.player.next('skip');
+  assert.ok(sent.filter(message=>message.type==='onto:history').every(message=>!message.completed));
+  const completed=videos[f.player.state.cur].src;
+  f.vid.currentTime=120; f.vid.ended=true; f.vid.dispatch('ended');
+  const finished=sent.filter(message=>message.type==='onto:history' && message.completed);
+  assert.equal(finished.length,1);
+  assert.equal(finished[0].src,completed);
+  assert.equal(finished[0].positionSeconds,120);
+});
+test('cast history waits for the selected TV item to play and retains TV time on leaving', () => {
+  const f=castFixture({profileFlow:false,play(){return Promise.resolve();}});
+  const history=()=>f.sent.filter(message=>message.type==='onto:history');
+  f.player.startStream(2); f.player.startCasting();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.tv({path:first,positionSeconds:0,durationSeconds:400,status:'starting'});
+  assert.equal(history().length,0);
+  f.tv({path:first,positionSeconds:42,durationSeconds:400,status:'playing'});
+  assert.equal(history().at(-1).src,first);
+  assert.equal(history().at(-1).positionSeconds,42);
+  f.player.next('skip');
+  const pending=kidLibrary[f.player.state.cur].src;
+  const count=history().length;
+  f.tv({path:first,positionSeconds:43,durationSeconds:400,status:'playing'});
+  f.vid.dispatch('playing'); f.vid.dispatch('timeupdate');
+  f.window.dispatch('pagehide');
+  assert.equal(history().length,count);
+  assert.ok(history().every(message=>message.src!==pending));
+  f.tv({path:pending,positionSeconds:75,durationSeconds:400,status:'playing'});
+  assert.equal(history().at(-1).src,pending);
+  f.tv({path:pending,positionSeconds:77,durationSeconds:400,status:'playing'});
+  f.player.switchStream();
+  assert.equal(history().at(-1).positionSeconds,77);
+  assert.equal(history().at(-1).completed,false);
+});
+test('a pending adult bookmark is handed to the TV and completion names the finished item', () => {
+  const f=castFixture({videos:adultVideos,profileFlow:false,play(){return Promise.resolve();}});
+  f.entries['onto.adult.v1']=JSON.stringify({[adultVideos[0].src]:{time:70}});
+  f.player.startStream('grown'); f.player.startCasting();
+  assert.equal(f.last('onto:cast-play').seconds,70);
+  assert.equal(f.player.state.pendingSeek,null);
+  assert.equal(f.last('onto:history'),undefined);
+  const first=adultVideos[f.player.state.cur].src;
+  f.tv({path:first,positionSeconds:400,durationSeconds:400,status:'playing'});
+  f.tv({path:'',positionSeconds:0,durationSeconds:0,status:'finished'});
+  assert.deepEqual(f.last('onto:history'),{type:'onto:history',src:first,title:adultVideos[0].title,
+    positionSeconds:400,durationSeconds:400,completed:true});
+  assert.notEqual(f.last('onto:cast-play').src,first);
+});
 test('leaving a playing channel returns to who is watching', () => {
   const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
   f.elements.switch.dispatch('click');
   assert.equal(f.elements.splash.hidden,false);
   assert.equal(f.elements.profiles.hidden,false);
   assert.equal(f.elements.streams.hidden,true);
+});
+
+// Regression: dislike must survive opening the app, and show rotation must not override it.
+test('repeated reloads retain learned dislike and completion weights',()=>{
+  const entries={[keyFor(6)]:JSON.stringify({[videos[0].src]:0.15,[videos[1].src]:2.6})};
+  const storage={getItem:key=>entries[key]};
+  for(let i=0;i<20;i++) entries[keyFor(6)]=JSON.stringify(readWeights(storage,6,videos));
+  assert.deepEqual(JSON.parse(entries[keyFor(6)]),{[videos[0].src]:0.15,[videos[1].src]:2.6});
+});
+test('recent favourite shows remain eligible instead of forcing a rejected show',()=>{
+  const catalog=Array.from({length:13},(_,i)=>({src:`fav-${i}`,channel:i<6?'A':i<12?'B':'Rejected',duration:300}));
+  const weights=Object.fromEntries(catalog.map(v=>[v.src,v.channel==='Rejected'?0.15:2]));
+  const pool=catalog.map((_,i)=>i);let seed=55,rejected=0;
+  const random=()=>((seed=(Math.imul(1664525,seed)+1013904223)>>>0)/4294967296);
+  for(let i=0;i<10000;i++){
+    const choice=pickVideo(catalog,pool,weights,6,new Set(),[0,6],random);
+    assert.ok(choice!==0 && choice!==6);
+    if(choice===12) rejected++;
+  }
+  assert.ok(rejected>0 && rejected<1200,`rejected selected ${rejected} times`);
+});
+test('confirmed one-second skips persist across a fresh player, unstarted media stays neutral',()=>{
+  const data={}; const storage={getItem:k=>data[k]??null,setItem:(k,v)=>{data[k]=v;}};
+  const first=fixture({storage}); first.player.startStream(6);
+  const src=videos[first.player.state.cur].src;
+  first.vid.currentTime=1; first.player.next('skip');
+  assert.equal(JSON.parse(data[keyFor(6)])[src],0.7);
+  const reopened=fixture({storage}); reopened.player.startStream(6);
+  assert.equal(reopened.player.state.weights[src],0.7);
+  const pending=fixture({play(){return new Promise(()=>{});}});pending.player.startStream(6);
+  const unplayed=videos[pending.player.state.cur].src;pending.player.next('skip');
+  assert.equal(pending.player.state.weights[unplayed],undefined);
+});
+test('sequential picks keep a repeatedly rejected one-file show uncommon',()=>{
+  const catalog=Array.from({length:25},(_,i)=>({src:`seq-${i}`,channel:i===24?'Rejected':i<12?'A':'B',duration:300}));
+  const pool=catalog.map((_,i)=>i), weights=Object.fromEntries(catalog.map(v=>[v.src,v.channel==='Rejected'?1:2]));
+  let seed=91,current=-1,rejected=0;const history=[];
+  const random=()=>((seed=(Math.imul(1664525,seed)+1013904223)>>>0)/4294967296);
+  for(let i=0;i<3000;i++){
+    current=pickVideo(catalog,pool,weights,current,new Set(),history,random);
+    if(current===24){weights[catalog[current].src]=learnedWeight(weights[catalog[current].src],'skip',1,300,1);if(i>=100)rejected++;}
+    history.push(current);if(history.length>6)history.shift();
+  }
+  assert.equal(weights['seq-24'],0.15);
+  assert.ok(rejected<300,`rejected ${rejected}/2900 after learning`);
+});
+test('confirmed one-second TV skip records a dislike before continuing the prepared queue',()=>{
+  const f=castFixture();const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');f.tv({path:src,positionSeconds:1,durationSeconds:400,status:'playing'});
+  f.player.next('skip');
+  assert.equal(f.player.state.weights[src],0.7);
+  assert.equal(JSON.parse(f.entries[keyFor(2)])[src],0.7);
 });

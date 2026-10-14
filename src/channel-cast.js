@@ -15,6 +15,12 @@ export function playOnTv(session, catalogue, src, seconds) {
   return session.playOnly([{ path, startSeconds }]);
 }
 
+export async function queueOnTv(session, catalogue, src, currentSrc) {
+  const path = castTarget(catalogue, src), currentPath = castTarget(catalogue, currentSrc);
+  const state = await session.queueNext({ path, startSeconds: 0 }, currentPath);
+  return state.current?.path === currentPath && state.upcoming.some(item => item.path === path);
+}
+
 export function tvNotice(catalogue, state) {
   if (!state || state.status === 'preparing') return null;
   if (state.status === 'finished') {
@@ -31,6 +37,24 @@ export function tvNotice(catalogue, state) {
       positionSeconds: state.current.positionSeconds || 0,
       durationSeconds: state.current.durationSeconds || 0,
       status: state.status,
+      ...(state.transition ? { transition: {
+        ...state.transition,
+        fromPath: srcForPath(catalogue, state.transition.fromPath),
+        toPath: srcForPath(catalogue, state.transition.toPath),
+      } } : {}),
     },
   };
+}
+
+// The TV session owns confirmed cast progress; iframe reports own local viewing.
+// In particular, an optimistic cast seek must never overwrite a saved bookmark.
+export async function recordLocalHistory(history, catalogue, input, { casting = false } = {}) {
+  if (casting || !history || !input || typeof input.src !== 'string') return false;
+  const path = castTarget(catalogue, input.src);
+  const { positionSeconds, durationSeconds, completed } = input;
+  if (!Number.isFinite(positionSeconds) || positionSeconds < 0 ||
+      !Number.isFinite(durationSeconds) || durationSeconds < 0 || typeof completed !== 'boolean') return false;
+  history.set(path, { positionSeconds, durationSeconds, completed, reset: input.reset === true });
+  await history.flush();
+  return true;
 }

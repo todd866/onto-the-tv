@@ -19,7 +19,22 @@ describe('isSamsungCompatible', () => {
     );
   });
 
-  it('rejects 4K, HEVC, and high levels so the TV gets a transcode instead', () => {
+  it('serves 1080p HEVC in Matroska as-is: the MU8000 decodes it natively', () => {
+    assert.equal(
+      isSamsungCompatible({
+        container: 'matroska',
+        videoCodec: 'hevc',
+        videoLevel: 120,
+        width: 1920,
+        height: 800,
+        audioCodec: 'aac',
+        audioChannels: 6,
+      }),
+      true,
+    );
+  });
+
+  it('rejects 4K, high H.264 levels, and unknown codecs so the TV gets a transcode instead', () => {
     assert.equal(
       isSamsungCompatible({
         container: 'mp4',
@@ -35,9 +50,19 @@ describe('isSamsungCompatible', () => {
       isSamsungCompatible({
         container: 'mp4',
         videoCodec: 'hevc',
+        width: 3840,
+        height: 2160,
+        audioCodec: 'aac',
+      }),
+      false,
+    );
+    assert.equal(
+      isSamsungCompatible({
+        container: 'mkv',
+        videoCodec: 'vp9',
         width: 1920,
         height: 1080,
-        audioCodec: 'aac',
+        audioCodec: 'opus',
       }),
       false,
     );

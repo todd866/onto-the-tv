@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; frame-src file: about:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' file:; media-src file:; connect-src 'none'; frame-src file: about:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Onto the TV</title>
   <link rel="icon" href="../brand/onto-the-tv-icon.png">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="ambient.css">
 </head>
 <body>
   <main>
@@ -14,7 +15,10 @@
       <div class="brand"><img src="../brand/onto-the-tv-icon.png" width="30" height="30" alt=""><h1>onto<span>TV</span></h1></div>
       <nav class="modes" aria-label="Where to watch">
         <button id="mode-local" class="selected" aria-pressed="true">Channels</button>
+        <button id="mode-library" aria-pressed="false">Library</button>
+        <button id="mode-ambient" aria-pressed="false">Screensaver</button>
         <button id="mode-tv" aria-pressed="false">TV</button>
+        <button id="mode-history" aria-pressed="false">History</button>
       </nav>
       <button id="library-toggle" title="Library settings" aria-label="Library settings">⚙</button>
     </header>
@@ -22,10 +26,55 @@
       <iframe id="channel-player" title="Channels" sandbox="allow-scripts allow-same-origin" allow="autoplay *; fullscreen *" allowfullscreen hidden></iframe>
       <div id="empty-library" hidden><button class="primary" id="start-library">Choose videos…</button></div>
     </section>
+    <section id="library-view" hidden aria-label="Video library">
+      <div class="library-toolbar">
+        <div class="library-tools"><button id="refresh-library" aria-label="Refresh library" title="Refresh library">↻</button><p class="small quiet" id="library-count"></p></div>
+        <input id="library-search" type="search" placeholder="Search titles and shows" aria-label="Search library">
+      </div>
+      <div class="library-filters" role="group" aria-label="Library filters">
+        <button type="button" class="selected" data-library-filter="home">Home</button>
+        <button type="button" data-library-filter="film">Films</button>
+        <button type="button" data-library-filter="show">Shows</button>
+        <button type="button" data-library-filter="all">Everything</button>
+      </div>
+      <p id="library-empty" class="small quiet" hidden>No videos match that search.</p>
+      <div id="library-home">
+        <section class="library-row" id="library-continue" aria-labelledby="library-continue-title">
+          <h3 id="library-continue-title">Continue watching</h3>
+          <ul id="library-continue-list" aria-label="Continue watching"></ul>
+        </section>
+        <section class="library-row" id="library-films" aria-labelledby="library-films-title">
+          <h3 id="library-films-title">Films</h3>
+          <ul id="library-films-list" aria-label="Films"></ul>
+        </section>
+      </div>
+      <ul id="library-list" aria-label="Library videos"></ul>
+    </section>
+    <section id="ambient-view" hidden aria-label="Screensaver">
+      <div class="ambient-heading">
+        <button id="ambient-retry" aria-label="Refresh screensaver" title="Refresh">↻</button>
+        <p id="ambient-status" class="small quiet" role="status" aria-live="polite"></p>
+      </div>
+      <div class="ambient-layout">
+        <div><div class="ambient-stage" id="ambient-stage" aria-label="Screensaver preview"></div><div class="ambient-preview-nav"><button type="button" id="ambient-prev" aria-label="Previous slide">←</button><span class="small quiet">Preview</span><button type="button" id="ambient-next" aria-label="Next slide">→</button></div></div>
+        <aside class="ambient-options" aria-label="Screensaver options">
+          <div class="ambient-option-grid" role="group" aria-label="Screensaver sources">
+            <button type="button" class="ambient-option selected" data-ambient-kind="weather" aria-pressed="true"><span class="ambient-option-icon">☼</span><span><strong>Weather</strong><small>Isobar channel</small></span></button>
+            <button type="button" class="ambient-option" data-ambient-kind="news" aria-pressed="false"><span class="ambient-option-icon">Aa</span><span><strong>Headlines</strong><small>BBC World News</small></span></button>
+            <button type="button" class="ambient-option" data-ambient-kind="photos" aria-pressed="false"><span class="ambient-option-icon">▧</span><span><strong>Photos</strong><small>Your folder</small></span></button>
+          </div>
+          <details class="ambient-more"><summary>Options</summary><div class="ambient-settings">
+            <label>Location<select id="ambient-location" aria-label="Screensaver location"></select></label>
+            <label>Change every<select id="ambient-pace" aria-label="Screensaver pace"><option value="20" selected>20 seconds</option><option value="10">10 seconds</option><option value="40">40 seconds</option></select></label>
+          </div>
+          <button type="button" id="ambient-photos">Choose photos folder…</button></details><div class="ambient-actions"><button type="button" class="primary" id="ambient-start">Onto the TV</button><button type="button" id="ambient-cancel" hidden>Cancel</button></div>
+        </aside>
+      </div>
+    </section>
     <section class="library-drawer" id="library-settings" hidden aria-label="Library settings">
       <div class="drawer-heading"><h2>Library</h2><button id="library-close" aria-label="Close library settings">✕</button></div>
       <p class="path" id="library-path"></p>
-      <div class="actions"><button id="choose-library">Choose folder…</button><button id="build-shuffler">Refresh</button></div>
+      <div class="actions"><button id="choose-library">Choose folder…</button><button id="choose-media-folder">Add media folder…</button><button id="build-shuffler">Refresh</button></div>
       <details><summary>Channel setup</summary>
         <p class="small quiet">Unassigned shows go to Everything.</p>
         <div class="actions"><button id="choose-tiers">Show groups…</button><button id="choose-sources">More folders…</button><button id="choose-player">Import library…</button></div>
@@ -33,18 +82,27 @@
       </details>
     </section>
     <section id="tv-view" hidden aria-label="Samsung TV playback">
-      <button class="gate" id="gate">
-        <span class="drop-symbol" aria-hidden="true">↗</span>
-        <span class="invite">Drop a video here</span>
-        <span class="browse">Choose a video</span>
-      </button>
       <p class="quiet small" id="room">Connect a TV below.</p>
-      <section class="deck" id="deck" hidden aria-label="TV queue">
+      <section class="deck" id="deck" hidden aria-label="TV playback">
         <div class="now"><p id="now-title"></p><p id="now-time"></p></div>
-        <progress id="progress" max="100" value="0" aria-label="TV playback progress"></progress>
-        <div class="actions"><button id="pause">Pause</button><button id="resume">Resume</button><button id="stop">Stop</button></div>
+        <input id="progress" type="range" min="0" max="100" step="1" value="0" aria-label="Playback position">
+        <div class="actions playback-actions">
+          <button id="rewind" title="Back 10 seconds (Left arrow)" aria-label="Back 10 seconds">−10s</button>
+          <button id="pause">Pause</button><button id="resume">Resume</button>
+          <button id="forward" title="Forward 30 seconds (Right arrow)" aria-label="Forward 30 seconds">+30s</button>
+          <button id="next" hidden>Next file</button><button id="stop">Stop</button>
+        </div>
+        <details id="scene-points">
+          <summary id="points-summary">Scenes &amp; chapters</summary>
+          <div id="points-list" aria-label="Scene and chapter navigation"></div>
+          <form id="point-form"><input id="point-title" maxlength="120" placeholder="Name this moment…" aria-label="Scene name" required><button type="submit">Save point</button></form>
+        </details>
         <ol id="queue"></ol>
       </section>
+      <div class="file-actions">
+        <button class="gate" id="gate"><span class="drop-symbol" aria-hidden="true">↗</span><span class="invite">Open a video</span><span class="browse">or drop it here</span></button>
+        <button id="enqueue">Add to queue…</button>
+      </div>
       <details class="settings" id="tv-settings">
         <summary>Connection</summary>
         <form id="tv-form">
@@ -58,8 +116,15 @@
         </form>
       </details>
     </section>
+      <section class="history" id="history-view" hidden aria-label="Watch history">
+        <h2>Watch history</h2>
+        <p id="history-empty" class="small quiet">Videos you watch in the app or on the TV appear here.</p>
+        <ol id="history-list" aria-label="Previously watched files"></ol>
+      </section>
     <p class="status" id="status" role="status" aria-live="polite"></p>
   </main>
+  <script src="ambient-slide.js"></script>
+  <script src="ambient.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

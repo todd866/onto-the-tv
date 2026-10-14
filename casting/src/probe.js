@@ -6,6 +6,12 @@ function isH264(codec) {
   return /^(h264|avc1)/i.test(codec || '');
 }
 
+// The UA65MU8000 decodes HEVC natively; verified 2026-09-17 by serving a
+// 1080p HEVC/AAC-5.1 MKV untouched and watching the TV report PLAYING.
+function isHevc(codec) {
+  return /^(hevc|h265|hvc1|hev1)/i.test(codec || '');
+}
+
 function isAac(codec) {
   return /^(aac|mp4a)/i.test(codec || '');
 }
@@ -28,12 +34,13 @@ export function isSamsungCompatible(info = {}) {
   if (!hasVideo && !hasAudio) return false;
 
   if (hasVideo) {
-    if (!isH264(info.videoCodec)) return false;
+    const hevc = isHevc(info.videoCodec);
+    if (!isH264(info.videoCodec) && !hevc) return false;
     if ((info.width || 0) > MAX_WIDTH || (info.height || 0) > MAX_HEIGHT) return false;
     const level = numericLevel(info.videoLevel);
-    if (level != null && level > MAX_LEVEL) return false;
+    if (!hevc && level != null && level > MAX_LEVEL) return false;
     const container = (info.container || '').toLowerCase();
-    if (container && !['mp4', 'm4v', 'mov', 'qt'].includes(container)) return false;
+    if (container && !['mp4', 'm4v', 'mov', 'qt', 'matroska', 'mkv'].includes(container)) return false;
   }
 
   if (hasAudio) {

@@ -45,6 +45,8 @@ def production_files(root: Path) -> list[Path]:
     required = [
         Path("package.json"), Path("src/main.js"), Path("src/preload.cjs"),
         Path("ui/index.html"), Path("ui/app.js"), Path("ui/styles.css"),
+        Path("ui/ambient.js"), Path("ui/ambient-slide.js"),
+        Path("ui/ambient.css"), Path("ui/ambient-render.html"), Path("ui/ambient-render.js"),
         Path("brand/onto-the-tv-icon.png"), Path("brand/AppIcon.icns"),
         Path("shuffler/player.js"), Path("shuffler/player.html"),
         Path("shuffler/make_shuffler.py"), Path("shuffler/package.json"),
@@ -155,7 +157,7 @@ def prune_backups(output: Path, keep: int = 1) -> list[Path]:
     return removed
 
 
-def install(root: Path, output: Path, *, register: bool, runner=run_command) -> Path | None:
+def install(root: Path, output: Path, *, register: bool, runner=run_command, keep_backups: int = 1) -> Path | None:
     output = output.expanduser().absolute()
     if output.suffix.lower() != ".app" or output.is_symlink():
         raise InstallError("Choose an .app output path that is not a symbolic link.")
@@ -193,7 +195,7 @@ def install(root: Path, output: Path, *, register: bool, runner=run_command) -> 
                 backup.rename(output)
                 backup = None
             raise
-        prune_backups(output)
+        prune_backups(output, keep=keep_backups)
         return backup
     finally:
         if stage.exists():
@@ -204,12 +206,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, help="Custom .app build path; no Launch Services registration")
     parser.add_argument("--no-register", action="store_true", help="Skip touching and registering the installed app")
+    parser.add_argument("--keep-backups", type=int, default=1, choices=range(1, 6),
+                        help="Keep more previous bundles when an older app is still running")
     args = parser.parse_args(argv)
     if sys.platform != "darwin":
         parser.error("This installer requires macOS.")
     output = (args.output or Path.home() / "Applications" / f"{APP_NAME}.app").expanduser().absolute()
     try:
-        backup = install(ROOT, output, register=args.output is None and not args.no_register)
+        backup = install(ROOT, output, register=args.output is None and not args.no_register,
+                         keep_backups=args.keep_backups)
     except (InstallError, OSError, ValueError, plistlib.InvalidFileException) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

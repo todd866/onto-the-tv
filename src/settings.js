@@ -3,11 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { dirname, join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { isIPv4 } from 'node:net';
+import { DEFAULT_AMBIENT_OPTIONS, validateAmbientOptions } from './ambient-sources.js';
 
 export function defaults(home = homedir()) {
   const library = join(home, 'Movies', 'kids-holiday');
   return { tvHost: '', avTransportUrl: '', bindHost: '', library,
-    playerPath: join(library, 'kids-shuffler.html'), tiersPath: '', sourcesPath: '' };
+    playerPath: join(library, 'kids-shuffler.html'), tiersPath: '', sourcesPath: '', mediaFolders: [],
+    ambient: { ...DEFAULT_AMBIENT_OPTIONS } };
 }
 
 export function validateTvSettings(input) {
@@ -40,6 +42,9 @@ export async function readSettings(path, home) {
     for (const key of ['library', 'playerPath', 'tiersPath', 'sourcesPath']) {
       if (typeof data[key] === 'string' && isAbsolute(data[key])) result[key] = data[key];
     }
+    if (Array.isArray(data.mediaFolders)) result.mediaFolders = [...new Set(data.mediaFolders.filter(path =>
+      typeof path === 'string' && path.length <= 4096 && !path.includes('\0') && isAbsolute(path)))].slice(0, 128);
+    if (data.ambient) result.ambient = validateAmbientOptions(data.ambient);
   } catch (error) {
     if (error.code !== 'ENOENT') throw new Error(`Cannot read settings: ${error.message}`);
   }

@@ -1,13 +1,23 @@
+import { loadPlaybackHistory } from './playback-history.js';
 import { createTasteWriter } from './taste.js';
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { dirname, join, isAbsolute } from 'node:path';
 import { createLiveSession } from './live.js';
 import { loadConfig } from '../casting/src/config.js';
+import { createFileOpenBatcher } from './file-open-batch.js';
 import { filesFromArgv } from './launch-files.js';
 import { defaults, readSettings, writeSettings, validateTvSettings } from './settings.js';
-import { playerExists, buildPlayer, prepareChannels } from './shuffler.js';
-import { playOnTv, tvNotice } from './channel-cast.js';
+import { playerExists, buildPlayer, prepareChannels, readCatalogue } from './shuffler.js';
+import { playOnTv, queueOnTv, tvNotice, recordLocalHistory } from './channel-cast.js';
+import { buildLibrary, scanMediaLibrary } from './library.js';
+import { createArtworkCache } from './library-artwork.js';
+import { createAmbientSources, validateAmbientOptions } from './ambient-sources.js';
+import { createAmbientPlayer } from './ambient-player.js';
+import { buildAmbientVideo } from './ambient-video.js';
+import { createAmbientCapture } from './ambient-capture.js';
+import { readIsobarProgramme } from './weather-channel.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, '..');
@@ -15,13 +25,50 @@ const uiUrl = pathToFileURL(join(appRoot, 'ui/index.html')).href;
 // Finder does not inherit a shell's Homebrew PATH.
 process.env.PATH = [...new Set([process.env.PATH || '', '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])].join(':');
 const pendingFiles = [];
+const finderFiles = createFileOpenBatcher(paths => queueOrAdd(paths), {
+  onError: error => send('app:error', error.message),
+});
 let win, session, settings, settingsPath, unsubscribe;
 let building = false;
 let quitting = false;
 let changingTv = false;
 let catalogue = null;
+let playbackHistory;
 let channelCasting = false;
 let sentFinished = false;
+let libraryPaths = new Set();
+let artwork;
+let ambient;
+const ambientSources = createAmbientSources();
+
+async function ambientContent(options) {
+  const result = await ambientSources.snapshot(options);
+  if (options.weather) {
+    try {
+      result.weatherVideo = await readIsobarProgramme();
+      if (!result.weatherVideo) result.issues.push('Weather maps are preparing. Local forecast is available.');
+    } catch (error) { result.issues.push(error.message); }
+  }
+  return result;
+}
+
+async function ambientSnapshot(input) {
+  const options = validateAmbientOptions({ ...settings.ambient, ...input,
+    photoFolder: settings.ambient.photoFolder });
+  const content = await ambientContent(options);
+  return { options, slides:[...(content.weatherVideo ? [content.weatherVideo.slide] : []), ...content.slides],
+    locations:content.locations, issues:content.issues };
+}
+
+async function libraryIndex() {
+  const history = playbackHistory?.list() || [];
+  let videos = [];
+  try { videos = readCatalogue(await readFile(settings.playerPath, 'utf8'), settings.playerPath, settings.playerPath); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const scanned = await scanMediaLibrary([...(settings.mediaFolders || []), ...history.map(item => item.path)]);
+  libraryPaths = new Set([...videos.map(item => item.file), ...scanned.map(item => item.path)]);
+  return buildLibrary(videos, history.filter(item => libraryPaths.has(item.path)), scanned);
+}
 
 function send(channel, value) {
   if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(channel, value);
@@ -30,7 +77,7 @@ function sendState(state) { send('drop:state', state); }
 
 function forwardChannel(state) {
   sendState(state);
-  if (!channelCasting) return;
+  if (!channelCasting) return false;
   const notice = tvNotice(catalogue, state);
   if (!notice) return;
   if (notice.type === 'onto:tv' && notice.tv?.status === 'finished') {
@@ -46,15 +93,31 @@ function forwardChannel(state) {
 function newSession() {
   unsubscribe?.();
   channelCasting = false;
-  session = createLiveSession(loadConfig(process.env, settings));
+  const history = playbackHistory && { ...playbackHistory,
+    set: (path, data) => { if (!ambient?.owns(path)) playbackHistory.set(path, data); },
+  };
+  session = createLiveSession(loadConfig(process.env, settings), history);
+  ambient = createAmbientPlayer({ session,
+    beforePlay: takeOverFromChannel,
+    onStatus: state => send('ambient:state', state),
+    build: async (options, signal) => {
+      const snapshot = await ambientContent(options);
+      signal.throwIfAborted();
+      if (!snapshot.slides.length && !snapshot.weatherVideo) throw new Error(snapshot.issues.join(' ') || 'Choose a screensaver source.');
+      return buildAmbientVideo({ slides: snapshot.slides, pace: options.pace, signal,
+        weatherVideo: snapshot.weatherVideo,
+        capture: createAmbientCapture({ BrowserWindow, appRoot }),
+        ffmpeg: loadConfig(process.env, settings).ffmpeg });
+    },
+  });
   unsubscribe = session.onChange(forwardChannel);
 }
 
-async function takeOverFromChannel() {
-  if (!channelCasting) return;
+function takeOverFromChannel() {
+  if (!channelCasting) return false;
   channelCasting = false;
   send('channel:notice', { type: 'onto:cast-off', reason: 'Playing a dropped file on the TV.' });
-  await session.stop();
+  return true;
 }
 
 async function snapshot() {
@@ -67,9 +130,9 @@ async function queueOrAdd(paths) {
   if (!paths.length) return;
   if (!session) { pendingFiles.push(...paths); return; }
   if (changingTv) { sendState({ ...session.getState(), error: 'Wait for TV settings to finish saving, then try again.' }); return; }
-  await takeOverFromChannel();
+  ambient?.cancel(); takeOverFromChannel();
   send('app:mode', 'tv');
-  try { await session.addFiles(paths); }
+  try { await session.playOnly(paths); }
   catch (error) { sendState({ ...session.getState(), error: error.message }); }
 }
 
@@ -87,6 +150,8 @@ async function createWindow() {
   let settingsError;
   try { settings = await readSettings(settingsPath); }
   catch (error) { settings = defaults(); settingsError = error.message; }
+  try { playbackHistory = await loadPlaybackHistory(join(app.getPath('userData'), 'playback-history.json')); }
+  catch (error) { settingsError = [settingsError, error.message].filter(Boolean).join(' '); }
   newSession();
   win = new BrowserWindow({
     width: 980, height: 720, minWidth: 520, minHeight: 560,
@@ -111,33 +176,51 @@ handle('taste:save', input => {
   return tasteWriter(input);
 });
 handle('app:get', snapshot);
-handle('drop:add', async (paths) => {
+handle('history:record', async input => {
+  if (await recordLocalHistory(playbackHistory, catalogue, input, { casting: channelCasting })) sendState(session.getState());
+});
+async function openFiles(paths, enqueue = false) {
   if (changingTv) throw new Error('Wait for TV settings to finish saving.');
   if (!Array.isArray(paths) || paths.length > 1000 || paths.some(p => typeof p !== 'string' || !isAbsolute(p))) {
     throw new Error('Choose local video files.');
   }
-  await takeOverFromChannel();
-  return session.addFiles(paths);
-});
+  const wasAmbient = ambient?.owns(session.getState().current?.path);
+  ambient?.cancel();
+  const wasChannel = takeOverFromChannel();
+  send('app:mode', 'tv');
+  return enqueue && !wasChannel && !wasAmbient ? session.addFiles(paths) : session.playOnly(paths);
+}
+handle('drop:open', paths => openFiles(paths));
+handle('drop:add', paths => openFiles(paths, true));
+handle('drop:seek', (seconds, path) => session.seek(seconds, path));
+handle('drop:seek-by', (seconds, path) => session.seekBy(seconds, path));
+handle('drop:next', () => session.playNext());
+handle('drop:add-point', (title, path) => session.addPoint(title, path));
+handle('drop:remove-point', (id, path) => session.removePoint(id, path));
 handle('drop:pause', () => session.pause());
 handle('drop:resume', () => session.resume());
 handle('drop:stop', () => {
+  ambient?.cancel();
   const handed = channelCasting;
   channelCasting = false;
   if (handed) send('channel:notice', { type: 'onto:cast-off', reason: 'The TV stopped playing.' });
   return session.stop();
 });
-handle('drop:choose', async () => {
+handle('drop:choose', async (enqueue = false) => {
   if (changingTv) throw new Error('Wait for TV settings to finish saving.');
   const result = await dialog.showOpenDialog(win, { properties: ['openFile', 'openDirectory', 'multiSelections'],
     filters: [{ name: 'Video or audio', extensions: ['mp4', 'mkv', 'm4v', 'mov', 'webm', 'avi', 'm4a', 'mp3'] }] });
   if (result.canceled) return session.getState();
   if (changingTv) throw new Error('Wait for TV settings to finish saving.');
-  await takeOverFromChannel();
-  return session.addFiles(result.filePaths);
+  const wasAmbient = ambient?.owns(session.getState().current?.path);
+  ambient?.cancel();
+  const wasChannel = takeOverFromChannel();
+  send('app:mode', 'tv');
+  return enqueue === true && !wasChannel && !wasAmbient ? session.addFiles(result.filePaths) : session.playOnly(result.filePaths);
 });
 handle('channel:play', async (src, seconds) => {
   if (changingTv) throw new Error('Wait for TV settings to finish saving.');
+  ambient?.cancel();
   channelCasting = true;
   sentFinished = false;
   try {
@@ -148,14 +231,57 @@ handle('channel:play', async (src, seconds) => {
     throw error;
   }
 });
+handle('channel:queue-next', (src, currentSrc) => {
+  if (!channelCasting || changingTv) return false;
+  return queueOnTv(session, catalogue, src, currentSrc);
+});
+handle('library:get', () => libraryIndex());
+handle('ambient:get', input => ambientSnapshot(input));
+handle('ambient:save', async input => {
+  settings.ambient = validateAmbientOptions({ ...input, photoFolder: settings.ambient.photoFolder });
+  await persist(); return ambientSnapshot();
+});
+handle('ambient:photos', async () => {
+  const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose screensaver photos' });
+  if (!result.canceled && result.filePaths[0]) {
+    settings.ambient = { ...settings.ambient, photos: true, photoFolder: result.filePaths[0] };
+    await persist();
+  }
+  return ambientSnapshot();
+});
+handle('ambient:start', async input => {
+  if (changingTv) throw new Error('Wait for TV settings to finish saving.');
+  if (!loadConfig(process.env, settings).avTransportUrl) throw new Error('Connect a TV first.');
+  const options = validateAmbientOptions({ ...input, photoFolder: settings.ambient.photoFolder });
+  settings.ambient = options; await persist();
+  const state = await ambient.start(options);
+  return { ...state, ambientActive: ambient.owns(state.current?.path) };
+});
+handle('ambient:cancel', () => ambient?.cancel());
+handle('library:artwork', async path => {
+  if (!libraryPaths.has(path)) return null;
+  artwork ||= createArtworkCache({ directory: join(app.getPath('userData'), 'artwork') });
+  const file = await artwork.get(path);
+  return file ? pathToFileURL(file).href : null;
+});
+handle('library:add-folder', async () => {
+  const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Add videos to your library' });
+  if (!result.canceled && result.filePaths[0]) {
+    settings.mediaFolders = [...new Set([...(settings.mediaFolders || []), result.filePaths[0]])].slice(0, 128);
+    await persist();
+  }
+  return libraryIndex();
+});
 handle('settings:tv', async (input) => {
   if (changingTv) throw new Error('TV settings are already being saved.');
   if (session.getState().count || session.getState().status === 'preparing') throw new Error('Stop TV playback before changing the TV address.');
   const updated = { ...settings, ...validateTvSettings(input) };
   changingTv = true;
   try {
+    ambient?.cancel();
     await writeSettings(settingsPath, updated);
     await session.close();
+    await ambient?.close();
     settings = updated;
     newSession();
     return snapshot();
@@ -202,7 +328,7 @@ else {
     void queueOrAdd(filesFromArgv(argv, { appRoot }));
     if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
   });
-  app.on('open-file', (event, path) => { event.preventDefault(); void queueOrAdd([path]); });
+  app.on('open-file', (event, path) => { event.preventDefault(); finderFiles.add(path); });
   pendingFiles.push(...filesFromArgv(process.argv, { appRoot }));
   app.whenReady().then(createWindow).catch(error => {
     dialog.showErrorBox('Onto the TV could not start', error.message); app.quit();
@@ -210,7 +336,9 @@ else {
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', event => {
     if (quitting) return;
-    event.preventDefault(); quitting = true;
-    Promise.resolve(session?.close()).catch(error => console.error('TV cleanup:', error.message)).finally(() => app.quit());
+    event.preventDefault(); quitting = true; finderFiles.cancel();
+    ambient?.cancel();
+    Promise.allSettled([session?.close(), artwork?.close()])
+      .then(() => ambient?.close()).finally(() => app.quit());
   });
 }

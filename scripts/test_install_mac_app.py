@@ -49,6 +49,18 @@ class PruneBackups(unittest.TestCase):
             self.assertEqual(len(backups), 1)
             self.assertTrue(output.exists())
 
+    def test_install_can_retain_a_second_bundle_for_an_older_running_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "Onto the TV.app"
+            original = installer.build_bundle
+            installer.build_bundle = lambda root, stage, runner: fake_app(stage, installer.BUNDLE_ID)
+            try:
+                for _ in range(3):
+                    installer.install(Path(tmp), output, register=False, keep_backups=2)
+            finally:
+                installer.build_bundle = original
+            self.assertEqual(len(list(Path(tmp).glob(".Onto the TV.backup-*.app"))), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

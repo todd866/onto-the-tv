@@ -8,13 +8,26 @@ Open the app and the family-friendly channel starts. Changing who is watching
 takes a further tap; grown-ups then pick a channel. Each channel draws its next
 episode from your own library, learns from skips and completions, and avoids
 recent repeats. Playback happens inside the app. **Onto the TV** hands that
-channel to a Samsung on the same network, and the Mac stays the remote: skip,
-pause and next run there, and the next episode follows when one ends.
+channel to a Samsung on the same network. The app prepares one next episode for
+the TV's native Next control, follows confirmed TV track changes, and learns
+from remote skips as well as app skips. TVs without native queue support still
+advance when an episode finishes. Adult items with a saved position use the
+software transition so they resume correctly.
 
 ![Channels in Onto the TV](brand/app-preview.png)
 
-The TV tab remains for dropping a file that is not on a channel. The Mac stays
-awake and on the same network while it serves the TV.
+The TV tab opens individual files on the TV. Opening or dropping another file
+saves your place and replaces the current video; **Add to queue** leaves it
+playing. **History** lists the latest 500 files watched in the app or on the TV,
+with the last watched time, progress, completion and a button to resume on the TV.
+History starts recording with this version; existing channel taste/bookmarks stay
+separate. The Mac stays awake and on the same network while it serves the TV.
+
+**Library** is a visual browser: Continue watching, film tiles, search and show
+filters. Click a tile to play or resume on the TV. Artwork comes from local video
+frames and is cached privately; browsing does not start playback. Add more video
+folders through Library settings. These additions are for browsing and do not
+change the children's channel groups.
 
 ## Install on a Mac
 
@@ -126,8 +139,17 @@ brings the episode back to the laptop rather than skipping.
 
 This drives Samsung's DLNA renderer, not AirPlay, Chromecast or the TV's YouTube
 app. It grew from a 2017 Samsung; other models depend on their own renderer.
-There is no device discovery yet. The TV tab is still there if you want to drop
-a single file instead of handing over the channel.
+There is no device discovery yet. The TV tab also opens individual files. Its timeline, **−10s** and **+30s**
+buttons seek without restarting the file; quick clicks combine into one jump.
+Left/right arrows work when focus is outside a control. Saved progress survives
+Stop and app restarts. Files that finish start from the beginning next time.
+If a TV rejects seeking, playback continues and the app reports the problem.
+
+**Scenes & chapters** offers clickable chapter titles embedded in the file.
+Name a moment and choose **Save point** to keep your own scene bookmark. These
+points stay with the file in your private history; × removes a saved point.
+Files without chapter metadata need your own scene names: the app does not
+invent plot summaries or scan whole films for scenes.
 
 For command-line use, `npm run cast -- --help` exposes the casting tools.
 YouTube URLs there need `yt-dlp`; the desktop app works with local files.
@@ -138,6 +160,9 @@ YouTube URLs there need `yt-dlp`; the desktop app works with local files.
 - Channel preferences and up to 3,000 viewing records live in the app's local
   storage. The [guide](shuffler/README.md#watching-and-learning) lists exactly
   what a record holds. Clearing app storage removes them.
+- Watch history, resume positions and named scene points live in the private
+  `playback-history.json` beside the app settings. History is keyed by the local
+  file path, so moving or renaming a file creates a separate entry.
 - TV settings and chosen paths live in
   `~/Library/Application Support/Onto the TV/settings.json`, outside the repo.
 - While casting, a temporary HTTP server serves only the selected files at
@@ -176,3 +201,13 @@ is included under the same license. Electron and its bundled components keep
 their own licenses, which the installer carries into the app. FFmpeg and optional
 tools are installed separately. Samsung is a trademark of its owner; this is an
 independent project.
+
+## Screensaver
+
+The Screensaver tab previews a quiet programme for the room. Turn Weather, Headlines and Photos on individually or combine them, then choose **Onto the TV** to start. Merely browsing or changing options does not change TV playback. Stop or open another video to leave it. This is a manually started programme, with no idle timer.
+
+Weather reads Isobar’s published local forecast archive (`~/Data/isobar`); the prepared map animation is discovered in `~/Library/Caches/Isobar/wall` (`ISOBAR_WALL_DIR` can override it). Isobar owns the weather maps and their forecast interpolation. Local forecast cards, photos and optional BBC World News headlines are composed into silent 24fps H.264/AAC video with generated transition frames. News is off by default. Photos come only from a folder you choose; JPEG, PNG and WebP are supported.
+
+The app prepares one rotation ahead, refreshes sources between segments, and removes temporary media after it leaves the queue. Keep the Mac and app running while the TV is playing. Photo scanning and news requests are bounded; missing sources are reported in the preview. World-weather coverage is a future programme segment.
+
+[Omni](https://github.com/todd866/omnifeed) is the separate unified-content project.

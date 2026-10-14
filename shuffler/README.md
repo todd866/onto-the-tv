@@ -86,20 +86,23 @@ History retains up to 50 visits in the current stream and resets when switching
 streams or reloading. Playback failures do not teach a dislike.
 
 Learning counts what you watched during a visit, not where the playhead sits.
-Leaving within three minutes of watching lowers that video's weight by 30%.
+After playback has started, leaving within three minutes of watching lowers
+that video's weight by 30%. Skipping a video before it starts, or a playback
+failure, does not teach a dislike.
 Reaching the end raises it by 30%, as does leaving at 80% or more once you have
 watched at least three minutes or most of the file. So resuming a bookmark near
 the end and skipping straight past it teaches nothing, and rejecting a resumed
 film immediately counts as a fresh bail-out. Seeking makes a visit neutral;
 returning to it later starts a fresh visit that can teach again.
 
-Weights stay between 0.15 and 4. Opening a channel for the first time in a
-session moves that audience's saved preferences 25% back toward the neutral
-weight of 1; moving between that audience's channels does not decay them again.
+Weights stay between 0.15 and 4. Saved preferences survive reopening the app
+and switching channels; opening a channel does not weaken previous skips or
+completions.
 Each audience learns separately, and Reset in the preferences panel clears only
 the episodes on the channel you are watching. The picker first chooses a show,
 helping small catalogues compete with large ones, then chooses an episode. It
-avoids recent repeats where possible.
+avoids recent episode repeats where possible. Recently played shows are less
+likely, but remain eligible so variety cannot force a disliked show.
 
 “Prefer short episodes” is enabled initially. Videos over 15 minutes become
 less likely as their duration increases; they remain reachable. Turn it off

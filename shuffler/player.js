@@ -27,21 +27,21 @@
   }
 
   function readStored(storage, age) {
-    // The raw saved object, with no decay applied: the base for a merging write.
+    // The raw saved object is the base for a merging write.
     try {
       const data = JSON.parse(storage.getItem(keyFor(age)));
       return data && typeof data === "object" && !Array.isArray(data) ? data : Object.create(null);
     } catch (_) { return Object.create(null); }
   }
-  function readWeights(storage, age, videos, decay = true) {
-    // decay: a new session moves every saved weight 25% back toward neutral.
+  function readWeights(storage, age, videos) {
+    // A reload is not feedback: retain the exact saved preference.
     const weights = Object.create(null);
     try {
       const data = JSON.parse(storage.getItem(keyFor(age)));
       if (!data || typeof data !== "object" || Array.isArray(data)) return weights;
       for (const video of videos) {
         if (Object.prototype.hasOwnProperty.call(data, video.src) && typeof data[video.src] === "number" && Number.isFinite(data[video.src])) {
-          weights[video.src] = decay ? clamp(data[video.src]) * 0.75 + 0.25 : clamp(data[video.src]);
+          weights[video.src] = clamp(data[video.src]);
         }
       }
     } catch (_) { /* Private browsing and damaged saved data must not stop a show. */ }
@@ -102,16 +102,17 @@
       if (!groups.has(show)) groups.set(show, []);
       groups.get(show).push(index);
     }
-    let shows = [...groups.keys()];
+    const shows = [...groups.keys()];
     const recentShows = history.slice(-2).map(index => videos[index].channel || "Other");
-    const freshShows = shows.filter(show => !recentShows.includes(show));
-    if (freshShows.length) shows = freshShows;
-    else if (shows.length > 1 && recentShows.length) shows = shows.filter(show => show !== recentShows[recentShows.length - 1]);
+    // Variety is a soft preference: never force a rejected show merely because
+    // the better-liked shows were played recently. Exact recent files stay excluded.
+    const recencyWeight = name => name === recentShows[recentShows.length - 1] ? 0.35
+      : recentShows.includes(name) ? 0.65 : 1;
     // Pick a show by its mean preference, then a file. A 70-episode catalog
     // therefore has the same initial chance as a show with seven episodes.
     const show = weightedChoice(shows, name => {
       const files = groups.get(name);
-      return files.reduce((total, index) => total + pickWeight(index), 0) / files.length;
+      return recencyWeight(name) * files.reduce((total, index) => total + pickWeight(index), 0) / files.length;
     }, random);
     return weightedChoice(groups.get(show), pickWeight, random);
   }
@@ -124,7 +125,6 @@
     const state = { stream:null, pool:[], weights:Object.create(null), cur:-1, history:[], failed:new Set(), token:0, played:false,
       navigation:[], navIndex:-1, direction:1, pendingSeek:null, feedback:new Map(), dirty:new Set(),
       preferShort:true, visitLogged:false, visitStart:0, watchFrom:0, deferred:new Set(), scrubbing:false, cast:null };
-    const decayed = new Set();
     let toastTimer = null;
     let audience = null;
     const profileFlow = !!el("profiles");
@@ -144,6 +144,7 @@
       }
     }
     let controlsTimer = null, lastBookmarkSave = 0, resumeAfterSaved = false;
+    let historyPlayedToken = null, lastHistorySave = -Infinity;
     let bookmarks = Object.create(null), exportEnabled = false;
     const TASTE_INTERVAL = 30000;
     let lastTaste = -Infinity, tasteTimer = null;
@@ -204,6 +205,16 @@
     }
     const random = environment.random || Math.random;
     const now = environment.now || (() => Date.now());
+    function publishHistory(force = false, completed = false, reset = false) {
+      // A new selection is only an intention until the local player or TV
+      // confirms playback. In particular, pending cast attempts are not watches.
+      if (state.cur < 0 || state.pendingSeek || historyPlayedToken !== state.token) return;
+      const position = mediaTime(), duration = mediaDuration(), at = now();
+      if (!Number.isFinite(position) || position < 0 || (!force && at - lastHistorySave < 5000)) return;
+      const video = videos[state.cur];
+      if (tell({ type:'onto:history', src:video.src, title:video.title,
+        positionSeconds:position, durationSeconds:Number.isFinite(duration) && duration > 0 ? duration : 0, completed, ...(reset ? {reset:true} : {}) })) lastHistorySave = at;
+    }
     const adult = () => ['grown','mum','dad','both'].includes(audienceFor(state.stream));
     const clock = time => {
       const seconds = Math.max(0, Math.floor(Number(time) || 0));
@@ -255,23 +266,31 @@
     function updateTimeline() {
       const seek = el('seek');
       if (!seek || !adult()) return;
-      const duration = Number.isFinite(vid.duration) && vid.duration > 0 ? vid.duration : 0;
+      const length = mediaDuration(), position = mediaTime();
+      const duration = Number.isFinite(length) && length > 0 ? length : 0;
       seek.disabled = !duration || state.cur < 0 || !!state.pendingSeek;
       seek.max = duration || 1;
-      if (!state.scrubbing) seek.value = Number.isFinite(vid.currentTime) ? vid.currentTime : 0;
+      if (!state.scrubbing) seek.value = Number.isFinite(position) ? position : 0;
       el('elapsed').textContent = clock(seek.value);
       el('duration').textContent = clock(duration);
     }
     function seekTo(time) {
-      if (!adult() || state.cur < 0 || state.pendingSeek || !Number.isFinite(vid.duration) || vid.duration <= 0) return;
+      const duration = mediaDuration();
+      if (!adult() || state.cur < 0 || state.pendingSeek || !Number.isFinite(duration) || duration <= 0) return;
       const entry = state.navigation[state.navIndex];
       entry.sought = true;
       capturePosition();
-      try { vid.currentTime = Math.max(0,Math.min(vid.duration,Number(time) || 0)); }
-      catch (_) { showToast('Seeking is not available yet.'); }
-      if (Number.isFinite(vid.currentTime)) state.watchFrom = vid.currentTime;
+      const target = Math.max(0,Math.min(duration,Number(time) || 0));
+      if (casting()) {
+        tell({ type:'onto:cast-seek', seconds:target });
+        state.cast.position = target;
+      } else {
+        try { vid.currentTime = target; }
+        catch (_) { showToast('Seeking is not available yet.'); }
+      }
+      if (Number.isFinite(mediaTime())) state.watchFrom = mediaTime();
       state.scrubbing = false;
-      capturePosition(); rememberPosition(); updateTimeline(); revealControls();
+      capturePosition(); rememberPosition(); publishHistory(true, false, true); updateTimeline(); revealControls();
     }
     function later() {
       if (!adult() || state.cur < 0) return;
@@ -325,7 +344,7 @@
       el("retry").hidden = !retry;
     }
     function saveFull() {
-      // A decayed reload and a reset replace the whole record deliberately.
+      // Preserve saved preferences when loading; Reset replaces them deliberately.
       if (!saveWeights(storage, state.stream, state.weights)) showToast("Preferences cannot be saved.");
       publishTaste(true);
     }
@@ -338,7 +357,9 @@
     }
     function logDeparture(reason) {
       // One record per visit to a video: what was reached, and where it began.
-      if (state.stream === null || state.cur < 0 || state.visitLogged) return;
+      if (state.stream === null || state.cur < 0) return;
+      publishHistory(true, reason === 'ended');
+      if (state.visitLogged) return;
       const entry = state.navigation[state.navIndex];
       const time = state.pendingSeek ? (entry ? entry.time : 0) : mediaTime();
       const duration = state.pendingSeek ? (entry ? entry.duration : 0) : mediaDuration();
@@ -490,7 +511,7 @@
         state.pendingSeek = null;
       } catch (_) { /* Retry once playable if this browser cannot seek yet. */ }
     }
-    function playEntry(index, direction) {
+    function playEntry(index, direction, tv) {
       state.scrubbing = false;
       state.navIndex = index;
       const entry = state.navigation[index];
@@ -498,6 +519,7 @@
       state.direction = direction;
       state.token++;
       state.played = false;
+      lastHistorySave = -Infinity;
       state.pendingSeek = { token:state.token, time:entry.completed ? 0 : entry.time };
       state.visitLogged = false;
       state.visitStart = entry.completed ? 0 : entry.time;
@@ -513,30 +535,41 @@
         state.cast = { path:video.src, position:state.pendingSeek ? state.pendingSeek.time : 0, duration:video.duration || 0, status:'playing' };
         state.pendingSeek = null;
         state.played = true;
-        tell({ type:'onto:cast-play', src:video.src, seconds:Math.round(state.watchFrom) || 0 });
+        if (tv) {
+          // The renderer already advanced. Adopting it must never send Play
+          // again and restart the episode underneath the remote.
+          state.cast.position = tv.positionSeconds || 0;
+          state.cast.status = tv.status;
+          state.cast.acked = true;
+          state.watchFrom = 0;
+          historyPlayedToken = state.token;
+        } else tell({ type:'onto:cast-play', src:video.src, seconds:Math.round(state.watchFrom) || 0 });
       } else {
         vid.src = encodePath(video.path || video.src);
         attemptPlay();
       }
       updateTimeline(); revealControls();
     }
-    function chooseNew() {
+    function pickNext() {
       const available = state.pool.filter(index => !state.deferred.has(index));
-      const selected = pickVideo(videos, available, selectionWeights(), state.cur, state.failed, state.history, random, state.preferShort);
+      return pickVideo(videos, available, selectionWeights(), state.cur, state.failed, state.history, random, state.preferShort);
+    }
+    function chooseNew(selected = pickNext(), tv) {
       if (selected < 0) {
         stopVideo();
         updateNavigation();
-        status(!available.length && state.deferred.size ? 'Everything’s saved for later.' : !state.pool.length ? 'No episodes on this channel.' : 'These episodes could not be played.', false);
+        status(!state.pool.some(index => !state.deferred.has(index)) && state.deferred.size ? 'Everything’s saved for later.' : !state.pool.length ? 'No episodes on this channel.' : 'These episodes could not be played.', false);
         return;
       }
       state.navigation.push({ index:selected, time:adult() ? bookmarks[videos[selected].src]?.time || 0 : 0,
         duration:0, played:false, completed:false, graded:false, feedback:null });
       state.navIndex = state.navigation.length - 1;
       trimNavigation();
-      playEntry(state.navIndex, 1);
+      playEntry(state.navIndex, 1, tv);
     }
-    function next(reason) {
+    function next(reason, tv) {
       if (state.stream === null) return;
+      const planned = state.cast?.next;
       capturePosition();
       rememberPosition(reason === 'ended');
       logDeparture(reason);
@@ -558,8 +591,8 @@
         if (reason === "ended") state.navigation[state.navIndex].completed = true;
       }
       const target = historyIndex(1);
-      if (target >= 0) playEntry(target, 1);
-      else chooseNew();
+      if (target >= 0) playEntry(target, 1, tv);
+      else chooseNew(planned?.index, tv);
     }
     function back() {
       if (state.stream === null) return;
@@ -582,9 +615,8 @@
       if (el('adultTimeline')) el('adultTimeline').hidden = !adult();
       if (el('savedPanel')) el('savedPanel').hidden = true;
       state.pool = videos.map((_, index) => index).filter(index => inStream(videos[index], age));
-      // The session decay runs once per audience key, not on every channel start.
-      state.weights = readWeights(storage, age, videos, !decayed.has(keyFor(age)));
-      decayed.add(keyFor(age));
+      // Opening or switching channels is not new evidence about taste.
+      state.weights = readWeights(storage, age, videos);
       state.dirty = new Set();
       state.history = [];
       state.navigation = [];
@@ -601,9 +633,9 @@
     }
     function switchStream() {
       rememberPosition();
+      logDeparture("switch");
       if (casting()) stopCasting('Back on the laptop', { resume:false });
       publishTaste(true);
-      logDeparture("switch");
       state.stream = null;
       stopVideo();
       state.pool = [];
@@ -648,10 +680,12 @@
       if (state.cur < 0 || casting()) return;
       capturePosition();
       const video = videos[state.cur];
-      const seconds = Math.max(0, Math.round(Number.isFinite(vid.currentTime) ? vid.currentTime : 0));
+      const position = state.pendingSeek ? state.pendingSeek.time : vid.currentTime;
+      const seconds = Math.max(0, Math.round(Number.isFinite(position) ? position : 0));
       if (!tell({ type:'onto:cast-play', src:video.src, seconds })) { showToast('The TV is only available in the app.'); return; }
       vid.pause();
       state.cast = { path:video.src, position:seconds, duration:mediaDuration() || video.duration || 0, status:'playing' };
+      state.pendingSeek = null;
       state.watchFrom = seconds;
       updateChrome(); updatePause(); updateTimeline();
       showToast('Playing on the TV');
@@ -687,12 +721,45 @@
         stopCasting(tv.error || 'The TV stopped playing.', { fromTv:true });
         return;
       }
-      if (tv.path && tv.path !== state.cast.path) return;
+      if (tv.path && tv.path !== state.cast.path) {
+        const planned = state.cast.next;
+        const transition = tv.transition;
+        if (!planned || videos[planned.index].src !== tv.path ||
+            transition?.fromPath !== state.cast.path || transition.toPath !== tv.path ||
+            !['playing','paused'].includes(tv.status)) return;
+        if (Number.isFinite(transition.positionSeconds)) state.cast.position = transition.positionSeconds;
+        if (Number.isFinite(transition.durationSeconds) && transition.durationSeconds > 0) state.cast.duration = transition.durationSeconds;
+        next(transition.completed ? 'ended' : 'skip', tv);
+      }
       state.cast.acked = true;
       state.cast.status = tv.status;
       if (Number.isFinite(tv.positionSeconds)) state.cast.position = tv.positionSeconds;
       if (Number.isFinite(tv.durationSeconds) && tv.durationSeconds > 0) state.cast.duration = tv.durationSeconds;
-      capturePosition(); rememberPosition(); updatePause(); updateTimeline();
+      if (tv.path === state.cast.path && tv.status === 'playing') historyPlayedToken = state.token;
+      capturePosition(); rememberPosition(); publishHistory(); updatePause(); updateTimeline();
+      queueCastNext();
+    }
+    function queueCastNext() {
+      if (!casting() || !state.cast.acked) return;
+      if (!state.cast.next) {
+        const forward = historyIndex(1);
+        const index = forward >= 0 ? state.navigation[forward].index : pickNext();
+        if (index < 0 || index === state.cur) return;
+        // A native next-track starts at zero. Keep resumed adult entries on the
+        // existing software path so their saved places are not lost.
+        const time = forward >= 0 ? (state.navigation[forward].completed ? 0 : state.navigation[forward].time) : (adult() ? bookmarks[videos[index].src]?.time || 0 : 0);
+        state.cast.next = { index, software:time > 5, attempts:0 };
+      }
+      const plan = state.cast.next;
+      if (plan.software || plan.pending || plan.queued || plan.attempts >= 2) return;
+      plan.attempts++;
+      plan.pending = tell({ type:'onto:cast-queue-next', src:videos[plan.index].src, currentSrc:state.cast.path, requestId:state.token });
+    }
+    function castQueueResult(result) {
+      const plan = state.cast?.next;
+      if (!plan || result.requestId !== state.token || result.currentSrc !== state.cast.path || result.src !== videos[plan.index].src) return;
+      plan.pending = false;
+      plan.queued = result.queued === true;
     }
     function setPreferShort(value) {
       state.preferShort = !!value;
@@ -735,11 +802,12 @@
     // Source clearing/replacement can leave queued events from the old media.
     vid.addEventListener("error", () => { if (vid.error && isCurrentSource()) next("error"); });
     vid.addEventListener("loadedmetadata", restorePosition);
-    vid.addEventListener("playing", () => { if (isCurrentSource()) { restorePosition(); state.played = true; status("", false); updatePause(); } });
-    vid.addEventListener("pause", () => { updatePause(); rememberPosition(); revealControls(); });
+    vid.addEventListener("playing", () => { if (!casting() && isCurrentSource()) { restorePosition(); state.played = true; historyPlayedToken = state.token; publishHistory(); status("", false); updatePause(); } });
+    vid.addEventListener("pause", () => { updatePause(); rememberPosition(); publishHistory(true); revealControls(); });
     vid.addEventListener('timeupdate', () => {
       if (!isCurrentSource()) return;
       updateTimeline();
+      publishHistory();
       if (adult() && now() - lastBookmarkSave > 5000) { rememberPosition(); lastBookmarkSave = now(); }
     });
     vid.addEventListener('loadedmetadata', updateTimeline);
@@ -748,8 +816,8 @@
     if (el('seek')) {
       el('seek').addEventListener('input', () => { state.scrubbing = true; updateTimeline(); revealControls(); });
       el('seek').addEventListener('change', () => seekTo(el('seek').value));
-      el('rewind').addEventListener('click', () => seekTo(vid.currentTime - 10));
-      el('forward').addEventListener('click', () => seekTo(vid.currentTime + 10));
+      el('rewind').addEventListener('click', () => seekTo(mediaTime() - 10));
+      el('forward').addEventListener('click', () => seekTo(mediaTime() + 10));
       el('later').addEventListener('click', later);
       el('saved').addEventListener('click', showSaved);
       el('closeSaved').addEventListener('click', closeSaved);
@@ -879,8 +947,8 @@
       if (key === "w") { event.preventDefault(); showWeights(); return; }
       if (!panel.hidden) return;
       if (key === " " || event.code === "Space") { event.preventDefault(); togglePause(); }
-      else if (key === "arrowleft") { event.preventDefault(); if (adult() && event.shiftKey) seekTo(vid.currentTime - 10); else back(); }
-      else if (key === "arrowright" || key === "s") { event.preventDefault(); if (adult() && event.shiftKey && key === 'arrowright') seekTo(vid.currentTime + 10); else next("skip"); }
+      else if (key === "arrowleft") { event.preventDefault(); if (adult() && event.shiftKey) seekTo(mediaTime() - 10); else back(); }
+      else if (key === "arrowright" || key === "s") { event.preventDefault(); if (adult() && event.shiftKey && key === 'arrowright') seekTo(mediaTime() + 10); else next("skip"); }
       else if (key === 'l' && adult()) { event.preventDefault(); later(); }
       else if (key === "f") { event.preventDefault(); toggleFullscreen(); }
     });
@@ -890,6 +958,7 @@
         exportEnabled = true; publishTaste(true);
       }
       if (event.data.type === 'onto:tv') castReport(event.data.tv);
+      if (event.data.type === 'onto:cast-queue-result') castQueueResult(event.data);
       if (event.data.type === 'onto:cast-off') stopCasting(event.data.reason || 'The TV stopped playing.', { fromTv:true });
       if (event.data.type === "onto:pause") vid.pause();
     });

@@ -24,9 +24,13 @@ export function parseRange(header, size) {
 }
 
 export class MediaServer {
-  constructor({ host = '127.0.0.1', port = 0 } = {}) {
+  #responses = new Map();
+  #statFile;
+
+  constructor({ host = '127.0.0.1', port = 0, statFile = stat } = {}) {
     this.host = host;
     this.port = port;
+    this.#statFile = statFile;
     this.items = new Map();
     this.server = http.createServer((req, res) => this.#handle(req, res));
   }
@@ -61,7 +65,26 @@ export class MediaServer {
     return item;
   }
 
-  clear() { this.items.clear(); }
+  clear() {
+    this.items.clear();
+    for (const [response, { stream }] of this.#responses) {
+      stream?.destroy();
+      response.destroy();
+    }
+    this.#responses.clear();
+  }
+
+  revoke(url) {
+    const item = [...this.items.values()].find(item => item.url === url);
+    if (!item) return;
+    this.items.delete(item.path);
+    for (const [response, active] of this.#responses) {
+      if (active.path !== item.path) continue;
+      active.stream?.destroy();
+      response.destroy();
+      this.#responses.delete(response);
+    }
+  }
 
   async close() {
     this.clear();
@@ -86,12 +109,17 @@ export class MediaServer {
       return;
     }
 
-    stat(item.filePath)
+    this.#responses.set(res, { path: item.path, stream: null });
+    res.once('close', () => this.#responses.delete(res));
+    const revoked = () => res.destroyed || this.items.get(url.pathname) !== item;
+    this.#statFile(item.filePath)
       .then((info) => {
+        if (revoked()) return;
         if (!info.isFile()) { res.writeHead(404); res.end(); return; }
         this.#send(req, res, item, info.size);
       })
       .catch(() => {
+        if (revoked()) return;
         res.writeHead(404);
         res.end();
       });
@@ -131,6 +159,7 @@ export class MediaServer {
     }
     if (size === 0) { res.end(); return; }
     const stream = fs.createReadStream(item.filePath, { start, end });
+    this.#responses.set(res, { path: item.path, stream });
     stream.on('error', () => res.destroy());
     res.on('close', () => stream.destroy());
     stream.pipe(res);
