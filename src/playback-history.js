@@ -93,6 +93,11 @@ export async function loadPlaybackHistory(filePath) {
   let writes = Promise.resolve();
 
   return {
+    has(path) {
+      validatePath(path);
+      return entries.has(path);
+    },
+
     get(path) {
       validatePath(path);
       const entry = entries.get(path);

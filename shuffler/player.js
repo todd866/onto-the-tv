@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  const FLOOR = 0.15, CAP = 4, HISTORY_LIMIT = 50;
+  const FLOOR = 0.15, CAP = 4, HISTORY_LIMIT = 50, SURF_SECONDS = 10, LONG_WATCH = 1.15;
   // Duration bias. A file at or under SHORT_TARGET is never down-weighted; longer
   // files fall off as 1/duration so a four-hour compilation stops dominating a
   // shuffle that treats every file as one equal draw. SHORT_FLOOR keeps them reachable.
@@ -68,7 +68,7 @@
   function learnedWeight(current, reason, time, duration, watched = time) {
     // Errors and initial playback never teach a preference. Only footage watched
     // during the visit counts, so resuming a bookmark near the end is not a
-    // completion, and leaving at once after resuming is a fresh bail-out.
+    // completion, and leaving at once after resuming teaches nothing.
     // Short episodes still complete before three minutes when most was watched.
     if (reason !== "skip" && reason !== "ended") return current;
     if (reason === "ended") return Math.min(CAP, current * 1.3);
@@ -77,8 +77,12 @@
     if (Number.isFinite(duration) && duration > 0 && time / duration >= 0.8) {
       return progress >= 180 || progress >= 0.8 * duration ? Math.min(CAP, current * 1.3) : current;
     }
+    // Children surf with Next: most skips come about a second in and say only
+    // "not this one right now". A real look that is then rejected is a dislike;
+    // three minutes or more before moving on is a mild like.
+    if (progress < SURF_SECONDS) return current;
     if (progress < 180) return Math.max(FLOOR, current * 0.7);
-    return current;
+    return Math.min(CAP, current * LONG_WATCH);
   }
   function weightedChoice(items, weight, random) {
     let remaining = random() * items.reduce((total, item) => total + weight(item), 0);
@@ -463,7 +467,9 @@
       if (!state.feedback.has(src)) state.feedback.set(src, { base:weightFor(state.weights, src), events:[] });
       // Keep even saturated/no-op events: removing an earlier skip may make
       // a later completion relevant when its floor/cap is recalculated.
-      entry.feedback = { reason, time, duration, watched, penalty:learnedWeight(1, reason, time, duration, watched) < 1, retired:false };
+      const factor = learnedWeight(1, reason, time, duration, watched);
+      // A skip's verdict (early penalty or long-watch like) is provisional: Back undoes it.
+      entry.feedback = { reason, time, duration, watched, penalty:factor < 1, undoable:factor < 1 || factor === LONG_WATCH, retired:false };
       state.feedback.get(src).events.push(entry.feedback);
       recomputeFeedback(src);
     }
@@ -475,15 +481,15 @@
       if (!ledger.events.length) state.feedback.delete(src);
     }
     function undoSkip(entry) {
-      if (!entry.feedback || !entry.feedback.penalty) return;
+      if (!entry.feedback || !entry.feedback.undoable) return;
       const src = videos[entry.index].src, ledger = state.feedback.get(src);
       ledger.events = ledger.events.filter(event => event !== entry.feedback);
       entry.feedback = null;
       entry.graded = false;
       recomputeFeedback(src);
       compactFeedback(src);
-      // Returning cancels only the early-skip penalty. A later completion can
-      // earn a reward; skipping again records one fresh, non-compounding vote.
+      // Returning cancels a skip's provisional verdict. A later completion can
+      // earn its reward; skipping again records one fresh, non-compounding vote.
     }
     function trimNavigation() {
       while (state.navigation.length > HISTORY_LIMIT) {

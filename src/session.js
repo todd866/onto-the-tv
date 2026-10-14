@@ -3,6 +3,7 @@ import { expandPaths as expandPathsDefault, normalizeUri } from './paths.js';
 const END_SLACK_SECONDS = 10;
 // Steady playback only moves the position; save it this often, and everything else at once.
 const HISTORY_SAVE_MS = 15_000;
+const MIN_NEW_CHANNEL_SECONDS = 30;
 
 export function createSession({ config, prepareMedia, createServer, createRenderer,
   expandPaths = expandPathsDefault, fs, history, pollMs = 2000, now = Date.now } = {}) {
@@ -55,6 +56,9 @@ export function createSession({ config, prepareMedia, createServer, createRender
     if (!item?.historyConfirmed || !history) return;
     if (reset) item.resumeFailedAt = 0;
     if (!completed && !reset && item.resumeFailedAt > pos.positionSeconds) return;
+    // Channel surfing on the TV is not watching: a new entry needs half a minute.
+    if (item.channel && !completed && !reset && pos.positionSeconds < MIN_NEW_CHANNEL_SECONDS &&
+        history.has && !history.has(item.sourcePath)) return;
     history.set(item.sourcePath, { title: item.title, positionSeconds: pos.positionSeconds,
       durationSeconds: item.durationSeconds || pos.durationSeconds || 0, completed, reset });
   }
@@ -140,7 +144,7 @@ export function createSession({ config, prepareMedia, createServer, createRender
       for (const path of files) {
         controller.signal.throwIfAborted();
         prepared.push({ ...await prepareMedia(path, config, { log: () => {}, signal: controller.signal }),
-          sourcePath: path, startSeconds: starts.get(path) });
+          sourcePath: path, startSeconds: starts.get(path), channel: Number.isFinite(starts.get(path)) });
         if (requestedGeneration !== generation || closed) { await dispose(prepared); return getState(); }
       }
       items.push(...prepared.map(media => ({ ...media, ...server.serveFile(media) })));

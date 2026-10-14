@@ -54,6 +54,8 @@ export async function recordLocalHistory(history, catalogue, input, { casting = 
   const { positionSeconds, durationSeconds, completed } = input;
   if (!Number.isFinite(positionSeconds) || positionSeconds < 0 ||
       !Number.isFinite(durationSeconds) || durationSeconds < 0 || typeof completed !== 'boolean') return false;
+  // Channel surfing is not watching: start an entry only after half a minute.
+  if (!completed && input.reset !== true && positionSeconds < 30 && history.has && !history.has(path)) return false;
   history.set(path, { positionSeconds, durationSeconds, completed, reset: input.reset === true });
   await history.flush();
   return true;

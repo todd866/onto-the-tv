@@ -81,19 +81,22 @@ folder and file names. Only the `.example.json` files belong in a public fork.
 | W | Open preferences |
 | Escape | Close preferences |
 
-The Back button cancels an early-skip penalty when someone changes their mind.
+The Back button cancels a skip's verdict when someone changes their mind.
 History retains up to 50 visits in the current stream and resets when switching
 streams or reloading. Playback failures do not teach a dislike.
 
 Learning counts what you watched during a visit, not where the playhead sits.
-After playback has started, leaving within three minutes of watching lowers
-that video's weight by 30%. Skipping a video before it starts, or a playback
-failure, does not teach a dislike.
+Children surf with Next, so leaving within the first ten seconds teaches
+nothing. Leaving after ten seconds but within three minutes lowers that video's
+weight by 30%; leaving after three minutes or more raises it by 15%. Skipping a
+video before it starts, or a playback failure, does not teach a dislike.
 Reaching the end raises it by 30%, as does leaving at 80% or more once you have
 watched at least three minutes or most of the file. So resuming a bookmark near
-the end and skipping straight past it teaches nothing, and rejecting a resumed
-film immediately counts as a fresh bail-out. Seeking makes a visit neutral;
-returning to it later starts a fresh visit that can teach again.
+the end and skipping straight past it teaches nothing. Seeking makes a visit
+neutral; returning to it later starts a fresh visit that can teach again.
+
+Channel episodes join the file History only after half a minute of watching,
+so surfing past them does not fill it.
 
 Weights stay between 0.15 and 4. Saved preferences survive reopening the app
 and switching channels; opening a channel does not weaken previous skips or

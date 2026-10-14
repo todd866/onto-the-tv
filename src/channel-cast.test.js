@@ -117,3 +117,15 @@ it('records explicit local seeks to zero and rejects invalid or foreign history'
   await assert.rejects(recordLocalHistory(history, catalogue, { ...input, src:'/foreign.mp4' }), /not in this library/i);
   assert.equal(calls.length, 1);
 });
+
+it('a channel episode left within 30 seconds on the laptop does not start a history entry', async () => {
+  const calls = [];
+  const known = new Set();
+  const history = { has: path => known.has(path), set: (...args) => calls.push(args), flush: async () => {} };
+  const input = { src:'Family/one.mp4', positionSeconds:3, durationSeconds:600, completed:false };
+  assert.equal(await recordLocalHistory(history, catalogue, input), false);
+  assert.equal(await recordLocalHistory(history, catalogue, { ...input, completed:true }), true);
+  known.add('/videos/shows/one.mp4');
+  assert.equal(await recordLocalHistory(history, catalogue, input), true);
+  assert.equal(calls.length, 2);
+});

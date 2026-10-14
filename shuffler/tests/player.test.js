@@ -63,10 +63,18 @@ test('storage accepts only known finite numeric weights and preserves clamped pr
 test('completion outranks early skip and errors never teach a preference',()=>{
   assert.equal(learnedWeight(1,'skip',100,120),1.3);
   assert.equal(learnedWeight(1,'skip',30,120),0.7);
-  assert.equal(learnedWeight(1,'skip',200,1000),1);
   assert.equal(learnedWeight(1,'error',120,120),1);
   assert.equal(learnedWeight(3.9,'ended',120,120),4);
   assert.equal(learnedWeight(0.15,'skip',10,120),0.15);
+});
+test('surfing past in the first seconds teaches nothing and a long watch is a mild like',()=>{
+  // Real logs: most skips come about a second in, during rapid Next-pressing.
+  assert.equal(learnedWeight(1,'skip',1,300,1),1);
+  assert.equal(learnedWeight(1,'skip',9,300,9),1);
+  assert.equal(learnedWeight(1,'skip',10,300,10),0.7);   // ten seconds in is a real look
+  assert.equal(learnedWeight(1,'skip',179,1000,179),0.7);
+  assert.equal(learnedWeight(1,'skip',200,1000),1.15);   // three minutes of a long video, then moved on
+  assert.equal(learnedWeight(3.9,'skip',200,1000),4);
 });
 test('show-first picker does not favour a catalog with 90 episodes over one with one',()=>{
   const catalog=Array.from({length:91},(_,i)=>({src:`${i}.mp4`,channel:i<90?'Large':'Small'}));
@@ -307,7 +315,7 @@ test('history traversal skips broken files in either direction and stops when al
   vid.error={code:3};vid.currentSrc=vid.src;vid.dispatch('error'); // continue back to A
   assert.notEqual(player.state.cur,broken);
   assert.equal(player.state.navIndex,0);
-  assert.equal(player.state.weights[videos[player.state.cur].src],1);
+  assert.equal(player.state.weights[videos[player.state.cur].src],undefined); // skipped at once: surfing teaches nothing
   assert.equal(elements.back.disabled,true);
   player.next('skip'); // bypass broken B to existing C
   assert.equal(player.state.cur,last);
@@ -461,13 +469,14 @@ test('skipping before playback then returning can earn one completion reward',()
   assert.equal(player.state.weights[src],1.3);
 });
 
-test('a neutral partial watch can earn its first reward after Back and completion',()=>{
+test('a long-watch like is undone by Back so completion earns the full reward once',()=>{
   const {player,vid}=fixture();
   player.startStream(2);
   const src=videos[player.state.cur].src;
   vid.currentTime=200;vid.duration=1000;player.next('skip');
-  assert.equal(player.state.navigation[0].graded,false);
+  assert.equal(player.state.weights[src],1.15);
   player.back();
+  assert.equal(player.state.weights[src]??1,1);
   vid.currentTime=1000;vid.duration=1000;player.next('ended');
   assert.equal(player.state.weights[src],1.3);
   player.back();vid.currentTime=1000;vid.duration=1000;player.next('ended');
@@ -535,12 +544,12 @@ test('every visit is logged with the position reached, including tab close',()=>
   second.window.dispatch('pagehide');
   assert.equal(JSON.parse(second.entries['kidshuffle.log.v1'])[0].r,'hide');
 });
-test('a partial watch that teaches the learner nothing is still recorded',()=>{
+test('a long partial watch is a mild like and is recorded',()=>{
   const {player,vid,entries}=fixture();
   player.startStream(2);
-  vid.duration=7200; vid.currentTime=5400;   // 75%: no reward, no penalty
+  vid.duration=7200; vid.currentTime=5400;   // 75% of a long film: a mild like
   player.next('skip');
-  assert.equal(JSON.parse(entries[keyFor(2)])['Example Show/A #? [12345678].mp4'],undefined);
+  assert.equal(JSON.parse(entries[keyFor(2)])['Example Show/A #? [12345678].mp4'],1.15);
   assert.deepEqual(JSON.parse(entries['kidshuffle.log.v1']).map(e=>[e.w,e.d,e.r]),[[5400,7200,'skip']]);
 });
 test('one visit logs once and an unwatched video logs nothing',()=>{
@@ -630,7 +639,7 @@ test('Mum, Dad and Both keep independent feedback and bookmarks', () => {
   f.player.startStream('mum'); const original=f.player.state.cur;
   f.vid.currentTime=30; f.player.later();
   f.player.startStream('dad'); assert.equal(f.vid.currentTime,0);
-  f.player.next('skip');
+  f.vid.currentTime=20; f.player.next('skip');
   assert.equal(JSON.parse(f.entries[keyFor('dad')])[adultVideos[original].src],0.7);
   assert.equal(JSON.parse(f.entries[keyFor('mum')])[adultVideos[original].src],undefined);
   const dad=f.entries[keyFor('dad')];
@@ -750,7 +759,8 @@ test('Reset on a channel clears only the episodes on that channel', () => {
 test('grading uses progress this visit, so a resumed film is not rewarded or forgiven by its position', () => {
   // Fifth argument: seconds actually watched this visit.
   assert.equal(learnedWeight(1,'skip',102,120,2),1);        // resumed at 85%, skipped at once: nothing learned
-  assert.equal(learnedWeight(1,'skip',241,6000,1),0.7);     // resumed at four minutes, rejected at once: a fresh bail-out
+  assert.equal(learnedWeight(1,'skip',241,6000,1),1);       // resumed at four minutes, left at once: surfing, nothing learned
+  assert.equal(learnedWeight(1,'skip',260,6000,20),0.7);    // resumed, watched twenty seconds, rejected: a fresh bail-out
   assert.equal(learnedWeight(1,'skip',110,120,110),1.3);    // a short episode watched almost through
   assert.equal(learnedWeight(1,'skip',5900,6000,900),1.3);  // fifteen minutes to the end of a long film
   assert.equal(learnedWeight(1,'ended',120,120,2),1.3);     // finishing still counts
@@ -1190,11 +1200,11 @@ test('recent favourite shows remain eligible instead of forcing a rejected show'
   }
   assert.ok(rejected>0 && rejected<1200,`rejected selected ${rejected} times`);
 });
-test('confirmed one-second skips persist across a fresh player, unstarted media stays neutral',()=>{
+test('confirmed early skips persist across a fresh player, unstarted media stays neutral',()=>{
   const data={}; const storage={getItem:k=>data[k]??null,setItem:(k,v)=>{data[k]=v;}};
   const first=fixture({storage}); first.player.startStream(6);
   const src=videos[first.player.state.cur].src;
-  first.vid.currentTime=1; first.player.next('skip');
+  first.vid.currentTime=20; first.player.next('skip');
   assert.equal(JSON.parse(data[keyFor(6)])[src],0.7);
   const reopened=fixture({storage}); reopened.player.startStream(6);
   assert.equal(reopened.player.state.weights[src],0.7);
@@ -1209,18 +1219,22 @@ test('sequential picks keep a repeatedly rejected one-file show uncommon',()=>{
   const random=()=>((seed=(Math.imul(1664525,seed)+1013904223)>>>0)/4294967296);
   for(let i=0;i<3000;i++){
     current=pickVideo(catalog,pool,weights,current,new Set(),history,random);
-    if(current===24){weights[catalog[current].src]=learnedWeight(weights[catalog[current].src],'skip',1,300,1);if(i>=100)rejected++;}
+    if(current===24){weights[catalog[current].src]=learnedWeight(weights[catalog[current].src],'skip',20,300,20);if(i>=100)rejected++;}
     history.push(current);if(history.length>6)history.shift();
   }
   assert.equal(weights['seq-24'],0.15);
   assert.ok(rejected<300,`rejected ${rejected}/2900 after learning`);
 });
-test('confirmed one-second TV skip records a dislike before continuing the prepared queue',()=>{
+test('a one-second TV skip teaches nothing; twenty seconds then a skip records a dislike',()=>{
   const f=castFixture();const src=kidLibrary[f.player.state.cur].src;
   f.elements.cast.dispatch('click');f.tv({path:src,positionSeconds:1,durationSeconds:400,status:'playing'});
   f.player.next('skip');
-  assert.equal(f.player.state.weights[src],0.7);
-  assert.equal(JSON.parse(f.entries[keyFor(2)])[src],0.7);
+  assert.equal(f.player.state.weights[src],undefined);
+  const second=f.last('onto:cast-play').src;
+  f.tv({path:second,positionSeconds:20,durationSeconds:400,status:'playing'});
+  f.player.next('skip');
+  assert.equal(f.player.state.weights[second],0.7);
+  assert.equal(JSON.parse(f.entries[keyFor(2)])[second],0.7);
 });
 test('another source taking the TV leaves the channel paused on the laptop at the TV position', () => {
   const f=castFixture();

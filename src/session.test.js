@@ -978,3 +978,24 @@ it('saves watch history at most every 15 seconds during steady playback but at o
     assert.equal(flushes.length, afterStart + 4, 'stop saves immediately');
   } finally { await session.close(); }
 });
+
+it('a channel episode surfed past on the TV stays out of watch history, a dropped file does not', async () => {
+  await withSavedHistory(async path => {
+    const history = await loadPlaybackHistory(path);
+    const session = createTestSession(mockRenderer(), { history });
+    try {
+      await session.playOnly([{ path: '/videos/Luxo.mp4', startSeconds: 0 }]);
+      session.renderer.positionSeconds = 2; await session.tick();
+      await session.stop();
+      assert.equal(history.has('/videos/Luxo.mp4'), false);
+      await session.playOnly([{ path: '/videos/Presto.mp4', startSeconds: 0 }]);
+      session.renderer.positionSeconds = 40; await session.tick();
+      await session.stop();
+      assert.equal(history.get('/videos/Presto.mp4'), 40);
+      await session.playOnly(['/videos/Geri.mp4']);
+      session.renderer.positionSeconds = 2; await session.tick();
+      await session.stop();
+      assert.equal(history.has('/videos/Geri.mp4'), true);
+    } finally { await session.close(); }
+  });
+});
