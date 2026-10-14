@@ -6,7 +6,6 @@ contextBridge.exposeInMainWorld('tv', {
   get: () => ipcRenderer.invoke('app:get'),
   openFiles: paths => ipcRenderer.invoke('drop:open', paths),
   seek: (seconds, path) => ipcRenderer.invoke('drop:seek', seconds, path),
-  seekBy: seconds => ipcRenderer.invoke('drop:seek-by', seconds),
   addPoint: (title, path) => ipcRenderer.invoke('drop:add-point', title, path),
   removePoint: (id, path) => ipcRenderer.invoke('drop:remove-point', id, path),
   next: () => ipcRenderer.invoke('drop:next'),

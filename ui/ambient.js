@@ -1,24 +1,236 @@
 (function () {
-  const api = window.tv; const $ = id => id.startsWith('[') ? document.querySelector(id) : document.getElementById(id);
-  let starting = false, visible = false, options = { weather:true, news:false, photos:false, location:'cottesloe', pace:20, photoFolder:'' }, result = null, index = 0, timer = 0, request = 0, saveChain = Promise.resolve();
-  const cache = new Map(); const ttl = 5 * 60 * 1000;
-  function setStatus(text, fault = false) { if ($('ambient-start')) $('ambient-start').disabled = starting || !result?.slides?.length; const el = $('ambient-status'); if (el) { el.textContent = text || ''; el.classList.toggle('is-fault', fault); } }
-  function selectedOptions() { return { weather:$('[data-ambient-kind="weather"]').classList.contains('selected'), news:$('[data-ambient-kind="news"]').classList.contains('selected'), photos:$('[data-ambient-kind="photos"]').classList.contains('selected'), location:$('ambient-location').value || options.location, pace:Number($('ambient-pace').value) || 20, photoFolder:options.photoFolder || '' }; }
-  function applyOptions(next = {}) { options = { ...options, ...next }; for (const kind of ['weather','news','photos']) { const button = $(`[data-ambient-kind="${kind}"]`); if (button) { button.classList.toggle('selected', !!options[kind]); button.setAttribute('aria-pressed', String(!!options[kind])); } } if (options.location && [...$('ambient-location').options].some(option => option.value === options.location)) $('ambient-location').value = options.location; if (options.pace) $('ambient-pace').value = String(options.pace); }
-  function key(next) { return JSON.stringify(next); }
-  function cached(next) { const hit = cache.get(key(next)); return hit && Date.now() - hit.time < ttl ? hit.value : null; }
-  function remember(next, value) { cache.set(key(next), { time:Date.now(), value }); while (cache.size > 8) cache.delete(cache.keys().next().value); }
-  async function showSlide(nextIndex = index, token = request) { if (token !== request || !result?.slides?.length) return; index = (nextIndex + result.slides.length) % result.slides.length; try { await window.renderAmbientSlide($('ambient-stage'), result.slides[index]); } catch { if (token === request) { await window.renderAmbientSlide($('ambient-stage'), null); setStatus('This preview could not load. Try the next one.', true); } return; } if (token !== request) return; await window.renderAmbientSlide($('ambient-preload'), result.slides[(index + 1) % result.slides.length]).catch(() => {}); }
-  function schedule() { clearTimeout(timer); if (visible && result?.slides?.length > 1) timer = setTimeout(() => { void showSlide(index + 1).then(schedule); }, (result.slides[index]?.durationSeconds || options.pace) * 1000); }
-  async function load(nextOptions, force = false) { const token = ++request; if (nextOptions) options = { ...options, ...nextOptions }; setStatus('Preparing…'); try { const value = !force && nextOptions && cached(options) || (nextOptions ? await api.getAmbient(options) : await api.getAmbient()); if (token !== request) return; result = value; remember(value.options || options, value); applyOptions(value.options || options); const select = $('ambient-location'); if (!select.options.length) select.replaceChildren(...(value.locations || []).map(location => { const option = document.createElement('option'); option.value = location.id; option.textContent = location.label; return option; })); if (value.options) applyOptions(value.options); index = 0; if (result.slides?.length) { await showSlide(0, token); schedule(); setStatus(value.issues?.[0] || ''); } else { await window.renderAmbientSlide($('ambient-stage'), null); setStatus(value.issues?.[0] || 'Choose a screensaver option.', !!value.issues?.length); } } catch (error) { if (token === request) setStatus(error.message || 'Screensaver unavailable. Try again.', true); } }
-  function save(next) { const token = ++request; options = next; setStatus('Preparing…'); saveChain = saveChain.then(async () => { const value = await api.saveAmbient(next); if (token !== request) return; result = value; remember(next, value); applyOptions(value.options || next); index = 0; if (value.slides?.length) { await showSlide(0, token); schedule(); setStatus(value.issues?.[0] || ''); } else { await window.renderAmbientSlide($('ambient-stage'), null); setStatus(value.issues?.[0] || 'Choose a screensaver option.', !!value.issues?.length); } }).catch(error => { if (token === request) setStatus(error.message || 'Could not save screensaver options. Try again.', true); }); return saveChain; }
-  function enter() { visible = true; void load(result ? options : undefined); } function leave() { visible = false; clearTimeout(timer); request++; $('ambient-stage').querySelector('video')?.pause(); }
-  async function start() { const button = $('ambient-start'); starting = true; button.disabled = true; $('ambient-cancel').hidden = false; setStatus('Sending to the TV…'); try { const state = await api.startAmbient(selectedOptions()); setStatus(state.ambientActive ? 'Playing on the TV.' : 'Preparation cancelled.'); } catch (error) { setStatus(error.message || 'Could not start screensaver.', true); } finally { starting = false; button.disabled = !result?.slides?.length; $('ambient-cancel').hidden = true; } }
-  for (const button of document.querySelectorAll('[data-ambient-kind]')) button.onclick = () => { button.classList.toggle('selected'); button.setAttribute('aria-pressed', String(button.classList.contains('selected'))); if (button.dataset.ambientKind === 'photos' && button.classList.contains('selected') && !options.photoFolder) $('ambient-photos').click(); else void save(selectedOptions()); };
-  $('ambient-location').onchange = () => void save(selectedOptions()); $('ambient-pace').onchange = () => { options = selectedOptions(); schedule(); void save(options); };
-  $('ambient-photos').onclick = () => void (async () => { const token = ++request; setStatus('Choosing photos…'); try { await saveChain; const value = await api.chooseAmbientPhotos(); if (token !== request) return; result = value; applyOptions(value.options || options); if (value.options?.photoFolder) options.photoFolder = value.options.photoFolder; remember(options, value); index = 0; if (value.slides?.length) { await showSlide(); schedule(); setStatus(value.issues?.[0] || ''); } else setStatus(value.issues?.[0] || 'No photos found.', true); } catch (error) { setStatus(error.message || 'Could not choose photos.', true); } })();
-  $('ambient-start').onclick = () => void start(); $('ambient-cancel').onclick = () => void api.cancelAmbient().catch(error => setStatus(error.message, true)); $('ambient-retry').onclick = () => void load(selectedOptions(), true); $('ambient-prev').onclick = () => { void showSlide(index - 1); }; $('ambient-next').onclick = () => { void showSlide(index + 1); };
-  window.ambientView = { enter, leave, showSlide, refresh:() => load(selectedOptions(), true) };
-  if (api?.onAmbient) api.onAmbient(state => { if (state?.status === 'preparing') setStatus('Preparing for the TV…'); else if (state?.status === 'playing') setStatus('Playing on the TV.'); else if (state?.status === 'idle') setStatus(''); else if (state?.status === 'error') setStatus(state.error || 'Screensaver unavailable.', true); });
-  const preload = document.createElement('div'); preload.id = 'ambient-preload'; document.body.append(preload);
-}());
+  const api = window.tv;
+  const $ = id => (id.startsWith('[') ? document.querySelector(id) : document.getElementById(id));
+  let starting = false,
+    visible = false,
+    options = { weather: true, news: false, photos: false, location: 'cottesloe', pace: 20, photoFolder: '' },
+    result = null,
+    index = 0,
+    timer = 0,
+    request = 0,
+    saveChain = Promise.resolve();
+  const cache = new Map();
+  const ttl = 5 * 60 * 1000;
+  function setStatus(text, fault = false) {
+    if ($('ambient-start')) $('ambient-start').disabled = starting || !result?.slides?.length;
+    const el = $('ambient-status');
+    if (el) {
+      el.textContent = text || '';
+      el.classList.toggle('is-fault', fault);
+    }
+  }
+  function selectedOptions() {
+    return {
+      weather: $('[data-ambient-kind="weather"]').classList.contains('selected'),
+      news: $('[data-ambient-kind="news"]').classList.contains('selected'),
+      photos: $('[data-ambient-kind="photos"]').classList.contains('selected'),
+      location: $('ambient-location').value || options.location,
+      pace: Number($('ambient-pace').value) || 20,
+      photoFolder: options.photoFolder || '',
+    };
+  }
+  function applyOptions(next = {}) {
+    options = { ...options, ...next };
+    for (const kind of ['weather', 'news', 'photos']) {
+      const button = $(`[data-ambient-kind="${kind}"]`);
+      if (button) {
+        button.classList.toggle('selected', !!options[kind]);
+        button.setAttribute('aria-pressed', String(!!options[kind]));
+      }
+    }
+    if (
+      options.location &&
+      [...$('ambient-location').options].some(option => option.value === options.location)
+    )
+      $('ambient-location').value = options.location;
+    if (options.pace) $('ambient-pace').value = String(options.pace);
+  }
+  function key(next) {
+    return JSON.stringify(next);
+  }
+  function cached(next) {
+    const hit = cache.get(key(next));
+    return hit && Date.now() - hit.time < ttl ? hit.value : null;
+  }
+  function remember(next, value) {
+    cache.set(key(next), { time: Date.now(), value });
+    while (cache.size > 8) cache.delete(cache.keys().next().value);
+  }
+  async function showSlide(nextIndex = index, token = request) {
+    if (token !== request || !result?.slides?.length) return;
+    index = (nextIndex + result.slides.length) % result.slides.length;
+    try {
+      await window.renderAmbientSlide($('ambient-stage'), result.slides[index]);
+    } catch {
+      if (token === request) {
+        await window.renderAmbientSlide($('ambient-stage'), null);
+        setStatus('This preview could not load. Try the next one.', true);
+      }
+      return;
+    }
+    if (token !== request) return;
+    await window
+      .renderAmbientSlide($('ambient-preload'), result.slides[(index + 1) % result.slides.length])
+      .catch(() => {});
+  }
+  function schedule() {
+    clearTimeout(timer);
+    if (visible && result?.slides?.length > 1)
+      timer = setTimeout(
+        () => {
+          void showSlide(index + 1).then(schedule);
+        },
+        (result.slides[index]?.durationSeconds || options.pace) * 1000,
+      );
+  }
+  async function load(nextOptions, force = false) {
+    const token = ++request;
+    if (nextOptions) options = { ...options, ...nextOptions };
+    setStatus('Preparing…');
+    try {
+      const value =
+        (!force && nextOptions && cached(options)) ||
+        (nextOptions ? await api.getAmbient(options) : await api.getAmbient());
+      if (token !== request) return;
+      result = value;
+      remember(value.options || options, value);
+      applyOptions(value.options || options);
+      const select = $('ambient-location');
+      if (!select.options.length)
+        select.replaceChildren(
+          ...(value.locations || []).map(location => {
+            const option = document.createElement('option');
+            option.value = location.id;
+            option.textContent = location.label;
+            return option;
+          }),
+        );
+      if (value.options) applyOptions(value.options);
+      index = 0;
+      if (result.slides?.length) {
+        await showSlide(0, token);
+        schedule();
+        setStatus(value.issues?.[0] || '');
+      } else {
+        await window.renderAmbientSlide($('ambient-stage'), null);
+        setStatus(value.issues?.[0] || 'Choose a screensaver option.', !!value.issues?.length);
+      }
+    } catch (error) {
+      if (token === request) setStatus(error.message || 'Screensaver unavailable. Try again.', true);
+    }
+  }
+  function save(next) {
+    const token = ++request;
+    options = next;
+    setStatus('Preparing…');
+    saveChain = saveChain
+      .then(async () => {
+        const value = await api.saveAmbient(next);
+        if (token !== request) return;
+        result = value;
+        remember(next, value);
+        applyOptions(value.options || next);
+        index = 0;
+        if (value.slides?.length) {
+          await showSlide(0, token);
+          schedule();
+          setStatus(value.issues?.[0] || '');
+        } else {
+          await window.renderAmbientSlide($('ambient-stage'), null);
+          setStatus(value.issues?.[0] || 'Choose a screensaver option.', !!value.issues?.length);
+        }
+      })
+      .catch(error => {
+        if (token === request)
+          setStatus(error.message || 'Could not save screensaver options. Try again.', true);
+      });
+    return saveChain;
+  }
+  function enter() {
+    visible = true;
+    void load(result ? options : undefined);
+  }
+  function leave() {
+    visible = false;
+    clearTimeout(timer);
+    request++;
+    $('ambient-stage').querySelector('video')?.pause();
+  }
+  async function start() {
+    const button = $('ambient-start');
+    starting = true;
+    button.disabled = true;
+    $('ambient-cancel').hidden = false;
+    setStatus('Sending to the TV…');
+    try {
+      const state = await api.startAmbient(selectedOptions());
+      setStatus(state.ambientActive ? 'Playing on the TV.' : 'Preparation cancelled.');
+    } catch (error) {
+      setStatus(error.message || 'Could not start screensaver.', true);
+    } finally {
+      starting = false;
+      button.disabled = !result?.slides?.length;
+      $('ambient-cancel').hidden = true;
+    }
+  }
+  for (const button of document.querySelectorAll('[data-ambient-kind]'))
+    button.onclick = () => {
+      button.classList.toggle('selected');
+      button.setAttribute('aria-pressed', String(button.classList.contains('selected')));
+      if (
+        button.dataset.ambientKind === 'photos' &&
+        button.classList.contains('selected') &&
+        !options.photoFolder
+      )
+        $('ambient-photos').click();
+      else void save(selectedOptions());
+    };
+  $('ambient-location').onchange = () => void save(selectedOptions());
+  $('ambient-pace').onchange = () => {
+    options = selectedOptions();
+    schedule();
+    void save(options);
+  };
+  $('ambient-photos').onclick = () =>
+    void (async () => {
+      const token = ++request;
+      setStatus('Choosing photos…');
+      try {
+        await saveChain;
+        const value = await api.chooseAmbientPhotos();
+        if (token !== request) return;
+        result = value;
+        applyOptions(value.options || options);
+        if (value.options?.photoFolder) options.photoFolder = value.options.photoFolder;
+        remember(options, value);
+        index = 0;
+        if (value.slides?.length) {
+          await showSlide();
+          schedule();
+          setStatus(value.issues?.[0] || '');
+        } else setStatus(value.issues?.[0] || 'No photos found.', true);
+      } catch (error) {
+        setStatus(error.message || 'Could not choose photos.', true);
+      }
+    })();
+  $('ambient-start').onclick = () => void start();
+  $('ambient-cancel').onclick = () => void api.cancelAmbient().catch(error => setStatus(error.message, true));
+  $('ambient-retry').onclick = () => void load(selectedOptions(), true);
+  $('ambient-prev').onclick = () => {
+    void showSlide(index - 1);
+  };
+  $('ambient-next').onclick = () => {
+    void showSlide(index + 1);
+  };
+  window.ambientView = { enter, leave, showSlide, refresh: () => load(selectedOptions(), true) };
+  if (api?.onAmbient)
+    api.onAmbient(state => {
+      if (state?.status === 'preparing') setStatus('Preparing for the TV…');
+      else if (state?.status === 'playing') setStatus('Playing on the TV.');
+      else if (state?.status === 'idle') setStatus('');
+      else if (state?.status === 'error') setStatus(state.error || 'Screensaver unavailable.', true);
+    });
+  const preload = document.createElement('div');
+  preload.id = 'ambient-preload';
+  document.body.append(preload);
+})();

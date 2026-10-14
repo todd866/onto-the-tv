@@ -12,7 +12,7 @@ import { defaults, readSettings, writeSettings, validateTvSettings, preserveUnre
 import { playerExists, buildPlayer, prepareChannels, readCatalogue } from './shuffler.js';
 import { playOnTv, queueOnTv, tvNotice, recordLocalHistory } from './channel-cast.js';
 import { buildLibrary, scanMediaLibrary } from './library.js';
-import { createArtworkCache } from './library-artwork.js';
+import { createArtworkCache, pruneArtwork } from './library-artwork.js';
 import { createAmbientSources, validateAmbientOptions } from './ambient-sources.js';
 import { createAmbientPlayer } from './ambient-player.js';
 import { buildAmbientVideo } from './ambient-video.js';
@@ -126,9 +126,13 @@ async function snapshot() {
   return { ...settings, hasPlayer: await playerExists(settings), building, tv: session.getState() };
 }
 
-async function persist() {
-  if (settingsReadOnly) throw new Error('Settings could not be read, so changes are not being saved.');
-  await writeSettings(settingsPath, settings);
+// Writes run one at a time and each saves the settings as they are when it runs.
+let settingsWrites = Promise.resolve();
+function persist() {
+  if (settingsReadOnly) return Promise.reject(new Error('Settings could not be read, so changes are not being saved.'));
+  const write = settingsWrites.catch(() => {}).then(() => writeSettings(settingsPath, settings));
+  settingsWrites = write;
+  return write;
 }
 
 async function queueOrAdd(paths) {
@@ -205,7 +209,6 @@ async function openFiles(paths, enqueue = false) {
 handle('drop:open', paths => openFiles(paths));
 handle('drop:add', paths => openFiles(paths, true));
 handle('drop:seek', (seconds, path) => session.seek(seconds, path));
-handle('drop:seek-by', (seconds, path) => session.seekBy(seconds, path));
 handle('drop:next', () => session.playNext());
 handle('drop:add-point', (title, path) => session.addPoint(title, path));
 handle('drop:remove-point', (id, path) => session.removePoint(id, path));
@@ -223,12 +226,7 @@ handle('drop:choose', async (enqueue = false) => {
   const result = await dialog.showOpenDialog(win, { properties: ['openFile', 'openDirectory', 'multiSelections'],
     filters: [{ name: 'Video or audio', extensions: ['mp4', 'mkv', 'm4v', 'mov', 'webm', 'avi', 'm4a', 'mp3'] }] });
   if (result.canceled) return session.getState();
-  if (changingTv) throw new Error('Wait for TV settings to finish saving.');
-  const wasAmbient = ambient?.owns(session.getState().current?.path);
-  ambient?.cancel();
-  const wasChannel = takeOverFromChannel();
-  send('app:mode', 'tv');
-  return enqueue === true && !wasChannel && !wasAmbient ? session.addFiles(result.filePaths) : session.playOnly(result.filePaths);
+  return openFiles(result.filePaths, enqueue === true);
 });
 handle('channel:play', async (src, seconds) => {
   if (changingTv) throw new Error('Wait for TV settings to finish saving.');
@@ -272,7 +270,12 @@ handle('ambient:start', async input => {
 handle('ambient:cancel', () => ambient?.cancel());
 handle('library:artwork', async path => {
   if (!libraryPaths.has(path)) return null;
-  artwork ||= createArtworkCache({ directory: join(app.getPath('userData'), 'artwork') });
+  if (!artwork) {
+    const { ffmpeg, ffprobe } = loadConfig(process.env, settings);
+    const directory = join(app.getPath('userData'), 'artwork');
+    artwork = createArtworkCache({ directory, ffmpeg, ffprobe });
+    void pruneArtwork(directory).catch(() => {});
+  }
   const file = await artwork.get(path);
   return file ? pathToFileURL(file).href : null;
 });
@@ -287,14 +290,17 @@ handle('library:add-folder', async () => {
 handle('settings:tv', async (input) => {
   if (changingTv) throw new Error('TV settings are already being saved.');
   if (session.getState().count || session.getState().status === 'preparing') throw new Error('Stop TV playback before changing the TV address.');
-  const updated = { ...settings, ...validateTvSettings(input) };
+  const tv = validateTvSettings(input);
   changingTv = true;
   try {
     ambient?.cancel();
-    await writeSettings(settingsPath, updated);
+    // Apply only the TV fields to the live settings so a concurrent ambient or
+    // library change made during the awaits below is kept.
+    const previous = Object.fromEntries(Object.keys(tv).map(key => [key, settings[key]]));
+    Object.assign(settings, tv);
+    try { await persist(); } catch (error) { Object.assign(settings, previous); throw error; }
     await session.close();
     await ambient?.close();
-    settings = updated;
     newSession();
     return snapshot();
   } finally { changingTv = false; }

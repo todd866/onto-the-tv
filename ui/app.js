@@ -27,7 +27,14 @@ const artworkObserver = new IntersectionObserver(entries => {
       return url;
     }));
     void libraryArtwork.get(path).then(async url => {
-      if (!url || !entry.target.isConnected) return;
+      if (!entry.target.isConnected) return;
+      // A busy queue (fast scrolling) returns nothing; ask again a few times.
+      if (!url) {
+        const tries = Number(entry.target.dataset.artworkTries || 0) + 1;
+        entry.target.dataset.artworkTries = String(tries);
+        if (tries <= 3) setTimeout(() => { if (entry.target.isConnected) artworkObserver.observe(entry.target); }, 1500 * tries);
+        return;
+      }
       const image = entry.target.querySelector('img');
       image.src = url;
       try { await image.decode(); image.classList.add('ready'); } catch {}

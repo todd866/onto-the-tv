@@ -51,7 +51,7 @@ export function createSession({ config, prepareMedia, createServer, createRender
   }
   function emit() { for (const listener of listeners) listener(getState()); }
   function remember({ item = items[currentIndex], pos = position, completed = false, reset = false } = {}) {
-    // Channel bookmarks belong to the channel's audience, not the file history.
+    // Record only once the TV has confirmed it is playing this item.
     if (!item?.historyConfirmed || !history) return;
     if (reset) item.resumeFailedAt = 0;
     if (!completed && !reset && item.resumeFailedAt > pos.positionSeconds) return;
@@ -140,7 +140,7 @@ export function createSession({ config, prepareMedia, createServer, createRender
       for (const path of files) {
         controller.signal.throwIfAborted();
         prepared.push({ ...await prepareMedia(path, config, { log: () => {}, signal: controller.signal }),
-          sourcePath: path, startSeconds: starts.get(path), remember: !Number.isFinite(starts.get(path)) });
+          sourcePath: path, startSeconds: starts.get(path) });
         if (requestedGeneration !== generation || closed) { await dispose(prepared); return getState(); }
       }
       items.push(...prepared.map(media => ({ ...media, ...server.serveFile(media) })));

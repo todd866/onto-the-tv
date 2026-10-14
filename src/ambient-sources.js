@@ -180,7 +180,7 @@ async function fetchNews(fetchImpl, now, cache) {
   return cache.pending;
 }
 
-async function photoSlides(folder) {
+async function photoSlides(folder, random = Math.random) {
   if (!folder) throw new Error('Choose a photo folder first.');
   const root = resolve(folder);
   const found = [];
@@ -194,11 +194,11 @@ async function photoSlides(folder) {
     component = dirname(component);
   }
   async function visit(dir, depth) {
-    if (depth > 2 || scannedEntries >= 200 || found.length >= 12) return;
+    if (depth > 2 || scannedEntries >= 200) return;
     let entries = [];
     try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
-      if (scannedEntries >= 200 || found.length >= 12) break;
+      if (scannedEntries >= 200) break;
       scannedEntries += 1;
       if (entry.name.startsWith('.')) continue;
       const path = join(dir, entry.name);
@@ -211,10 +211,15 @@ async function photoSlides(folder) {
     }
   }
   await visit(root, 0);
+  // Show a different dozen each time rather than the folder's first twelve.
+  for (let i = found.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [found[i], found[j]] = [found[j], found[i]];
+  }
   return found.slice(0, 12).map((item, index) => ({ kind: 'photo', eyebrow: 'Photos', title: `Photo ${index + 1}`, detail: 'Family photos', footer: `${index + 1} of ${Math.min(found.length, 12)}`, image: pathToFileURL(item.path).href }));
 }
 
-export function createAmbientSources({ store = join(homedir(), 'Data', 'isobar'), fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
+export function createAmbientSources({ store = join(homedir(), 'Data', 'isobar'), fetchImpl = globalThis.fetch, now = () => Date.now(), random = Math.random } = {}) {
   const newsCache = { value: null, at: 0 };
   return { async snapshot(input = {}) {
     const options = validateAmbientOptions(input);
@@ -223,7 +228,7 @@ export function createAmbientSources({ store = join(homedir(), 'Data', 'isobar')
     const tasks = [];
     if (options.weather) tasks.push(weatherSlide(store, options.location, now).then(slide => slides.push(slide)).catch(() => issues.push('Weather unavailable.')));
     if (options.news) tasks.push(fetchNews(fetchImpl || globalThis.fetch, now, newsCache).then(items => slides.push(...items)).catch(() => issues.push('News unavailable.')));
-    if (options.photos) tasks.push(photoSlides(options.photoFolder).then(items => { if (!items.length) issues.push('Photos unavailable: the chosen folder has no supported images.'); slides.push(...items); }).catch(() => issues.push('Photos unavailable.')));
+    if (options.photos) tasks.push(photoSlides(options.photoFolder, random).then(items => { if (!items.length) issues.push('Photos unavailable: the chosen folder has no supported images.'); slides.push(...items); }).catch(() => issues.push('Photos unavailable.')));
     await Promise.all(tasks);
     return { slides, issues, locations: AMBIENT_LOCATIONS };
   } };

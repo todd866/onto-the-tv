@@ -20,6 +20,7 @@ The TV tab opens individual files on the TV. Opening or dropping another file
 saves your place and replaces the current video; **Add to queue** leaves it
 playing. **History** lists the latest 500 files watched in the app or on the TV,
 with the last watched time, progress, completion and a button to resume on the TV.
+When it is full, files without scene bookmarks are dropped first.
 History starts recording with this version; existing channel taste/bookmarks stay
 separate. The Mac stays awake and on the same network while it serves the TV.
 

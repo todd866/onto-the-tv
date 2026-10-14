@@ -58,6 +58,16 @@ function validateEntry(entry) {
  * newest first, with updatedAt as an ISO timestamp. Corrupt files are preserved
  * and reported to the caller, never silently replaced with an empty history.
  */
+// Drop the least recently watched files beyond the limit, sparing those with
+// scene bookmarks until only bookmarked files remain.
+function trim(entries) {
+  for (const [path, entry] of entries) {
+    if (entries.size <= MAX_ENTRIES) return;
+    if (!entry.points.length) entries.delete(path);
+  }
+  while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
+}
+
 export async function loadPlaybackHistory(filePath) {
   validatePath(filePath);
   const entries = new Map();
@@ -71,7 +81,7 @@ export async function loadPlaybackHistory(filePath) {
       entries.delete(entry.path);
       entries.set(entry.path, entry);
     }
-    while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
+    trim(entries);
   } catch (error) {
     if (error.code !== 'ENOENT') throw new Error(`Cannot read playback history: ${error.message}`, { cause: error });
   }
@@ -120,7 +130,7 @@ export async function loadPlaybackHistory(filePath) {
           entry.durationSeconds === previous.durationSeconds && entry.completed === previous.completed) return;
       entries.delete(path);
       entries.set(path, entry);
-      while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
+      trim(entries);
       revision += 1;
     },
 

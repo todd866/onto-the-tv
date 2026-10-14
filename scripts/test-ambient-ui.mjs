@@ -8,7 +8,8 @@ import { readIsobarProgramme } from '../src/weather-channel.js';
 const { chromium } = await import(pathToFileURL(resolve(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')).href);
 const { assertViewport } = await import(pathToFileURL(resolve('../.ux-authoring/viewport-fit.mjs')).href);
 const source = await createAmbientSources().snapshot();
-const programme = await readIsobarProgramme();
+// Live weather maps may be stale on this machine; test the screen without them.
+const programme = await readIsobarProgramme().catch(() => null);
 if (programme) source.slides.unshift(programme.slide);
 const fixture = { ...source, options:DEFAULT_AMBIENT_OPTIONS, photo:pathToFileURL(resolve('brand/onto-the-tv-icon.png')).href };
 await mkdir('audit', { recursive:true });

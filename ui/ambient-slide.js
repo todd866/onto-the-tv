@@ -2,7 +2,6 @@
 (function () {
   function safe(value) { return value == null ? '' : String(value); }
   const revisions = new WeakMap();
-  const images = new Map();
   function dispose(container) {
     for (const video of container.querySelectorAll('video')) { video.pause(); video.removeAttribute('src'); video.load(); }
   }
@@ -42,9 +41,6 @@
     content.append(footer); next.append(content);
     const image = next.querySelector('img');
     if (image) {
-      if (!images.has(image.src)) images.set(image.src, image.decode().catch(error => { images.delete(image.src); throw error; }));
-      await images.get(image.src);
-      while (images.size > 18) images.delete(images.keys().next().value);
       await image.decode();
     }
     const film = next.querySelector('video');

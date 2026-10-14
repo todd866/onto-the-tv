@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { createArtworkCache } from './library-artwork.js';
+import { createArtworkCache, pruneArtwork } from './library-artwork.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -161,5 +161,35 @@ test('close aborts active encodes and resolves callers promptly', async () => {
     await cache.close();
     assert.equal(await running, null);
     assert.equal(cache.stats().active, 0);
+  });
+});
+
+test('pruning keeps the most recently used thumbnails and leaves other files alone', async () => {
+  await fixture(async root => {
+    for (let i = 0; i < 5; i++) {
+      const path = join(root, `${'a'.repeat(63)}${i}.jpg`);
+      await writeFile(path, 'jpeg');
+      await utimes(path, 1000 + i, 1000 + i);
+    }
+    await writeFile(join(root, 'notes.txt'), 'keep');
+    assert.equal(await pruneArtwork(root, { maxFiles: 3 }), 2);
+    assert.deepEqual((await readdir(root)).sort(), [`${'a'.repeat(63)}2.jpg`, `${'a'.repeat(63)}3.jpg`, `${'a'.repeat(63)}4.jpg`, 'notes.txt']);
+    assert.equal(await pruneArtwork(join(root, 'missing')), 0);
+  });
+});
+
+test('a cache hit marks the thumbnail as recently used', async () => {
+  await fixture(async root => {
+    const source = join(root, 'clip.mp4');
+    await writeFile(source, 'video');
+    const execute = async (command, args) => { if (command !== 'probe') await writeFile(args.at(-1), 'jpeg'); return { stdout: '10' }; };
+    const first = createArtworkCache({ directory: join(root, 'artwork'), ffmpeg: 'encode', ffprobe: 'probe', execute });
+    const output = await first.get(source);
+    await first.close();
+    await utimes(output, 1000, 1000);
+    const second = createArtworkCache({ directory: join(root, 'artwork'), ffmpeg: 'encode', ffprobe: 'probe', execute });
+    assert.equal(await second.get(source), output);
+    assert.ok((await stat(output)).mtimeMs > 1_000_000);
+    await second.close();
   });
 });

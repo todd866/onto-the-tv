@@ -137,3 +137,15 @@ test('oversized news response is rejected before rendering', async () => {
   assert.deepEqual(result.slides, []);
   assert.match(result.issues[0], /News unavailable/);
 });
+
+test('photos are a random dozen from the folder rather than always the first twelve', async () => {
+  const folder = await mkdtemp('/private/tmp/onto-photos-mix-');
+  temporaryRoots.push(folder);
+  for (let i = 0; i < 30; i += 1) await writeFile(join(folder, `p${String(i).padStart(2, '0')}.jpg`), 'image');
+  const result = await createAmbientSources({ random: () => 0 }).snapshot({ weather: false, photos: true, photoFolder: folder });
+  const names = result.slides.map(slide => Number(slide.image.match(/p(\d+)\.jpg$/)[1]));
+  assert.equal(names.length, 12);
+  assert.equal(new Set(names).size, 12);
+  assert.ok(names.some(index => index >= 12), `expected photos beyond the first twelve, got ${names}`);
+  assert.deepEqual(result.slides.map(slide => slide.footer).slice(0, 2), ['1 of 12', '2 of 12']);
+});

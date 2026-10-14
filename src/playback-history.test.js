@@ -261,3 +261,18 @@ test('unchanged playback polls preserve viewing timestamps, recency and the file
     assert.notEqual(history.list()[0].updatedAt, oldEntries[0].updatedAt);
   });
 });
+
+test('the 500-file limit evicts files without scene bookmarks before bookmarked ones', async () => {
+  await withHistory(async path => {
+    const history = await loadPlaybackHistory(path);
+    history.set('/films/marked.mp4', { positionSeconds: 10, durationSeconds: 100 });
+    history.addPoint('/films/marked.mp4', { title: 'Best bit', positionSeconds: 30 });
+    for (let i = 0; i < 520; i++) history.set(`/films/${i}.mp4`, { positionSeconds: 5, durationSeconds: 100 });
+    assert.equal(history.list().length, 500);
+    assert.deepEqual(history.getPoints('/films/marked.mp4').map(point => point.title), ['Best bit']);
+    assert.equal(history.get('/films/0.mp4'), 0);
+    await history.flush();
+    const restored = await loadPlaybackHistory(path);
+    assert.deepEqual(restored.getPoints('/films/marked.mp4').map(point => point.title), ['Best bit']);
+  });
+});

@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process';
-import { access, chmod, mkdir, lstat, rename, unlink } from 'node:fs/promises';
+import { access, chmod, mkdir, lstat, readdir, rename, stat, unlink, utimes } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
 
 const execFileAsync = promisify(execFile);
 const MAX_PENDING = 64;
+const MAX_CACHED = 4000;
 const WORKERS = 2;
 const MAX_SEEK_SECONDS = 120;
 const FRAME_FILTER = 'scale=640:360:force_original_aspect_ratio=increase,crop=640:360';
@@ -27,6 +28,22 @@ function resultStdout(result) {
 
 async function safeUnlink(path) {
   await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
+}
+
+/**
+ * Remove the least recently used thumbnails beyond maxFiles. Keys include the
+ * source's size and mtime, so replaced or edited videos otherwise leave orphans.
+ */
+export async function pruneArtwork(directory, { maxFiles = MAX_CACHED } = {}) {
+  let names;
+  try { names = await readdir(directory); } catch (error) { if (error.code === 'ENOENT') return 0; throw error; }
+  const thumbnails = await Promise.all(names.filter(name => /^[0-9a-f]{64}\.jpg$/.test(name)).map(async name => {
+    const path = join(directory, name);
+    try { return { path, used: (await stat(path)).mtimeMs }; } catch { return null; }
+  }));
+  const stale = thumbnails.filter(Boolean).sort((a, b) => b.used - a.used).slice(maxFiles);
+  for (const { path } of stale) await safeUnlink(path);
+  return stale.length;
 }
 
 /**
@@ -84,7 +101,12 @@ export function createArtworkCache({ directory, ffmpeg = 'ffmpeg', ffprobe = 'ff
     let temporary;
     try {
       await ensureDirectory();
-      try { await access(output); counters.hits += 1; return output; } catch (error) {
+      try {
+        await access(output); counters.hits += 1;
+        const touched = new Date();
+        await utimes(output, touched, touched).catch(() => {});
+        return output;
+      } catch (error) {
         if (error.code !== 'ENOENT') throw error;
       }
       let seek = seekSeconds;
