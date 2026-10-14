@@ -18,7 +18,7 @@
     "curate": "node curation/src/cli.js"
   },
   "devDependencies": {
-    "electron": "44.3.0"
+    "electron": "44.7.2"
   },
   "engines": {
     "node": ">=22.12.0"
