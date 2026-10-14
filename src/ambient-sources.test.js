@@ -2,13 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, writeFile, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
+// Resolved: the photo and weather readers reject symlinked folders, and macOS's tmpdir sits under one.
+const TMP = realpathSync(tmpdir());
 import { DEFAULT_AMBIENT_OPTIONS, AMBIENT_LOCATIONS, createAmbientSources, validateAmbientOptions } from './ambient-sources.js';
 
 const temporaryRoots = [];
 test.after(async () => { await Promise.all(temporaryRoots.map(root => rm(root, { recursive: true, force: true }))); });
 
 async function fixtureStore() {
-  const root = await mkdtemp('/private/tmp/onto-ambient-');
+  const root = await mkdtemp(join(TMP, 'onto-ambient-'));
   temporaryRoots.push(root);
   const run = '2026-09-27T000000Z';
   const dir = join(root, 'products', 'points', 'ecmwf_ifs', 'runs', run);
@@ -38,7 +43,7 @@ test('weather reads Isobar current pointer and gives a compact forecast', async 
 });
 
 test('weather failures leave other ambient sources usable', async () => {
-  const folder = await mkdtemp('/private/tmp/onto-photos-');
+  const folder = await mkdtemp(join(TMP, 'onto-photos-'));
   temporaryRoots.push(folder);
   await writeFile(join(folder, 'one.png'), 'image');
   const result = await createAmbientSources({ store: join(folder, 'missing') }).snapshot({ weather: true, photos: true, photoFolder: folder });
@@ -47,7 +52,7 @@ test('weather failures leave other ambient sources usable', async () => {
 });
 
 test('photos skip symlinks, unsupported files and nested paths beyond depth two', async () => {
-  const folder = await mkdtemp('/private/tmp/onto-photos-');
+  const folder = await mkdtemp(join(TMP, 'onto-photos-'));
   temporaryRoots.push(folder);
   await writeFile(join(folder, 'visible.jpg'), 'image');
   await writeFile(join(folder, 'bad.txt'), 'text');
@@ -64,7 +69,7 @@ test('photos skip symlinks, unsupported files and nested paths beyond depth two'
 });
 
 test('photos stop after 200 visited entries, even when entries are not images', async () => {
-  const folder = await mkdtemp('/private/tmp/onto-photos-limit-');
+  const folder = await mkdtemp(join(TMP, 'onto-photos-limit-'));
   temporaryRoots.push(folder);
   for (let i = 0; i < 200; i += 1) await writeFile(join(folder, `entry-${String(i).padStart(3, '0')}.txt`), 'x');
   await writeFile(join(folder, 'zzz-photo.jpg'), 'image');
@@ -139,7 +144,7 @@ test('oversized news response is rejected before rendering', async () => {
 });
 
 test('photos are a random dozen from the folder rather than always the first twelve', async () => {
-  const folder = await mkdtemp('/private/tmp/onto-photos-mix-');
+  const folder = await mkdtemp(join(TMP, 'onto-photos-mix-'));
   temporaryRoots.push(folder);
   for (let i = 0; i < 30; i += 1) await writeFile(join(folder, `p${String(i).padStart(2, '0')}.jpg`), 'image');
   const result = await createAmbientSources({ random: () => 0 }).snapshot({ weather: false, photos: true, photoFolder: folder });

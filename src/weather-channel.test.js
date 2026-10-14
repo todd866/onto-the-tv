@@ -2,13 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
+// Resolved: the photo and weather readers reject symlinked folders, and macOS's tmpdir sits under one.
+const TMP = realpathSync(tmpdir());
 import { readIsobarProgramme } from './weather-channel.js';
 
 const roots = [];
 test.after(async () => Promise.all(roots.map(path => rm(path, { recursive: true, force: true }))));
 
 async function fixture(overrides = {}) {
-  const root = await mkdtemp('/private/tmp/weather-programme-');
+  const root = await mkdtemp(join(TMP, 'weather-programme-'));
   roots.push(root);
   const generation = 'abc123-v2';
   const dir = join(root, 'generations', generation);
@@ -30,7 +35,7 @@ test('reads an intact immutable generation and returns a TV slide', async () => 
 });
 
 test('missing archive, expired forecast and malformed metadata are safe failures', async () => {
-  assert.equal(await readIsobarProgramme({ directory: '/private/tmp/no-such-weather-programme' }), null);
+  assert.equal(await readIsobarProgramme({ directory: join(TMP, 'no-such-weather-programme') }), null);
   const expired = await fixture({ validTo: '2026-09-27T03:59:00Z' });
   await assert.rejects(() => readIsobarProgramme({ directory: expired.root, now: () => expired.now }), /metadata is invalid/);
   const malformed = await fixture({ durationSeconds: 121 });
@@ -46,7 +51,7 @@ test('rejects traversal and symlink escapes', async () => {
   await writeFile(join(traversal.root, 'current.json'), JSON.stringify({ generation: '..' }));
   await assert.rejects(() => readIsobarProgramme({ directory: traversal.root, now: () => traversal.now }), /archive is invalid/);
   const escaped = await fixture();
-  const outside = await mkdtemp('/private/tmp/weather-outside-');
+  const outside = await mkdtemp(join(TMP, 'weather-outside-'));
   roots.push(outside);
   await writeFile(join(outside, 'fronts.mp4'), 'mp4');
   await rm(join(escaped.root, 'generations', 'abc123-v2', 'fronts.mp4'));
