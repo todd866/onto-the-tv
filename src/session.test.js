@@ -958,3 +958,23 @@ it('ignores the previous URI while a replacement or queued Next is still loading
     assert.equal(session.getState().current.path, '/c.mp4');
   } finally { await session.close(); }
 });
+
+it('saves watch history at most every 15 seconds during steady playback but at once on pause and stop', async () => {
+  let clock = 1_000_000;
+  const flushes = [];
+  const history = { entries: new Map(), get: () => 0, list: () => [], getPoints: () => [],
+    set(path, data) { this.entries.set(path, data); }, async flush() { flushes.push(clock); } };
+  const session = createTestSession(mockRenderer(), { history, now: () => clock });
+  try {
+    await session.playOnly(['/videos/Luxo.mp4']);
+    const afterStart = flushes.length;
+    for (let i = 0; i < 5; i++) { clock += 2000; session.renderer.positionSeconds = 12 + i * 2; await session.tick(); }
+    assert.equal(flushes.length, afterStart + 1, 'only the first steady tick saves within 15 seconds');
+    clock += 16_000; await session.tick();
+    assert.equal(flushes.length, afterStart + 2, 'a steady tick saves again once 15 seconds pass');
+    clock += 1000; session.renderer.state = 'PAUSED_PLAYBACK'; await session.tick();
+    assert.equal(flushes.length, afterStart + 3, 'a change to paused saves immediately');
+    clock += 1000; await session.stop();
+    assert.equal(flushes.length, afterStart + 4, 'stop saves immediately');
+  } finally { await session.close(); }
+});

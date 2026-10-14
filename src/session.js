@@ -1,9 +1,11 @@
 import { expandPaths as expandPathsDefault, normalizeUri } from './paths.js';
 
 const END_SLACK_SECONDS = 10;
+// Steady playback only moves the position; save it this often, and everything else at once.
+const HISTORY_SAVE_MS = 15_000;
 
 export function createSession({ config, prepareMedia, createServer, createRenderer,
-  expandPaths = expandPathsDefault, fs, history, pollMs = 2000 } = {}) {
+  expandPaths = expandPathsDefault, fs, history, pollMs = 2000, now = Date.now } = {}) {
   let server, renderer, timer, preparation;
   let items = [];
   let currentIndex = -1;
@@ -56,7 +58,10 @@ export function createSession({ config, prepareMedia, createServer, createRender
     history.set(item.sourcePath, { title: item.title, positionSeconds: pos.positionSeconds,
       durationSeconds: item.durationSeconds || pos.durationSeconds || 0, completed, reset });
   }
-  async function flushHistory() {
+  let historySavedAt = -Infinity;
+  async function flushHistory({ steady = false } = {}) {
+    if (steady && now() - historySavedAt < HISTORY_SAVE_MS) return;
+    historySavedAt = now();
     try { await history?.flush(); }
     catch (err) { error = `Could not save watch history: ${err.message}`; }
   }
@@ -194,6 +199,7 @@ export function createSession({ config, prepareMedia, createServer, createRender
         if (closed || requestedGeneration !== generation) return getState();
         const previous = position;
         const previousItem = items[currentIndex];
+        const before = { status, index: currentIndex, confirmed: Boolean(previousItem?.historyConfirmed) };
         const reportedIndex = pos.uri ? items.findIndex(item => normalizeUri(item.url) === normalizeUri(pos.uri)) : -1;
         // A delayed response for the episode just consumed is not a new owner.
         if (retiredUri && pos.uri && normalizeUri(pos.uri) === normalizeUri(retiredUri) && !['STOPPED', 'NO_MEDIA_PRESENT'].includes(transport.state)) return getState();
@@ -242,7 +248,8 @@ export function createSession({ config, prepareMedia, createServer, createRender
           remember(); await pruneChannel(); await armNext();
           status = transportState === 'PAUSED_PLAYBACK' ? 'paused' : 'playing';
         }
-        await flushHistory();
+        await flushHistory({ steady: status === before.status && currentIndex === before.index &&
+          items[currentIndex] === previousItem && before.confirmed });
       } catch (err) { error = err.message; }
       emit(); return getState();
     });

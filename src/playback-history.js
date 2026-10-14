@@ -157,6 +157,7 @@ export async function loadPlaybackHistory(filePath) {
 
     flush() {
       const targetRevision = revision;
+      if (targetRevision <= savedRevision) return writes.catch(() => {});
       const content = JSON.stringify({ version: VERSION, entries: [...entries.values()] }, null, 2) + '\n';
       // Recover the queue after a failed write so callers can retry. Each caller
       // still receives its own rejection, and snapshots commit in call order.
