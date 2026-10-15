@@ -97,9 +97,18 @@
     const recent = new Set(recentCount ? history.slice(-recentCount) : []);
     let candidates = available.filter(index => index !== current && !recent.has(index));
     if (!candidates.length) candidates = available.filter(index => index !== current);
+    const represented = new Set(candidates.map(index => videos[index].channel || "Other"));
+    const relief = new Map();
+    for (const index of available) {
+      const show = videos[index].channel || "Other";
+      if (index === current || represented.has(show)) continue;
+      if (!relief.has(show) || history.lastIndexOf(index) < history.lastIndexOf(relief.get(show))) relief.set(show, index);
+    }
+    const restored = new Set(relief.values());
+    candidates.push(...restored);
     // Learned preference and length are independent: a loved episode stays likely,
     // a four-hour compilation stays rare, and a loved short episode wins outright.
-    const pickWeight = index => weightFor(weights, videos[index].src) * durationWeight(videos[index], preferShort);
+    const pickWeight = index => weightFor(weights, videos[index].src) * durationWeight(videos[index], preferShort) * (restored.has(index) ? 0.25 : 1);
     const groups = new Map();
     for (const index of candidates) {
       const show = videos[index].channel || "Other";
@@ -109,7 +118,7 @@
     const shows = [...groups.keys()];
     const recentShows = history.slice(-2).map(index => videos[index].channel || "Other");
     // Variety is a soft preference: never force a rejected show merely because
-    // the better-liked shows were played recently. Exact recent files stay excluded.
+    // the better-liked shows were played recently. Exhausted shows get one soft repeat.
     const recencyWeight = name => name === recentShows[recentShows.length - 1] ? 0.35
       : recentShows.includes(name) ? 0.65 : 1;
     // Pick a show by its mean preference, then a file. A 70-episode catalog
@@ -530,6 +539,7 @@
       state.visitLogged = false;
       state.visitStart = entry.completed ? 0 : entry.time;
       state.watchFrom = state.visitStart;
+      entry.watched = 0;
       entry.sought = false;
       entry.completed = false;
       state.history.push(entry.index);
@@ -561,6 +571,7 @@
       return pickVideo(videos, available, selectionWeights(), state.cur, state.failed, state.history, random, state.preferShort);
     }
     function chooseNew(selected = pickNext(), tv) {
+      if (!state.pool.includes(selected) || state.failed.has(selected)) selected = pickNext();
       if (selected < 0) {
         stopVideo();
         updateNavigation();
@@ -614,6 +625,7 @@
     function startStream(age) {
       rememberPosition(); logDeparture("switch");
       stopVideo();
+      if (casting()) state.cast.next = null;
       state.stream = age;
       loadBookmarks();
       state.deferred = new Set(videos.map((video,index) => bookmarks[video.src]?.saved ? index : -1).filter(index => index >= 0));

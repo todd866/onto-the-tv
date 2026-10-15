@@ -93,6 +93,26 @@ test('picker avoids immediate and short-history repeats, but permits a lone work
   assert.equal(pickVideo(catalog,[0,1],{},0,new Set([1]),[0],()=>0),0);
   assert.equal(pickVideo(catalog,pool,{},0,new Set(pool),[0],()=>0),-1);
 });
+test('a singleton show returns after one other show with quarter weight and show recency',()=>{
+  const catalog=Array.from({length:8},(_,i)=>({src:`${i}.mp4`,channel:i===0?'Small':'Large'}));
+  const pool=catalog.map((_,i)=>i);
+  assert.notEqual(pickVideo(catalog,pool,{},1,new Set(),[0,1],()=>0.68),0);
+  assert.equal(pickVideo(catalog,pool,{},1,new Set(),[0,1],()=>0.69),0);
+});
+test('an exhausted three-file show restores its least recently played file',()=>{
+  const catalog=Array.from({length:8},(_,i)=>({src:`${i}.mp4`,channel:i<3?'Small':'Large'}));
+  const pool=catalog.map((_,i)=>i);
+  assert.equal(pickVideo(catalog,pool,{},3,new Set(),[0,1,0,2,3],()=>0.99),1);
+});
+test('small-show relief never restores the current or failed files',()=>{
+  const catalog=Array.from({length:8},(_,i)=>({src:`${i}.mp4`,channel:i<3?'Small':'Large'}));
+  const pool=catalog.map((_,i)=>i);
+  assert.equal(pickVideo(catalog,pool,{},0,new Set([1]),[1,2,0],()=>0.99),2);
+  for(let i=0;i<100;i++) {
+    const selected=pickVideo(catalog,pool,{},0,new Set([1,2]),[1,2,0],()=>i/100);
+    assert.ok(selected>=3);
+  }
+});
 test('successive media failures stop after each file once and do not upvote',()=>{
   const {player,vid,elements}=fixture();
   player.startStream(2);
@@ -228,9 +248,31 @@ test('Back resumes skipped video and forward revisits existing future without a 
   assert.equal(vid.currentTime,12);
   assert.equal(picks,picksBefore);
   assert.equal(player.state.navigation.length,2);
-  assert.equal(player.state.weights[videos[first].src],0.7);
+  assert.equal(player.state.weights[videos[first].src],1);
   player.back();
   assert.equal(player.state.weights[videos[first].src],1);
+});
+
+test('separate six-second visits stay neutral; a fresh twenty-second visit is undone by Back',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  const first=player.state.cur,src=videos[first].src;
+  vid.currentTime=6;player.next('skip');
+  player.back();
+  assert.equal(vid.currentTime,6);
+  assert.equal(player.state.navigation[0].watched,0);
+  vid.currentTime=12;player.next('skip');
+  assert.equal(player.state.weights[src] ?? 1,1);
+  assert.equal(player.state.feedback.has(src),false);
+  player.back();
+  vid.currentTime=32;player.next('skip');
+  assert.equal(player.state.weights[src],0.7);
+  assert.equal(player.state.feedback.get(src).events.length,1);
+  player.back();
+  assert.equal(player.state.cur,first);
+  assert.equal(player.state.weights[src],1);
+  player.next('skip');
+  assert.equal(player.state.weights[src],1);
 });
 
 test('saved seek waits for matching metadata and rapid navigation keeps both captured positions',()=>{
@@ -299,7 +341,7 @@ test('undo handles repeated early skips and floor clipping precisely',()=>{
   vid.currentTime=200;vid.duration=1000;player.next('skip'); // B neutral
   vid.currentTime=20;player.next('skip'); // A2 already atfloor, event must still be recorded
   player.back(); // Undo A2 (no-op originally)
-  player.next('skip'); // confirms A2 skip once again
+  vid.currentTime+=20;player.next('skip'); // confirms A2 skip once again
   player.back();player.back();player.back(); // cancel A2 again, then cancel A1
   assert.equal(player.state.weights[src],0.2);
 });
@@ -419,7 +461,7 @@ test('cancelled skip can earn completion, while repeated Back/Forward never comp
     player.back();
     assert.equal(player.state.weights[src],1);
     player.next('skip');
-    assert.equal(player.state.weights[src],0.7);
+    assert.equal(player.state.weights[src],1);
   }
   assert.ok([...player.state.feedback.values()].reduce((count,ledger)=>count+ledger.events.length,0)<=2);
   player.back();
@@ -440,7 +482,7 @@ test('a completed replay later resumes newly captured progress instead of restar
   assert.equal(vid.currentTime,30);
 });
 
-test('rapid forward while a restored seek is pending grades the captured watch time',()=>{
+test('rapid forward while a restored seek is pending stays neutral for the new visit',()=>{
   const {player,vid}=fixture();
   player.startStream(2);vid.currentTime=20;player.next('skip');
   const src=videos[player.state.cur].src;
@@ -450,7 +492,7 @@ test('rapid forward while a restored seek is pending grades the captured watch t
   player.next('skip');
   assert.equal(player.state.pendingSeek.time,18);
   player.next('skip');
-  assert.equal(player.state.weights[src],0.7);
+  assert.equal(player.state.weights[src],undefined);
   vid.play=normalPlay;
 });
 
@@ -915,6 +957,40 @@ function castFixture(options={}) {
   f.last=type=>[...sent].reverse().find(message=>message.type===type);
   return f;
 }
+
+test('switching streams while casting clears the old lookahead before choosing',()=>{
+  const catalog=[...kidLibrary,{src:'Music/e.mp4',channel:'Music',title:'E',tier:'music',duration:200}];
+  let switching=false;
+  const f=castFixture({videos:catalog,random:()=>{
+    if(switching) assert.equal(f.player.state.cast.next,null);
+    return 0;
+  }});
+  const first=catalog[f.player.state.cur].src;
+  f.player.startCasting();
+  f.tv({path:first,positionSeconds:20,durationSeconds:400,status:'playing'});
+  assert.ok(f.player.state.cast.next);
+  switching=true;
+  f.player.startStream('2.music');
+  assert.ok(f.player.state.pool.includes(f.player.state.cur));
+  assert.equal(catalog[f.player.state.cur].tier,'music');
+  assert.equal(f.last('onto:cast-play').src,catalog[f.player.state.cur].src);
+});
+test('a stale cast lookahead outside the current pool or failed is ignored',()=>{
+  const f=castFixture();
+  f.player.startCasting();
+  f.player.startStream('2.music');
+  f.player.state.cast.next={index:0};
+  f.player.next('skip');
+  assert.ok(f.player.state.pool.includes(f.player.state.cur));
+  assert.equal(kidLibrary[f.player.state.cur].tier,'music');
+  f.player.startStream(2);
+  const failed=f.player.state.pool.find(index=>index!==f.player.state.cur);
+  f.player.state.failed.add(failed);
+  f.player.state.cast.next={index:failed};
+  f.player.next('skip');
+  assert.ok(f.player.state.pool.includes(f.player.state.cur));
+  assert.notEqual(f.player.state.cur,failed);
+});
 
 test('native cast queue results ignore stale replies and retry one rejected lookahead', () => {
   const f=castFixture();
