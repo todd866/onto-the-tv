@@ -15,6 +15,7 @@
     "test:python": "cd shuffler && python3 -m unittest discover -s tests && python3 -m unittest test_sync_phone && cd ../scripts && python3 -m unittest test_install_mac_app",
     "cast": "node casting/src/cli.js",
     "refresh": "node bin/refresh.js",
+    "report": "node bin/report.js",
     "curate": "node curation/src/cli.js"
   },
   "devDependencies": {

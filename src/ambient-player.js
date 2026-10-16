@@ -97,5 +97,6 @@ export function createAmbientPlayer({ session, build, beforePlay = () => {}, onS
     startWork = startCore(input).finally(() => { startWork = null; });
     return startWork;
   }
-  return { start, cancel, close, owns: path => media.has(path) };
+  return { start, cancel, close, getState: () => ({ active, starting, options: options && { ...options },
+    pending: pending?.path || null, paths: [...media.keys()] }), owns: path => media.has(path) };
 }

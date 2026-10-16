@@ -1,6 +1,9 @@
+import { createBlackbox } from './blackbox.js';
+import { createReportService } from './report-service.js';
+import { createStateTrace, shortArgs } from './report-trace.js';
 import { loadPlaybackHistory } from './playback-history.js';
 import { createTasteWriter } from './taste.js';
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { dirname, join, isAbsolute } from 'node:path';
@@ -39,7 +42,22 @@ let channelCasting = false;
 let sentFinished = false;
 let libraryPaths = new Set();
 let artwork;
-let ambient;
+let ambient, blackbox, reports;
+let reportMode = 'local';
+const recentErrors = [];
+function recordError(type, value) {
+  const entry = { at: new Date().toISOString(), type, message: String(value?.message || value).slice(0, 2000),
+    ...(value?.stack ? { stack: String(value.stack).slice(0, 4000) } : {}) };
+  recentErrors.push(entry);
+  if (recentErrors.length > 50) recentErrors.shift();
+  blackbox?.add('error', entry);
+}
+const trace = (type, value) => blackbox?.add(type, value);
+const traceState = createStateTrace(trace);
+process.on('uncaughtExceptionMonitor', error => recordError('main', error));
+process.on('warning', warning => recordError('warning', warning));
+const warn = console.warn;
+console.warn = (...args) => { recordError('warning', args.map(String).join(' ')); warn(...args); };
 const ambientSources = createAmbientSources();
 
 async function ambientContent(options) {
@@ -73,9 +91,10 @@ async function libraryIndex() {
 }
 
 function send(channel, value) {
+  if (channel === 'app:error') recordError('main', value);
   if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(channel, value);
 }
-function sendState(state) { send('drop:state', state); }
+function sendState(state) { traceState(state); send('drop:state', state); }
 
 function forwardChannel(state) {
   sendState(state);
@@ -98,7 +117,7 @@ function newSession() {
   const history = playbackHistory && { ...playbackHistory,
     set: (path, data) => { if (!ambient?.owns(path)) playbackHistory.set(path, data); },
   };
-  session = createLiveSession(loadConfig(process.env, settings), history);
+  session = createLiveSession(loadConfig(process.env, settings), history, trace);
   ambient = createAmbientPlayer({ session,
     beforePlay: () => takeOverFromChannel('The screensaver is on the TV.'),
     onStatus: state => send('ambient:state', state),
@@ -151,12 +170,19 @@ function handle(channel, fn) {
     if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== uiUrl) {
       throw new Error('Untrusted app request.');
     }
-    return fn(...args);
+    trace('ipc', { channel, args: shortArgs(args) });
+    try { return await fn(...args); }
+    catch (error) { recordError(channel, error); throw error; }
   });
 }
 
 async function createWindow() {
-  settingsPath = join(app.getPath('userData'), 'settings.json');
+  const userData = app.getPath('userData');
+  blackbox ||= createBlackbox({ userData, onError: error => {
+    recentErrors.push({ at: new Date().toISOString(), type: 'blackbox', message: error.message });
+    if (recentErrors.length > 50) recentErrors.shift();
+  } });
+  settingsPath = join(userData, 'settings.json');
   let settingsError;
   try { settings = await readSettings(settingsPath); }
   catch (error) {
@@ -177,15 +203,45 @@ async function createWindow() {
     webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, webviewTag: false },
   });
+  reports = createReportService({ userData, appRoot, send,
+    snapshot: () => ({ mode: reportMode, tv: session.getState(), ambient: ambient?.getState(),
+      recentHistory: (playbackHistory?.list() || []).slice(0, 20), errors: recentErrors.slice(),
+      blackbox: blackbox.snapshot() }),
+    capturePage: () => win.webContents.capturePage().then(image => image.toPNG()),
+  });
+  const menu = Menu.buildFromTemplate([
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
+    { role: 'fileMenu', submenu: [
+      { label: 'Report a Problem', accelerator: 'CmdOrCtrl+Shift+R',
+        click: () => reports.capture('menu').catch(error => send('app:error', error.message)) },
+      { type: 'separator' }, { role: process.platform === 'darwin' ? 'close' : 'quit' },
+    ] },
+    { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+  ]);
+  Menu.setApplicationMenu(menu);
+  win.webContents.on('console-message', details => {
+    if (['warning', 'error'].includes(details.level)) recordError(`renderer:${details.level}`, details.message);
+  });
+  win.webContents.on('render-process-gone', (_event, details) => recordError('renderer', details.reason));
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(
     wc === win.webContents && permission === 'fullscreen'));
   win.once('ready-to-show', () => win.show());
   await win.loadURL(uiUrl);
-  if (settingsError) win.webContents.send('app:error', settingsError);
+  if (settingsError) send('app:error', settingsError);
   if (pendingFiles.length) await queueOrAdd(pendingFiles.splice(0));
 }
+
+handle('report:mode', mode => { if (['local', 'tv', 'history', 'library', 'ambient'].includes(mode)) reportMode = mode; });
+handle('report:capture', (source, state) => reports.capture(source, state));
+handle('report:state-result', state => reports.state(state));
+handle('report:note', (folder, note) => reports.note(folder, note));
+handle('report:blackbox', notice => {
+  if (notice?.event === 'renderer-error') recordError('renderer', notice.message);
+  else trace('player', { event: notice?.event, src: notice?.src, reason: notice?.reason, stream: notice?.stream });
+});
+handle('report:error', error => recordError('renderer', error));
 
 let tasteWriter;
 handle('taste:save', input => {
@@ -358,6 +414,6 @@ else {
     event.preventDefault(); quitting = true; finderFiles.cancel();
     ambient?.cancel();
     Promise.allSettled([session?.close(), artwork?.close()])
-      .then(() => ambient?.close()).finally(() => app.quit());
+      .then(() => ambient?.close()).then(() => blackbox?.flush()).finally(() => app.quit());
   });
 }

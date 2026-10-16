@@ -17,12 +17,12 @@ class Element {
 }
 function fixture(options={}) {
   const elements={};
-  for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','music','cast','fullscreen','closePanel','reset']) elements[id]=new Element();
+  for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','music','cast','fullscreen','report','reportSaved','reportSavedAt','reportNote','reportDone','closePanel','reset']) elements[id]=new Element();
   if (options.profileFlow) for (const id of ['profiles','streams','pickerTitle','audienceSwitch','pmum','pdad','pboth','pgrown','p2','p6']) {
     elements[id]=new Element();
     if (id.startsWith('p') && id.length<=6) { const name=new Element('SPAN'); name.className='channel-name'; elements[id].appendChild(name); elements[id].querySelector=selector=>selector==='.channel-name'?name:null; }
   }
-  elements.panel.hidden=true; elements.savedPanel.hidden=true;
+  elements.panel.hidden=true; elements.savedPanel.hidden=true; elements.reportSaved.hidden=true;
   const vid=elements.vid;
   Object.assign(vid,{paused:true,currentTime:0,duration:120,muted:false,playCount:0,readyState:0});
   vid.play=options.play || function () { this.playCount++; this.readyState=1; this.dispatch('loadedmetadata'); this.paused=false; this.dispatch('playing'); return Promise.resolve(); };
@@ -1323,4 +1323,74 @@ test('another source taking the TV leaves the channel paused on the laptop at th
   assert.equal(f.vid.playCount,plays,'the hidden channel must not start playing on the laptop');
   assert.equal(f.player.state.navigation[f.player.state.navIndex].time,30);
   assert.equal(f.player.state.weights[src],undefined);
+});
+
+test('Report captures a frozen player snapshot and responds to state requests', () => {
+  const messages=[];
+  const parent={postMessage(message){messages.push(message);}};
+  const f=fixture({parent});
+  f.player.startStream(2);
+  f.vid.currentTime=18;
+  f.elements.report.dispatch('click');
+  const report=messages.find(message=>message.type==='onto:report');
+  assert.equal(report.source,'button');
+  assert.equal(report.state.current.src,videos[f.player.state.cur].src);
+  assert.equal(report.state.mediaTime,18);
+  f.vid.currentTime=45;
+  f.window.dispatch('message',{source:parent,data:{type:'onto:report-state',requestId:'r1',reportId:report.reportId}});
+  const response=messages.find(message=>message.type==='onto:report-state-result');
+  assert.equal(response.requestId,'r1');
+  assert.equal(response.state.mediaTime,18,'reply uses the press-time snapshot');
+  assert.deepEqual(response.state.history,report.state.history);
+});
+
+test('Report key ignores text input and note row sends note then dismisses', () => {
+  const messages=[];
+  const parent={postMessage(message){messages.push(message);}};
+  const f=fixture({parent});
+  f.player.startStream(2);
+  f.window.dispatch('message',{source:parent,data:{type:'onto:report-saved',folder:'/tmp/report',at:'2026-01-01T00:00:00Z'}});
+  assert.equal(f.elements.reportSaved.hidden,false);
+  f.elements.reportNote.value='stutter';
+  f.elements.reportNote.dispatch('keydown',{key:'Enter',preventDefault(){}});
+  assert.deepEqual(messages.at(-1),{type:'onto:report-note',folder:'/tmp/report',note:'stutter'});
+  assert.equal(f.elements.reportSaved.hidden,true);
+});
+
+test('report key works before a stream, ignores editors, and reports do not change playback', () => {
+  const messages=[], parent={postMessage:value=>messages.push(value)};
+  const f=fixture({parent});
+  const key = target => f.document.dispatch('keydown', { key:'r', target, preventDefault(){} });
+  key({tagName:'INPUT'}); key({tagName:'TEXTAREA'}); key({isContentEditable:true});
+  assert.equal(messages.filter(x=>x.type==='onto:report').length,0);
+  key({tagName:'BODY'});
+  assert.equal(messages.at(-1).source,'key');
+  f.player.startStream(2);
+  const plays=f.vid.playCount, paused=f.vid.paused, state=JSON.stringify(f.player.state.navigation);
+  key({tagName:'BODY'});
+  assert.equal(f.vid.playCount,plays); assert.equal(f.vid.paused,paused);
+  assert.equal(JSON.stringify(f.player.state.navigation),state);
+});
+
+test('report state includes live navigation, weights, bounded log and cast plan', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.player.state.weights[src]=1.8;
+  f.vid.currentTime=25;
+  f.entries['kidshuffle.log.v1']=JSON.stringify(Array.from({length:70},(_,i)=>({i})));
+  f.player.startCasting();
+  f.tv({path:src,positionSeconds:30,durationSeconds:400,status:'playing'});
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:report-state',requestId:'snapshot'}});
+  const data=f.last('onto:report-state-result').state;
+  assert.equal(data.cast.casting,true);
+  assert.equal(data.cast.lastTvStatus.positionSeconds,30);
+  assert.equal(data.cast.plannedNext.src,kidLibrary[f.player.state.cast.next.index].src);
+  assert.equal(data.navigation[data.navIndex].time,30);
+  assert.equal(data.weights[src],1.8);
+  assert.equal(data.viewingLog.length,50);
+  assert.equal(data.viewingLog[0].i,20);
+  assert.deepEqual(data.failed,[]); assert.deepEqual(data.deferred,[]);
+  assert.equal(data.poolSize,f.player.state.pool.length);
+  f.player.next('skip');
+  assert.equal(data.cast.lastTvStatus.positionSeconds,30,'returned report remains detached');
 });

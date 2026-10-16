@@ -155,6 +155,13 @@ invent plot summaries or scan whole films for scenes.
 For command-line use, `npm run cast -- --help` exposes the casting tools.
 YouTube URLs there need `yt-dlp`; the desktop app works with local files.
 
+## Reporting a problem
+
+Use Report (or R) in the player, Report a Problem (⌘⇧R) in the menu, or `npm run report -- "what went wrong"`.
+Reports are saved privately under `~/Library/Application Support/Onto the TV/reports/`.
+They contain a point-in-time player, TV, settings, playback history and recent error snapshot.
+App captures also include a screenshot and the last 15 minutes of events; CLI captures use disk data only. Add an optional note after capture; reports never leave the Mac.
+
 ## Privacy and network access
 
 - Videos stay in your folders. There is no cloud account and no telemetry.

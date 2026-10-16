@@ -56,6 +56,7 @@ function setMode(value) {
   if (value !== 'local') $('channel-player').contentWindow?.postMessage({ type: 'onto:pause' }, '*');
   if (mode === 'ambient' && value !== 'ambient') window.ambientView?.leave();
   mode = value;
+  api?.reportMode?.(mode).catch(() => {});
   $('local-view').hidden = mode !== 'local';
   $('tv-view').hidden = mode !== 'tv';
   $('history-view').hidden = mode !== 'history';
@@ -406,3 +407,5 @@ window.addEventListener('message', event => {
   if (event.data.type === 'onto:cast-resume') void act(() => api.resume());
   if (event.data.type === 'onto:cast-stop') void act(() => api.stop());
 });
+
+installReports(api, () => mode);

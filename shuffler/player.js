@@ -216,6 +216,66 @@
       environment.parent.postMessage(message, '*');
       return true;
     }
+    function reportState() {
+      const current = state.cur >= 0 ? videos[state.cur] : null;
+      const navigation = state.navigation.map(entry => {
+        const video = videos[entry.index] || {};
+        const factor = entry.feedback ? learnedWeight(1, entry.feedback.reason, entry.feedback.time, entry.feedback.duration, entry.feedback.watched) : 1;
+        const current = entry === state.navigation[state.navIndex] && !state.pendingSeek;
+        const time = current ? mediaTime() : entry.time;
+        const watched = (entry.watched || 0) + (current ? Math.max(0, time - state.watchFrom) : 0);
+        return { index:entry.index, src:video.src, time:time || 0, watched, played:!!entry.played,
+          completed:!!entry.completed, graded:!!entry.graded, feedback:factor };
+      });
+      let viewingLog = [];
+      try { const raw = JSON.parse(storage?.getItem(LOG_KEY)); if (Array.isArray(raw)) viewingLog = raw.slice(-50); } catch (_) {}
+      return {
+        stream: state.stream === null ? null : { id:state.stream, label:labelFor(audienceFor(state.stream)) + (String(state.stream).endsWith('.music') ? ' · Music' : '') },
+        current: current ? { src:current.src, title:current.title, channel:current.channel, tier:current.tier, duration:mediaDuration() || current.duration || 0 } : null,
+        mediaTime: Number.isFinite(mediaTime()) ? mediaTime() : 0, paused: casting() ? state.cast.status === 'paused' : !!vid.paused,
+        preferShort:!!state.preferShort, navigation, navIndex:state.navIndex,
+        history:state.history.slice(-20).map(index => videos[index]?.src).filter(Boolean),
+        failed:[...state.failed].map(index => videos[index]?.src || index), deferred:[...state.deferred].map(index => videos[index]?.src || index),
+        weights:Object.fromEntries(state.navigation.map(entry => videos[entry.index]?.src).filter(Boolean).map(src => [src, weightFor(state.weights, src)])),
+        viewingLog, cast: state.cast ? {casting:true, plannedNext:state.cast.next ? {...state.cast.next, src:videos[state.cast.next.index]?.src || null} : null, lastTvStatus:lastTvStatus} : {casting:false, plannedNext:null, lastTvStatus:lastTvStatus},
+        poolSize:state.pool.length,
+      };
+    }
+    const reportSnapshots = new Map();
+    let reportSequence = 0;
+    function report(source) {
+      const at = new Date(now()).toISOString();
+      const reportId = String(++reportSequence);
+      const snapshot = JSON.parse(JSON.stringify(reportState()));
+      reportSnapshots.set(reportId, snapshot);
+      if (reportSnapshots.size > 20) reportSnapshots.delete(reportSnapshots.keys().next().value);
+      tell({type:'onto:report', source, at, reportId, state:snapshot});
+    }
+    function blackboxNotice(event, extra = {}) { tell({type:'onto:blackbox', event, ...extra}); }
+    let reportFolder = null, reportIdle = null, lastTvStatus = null;
+    function dismissReport() {
+      const row = el('reportSaved'); if (!row) return;
+      row.hidden = true; environment.clearTimeout(reportIdle); reportFolder = null;
+    }
+    function showReportSaved(data) {
+      const row = el('reportSaved'); if (!row) return;
+      reportFolder = data.folder || null;
+      const at = data.at ? new Date(data.at) : new Date();
+      const stamp = el('reportSavedAt'); if (stamp) { stamp.textContent = at.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12:false}); stamp.title = reportFolder || ''; }
+      const input = el('reportNote'); if (input) input.value = '';
+      row.hidden = false;
+      environment.clearTimeout(reportIdle); reportIdle = environment.setTimeout(dismissReport, 20000);
+    }
+    function resetReportIdle() {
+      if (!reportFolder) return;
+      environment.clearTimeout(reportIdle); reportIdle = environment.setTimeout(dismissReport, 20000);
+    }
+    function saveReportNote() {
+      if (!reportFolder) return dismissReport();
+      const input = el('reportNote');
+      tell({type:'onto:report-note', folder:reportFolder, note:input ? input.value : ''});
+      dismissReport();
+    }
     const random = environment.random || Math.random;
     const now = environment.now || (() => Date.now());
     function publishHistory(force = false, completed = false, reset = false) {
@@ -543,9 +603,10 @@
       entry.sought = false;
       entry.completed = false;
       state.history.push(entry.index);
-      state.history = state.history.slice(-6);
+      state.history = state.history.slice(-20);
       updateNavigation();
       const video = videos[entry.index];
+      blackboxNotice('navigation', {src:video.src, index:entry.index, reason:direction < 0 ? 'back' : 'play'});
       showToast((video.channel ? video.channel + " — " : "") + video.title);
       if (casting()) {
         state.cast = { path:video.src, position:state.pendingSeek ? state.pendingSeek.time : 0, duration:video.duration || 0, status:'playing' };
@@ -568,7 +629,7 @@
     }
     function pickNext() {
       const available = state.pool.filter(index => !state.deferred.has(index));
-      return pickVideo(videos, available, selectionWeights(), state.cur, state.failed, state.history, random, state.preferShort);
+      return pickVideo(videos, available, selectionWeights(), state.cur, state.failed, state.history.slice(-6), random, state.preferShort);
     }
     function chooseNew(selected = pickNext(), tv) {
       if (!state.pool.includes(selected) || state.failed.has(selected)) selected = pickNext();
@@ -586,6 +647,7 @@
     }
     function next(reason, tv) {
       if (state.stream === null) return;
+      blackboxNotice('navigation', {reason, src:state.cur >= 0 ? videos[state.cur]?.src : null});
       const planned = state.cast?.next;
       capturePosition();
       rememberPosition(reason === 'ended');
@@ -623,6 +685,7 @@
       playEntry(target, -1);
     }
     function startStream(age) {
+      blackboxNotice('stream-switch', {stream:age});
       rememberPosition(); logDeparture("switch");
       stopVideo();
       if (casting()) state.cast.next = null;
@@ -650,6 +713,7 @@
       next("start");
     }
     function switchStream() {
+      blackboxNotice('stream-switch', {stream:null, previous:state.stream});
       rememberPosition();
       logDeparture("switch");
       if (casting()) stopCasting('Back on the laptop', { resume:false });
@@ -729,7 +793,9 @@
       showToast(reason || 'Back on the laptop');
     }
     function castReport(tv) {
-      if (!casting() || !tv) return;
+      if (!tv) return;
+      lastTvStatus = JSON.parse(JSON.stringify(tv));
+      if (!casting()) return;
       if (tv.status === 'finished') {
         // A later poll of the same empty renderer must not skip again.
         if (state.cast.done || !state.cast.acked) return;
@@ -939,6 +1005,11 @@
     el("preferences").addEventListener("click", showWeights);
     el("closePanel").addEventListener("click", () => { panel.hidden = true; });
     el("fullscreen").addEventListener("click", toggleFullscreen);
+    if (el("report")) el("report").addEventListener("click", () => report('button'));
+    if (el("reportDone")) el("reportDone").addEventListener("click", saveReportNote);
+    if (el("reportNote")) el("reportNote").addEventListener("input", resetReportIdle);
+    if (el("reportNote")) el("reportNote").addEventListener("keydown", event => { resetReportIdle(); if (event.key === 'Enter') { event.preventDefault(); saveReportNote(); } else if (event.key === 'Escape') { event.preventDefault(); dismissReport(); } });
+    if (el("reportSaved")) el("reportSaved").addEventListener("pointerdown", resetReportIdle);
     const shortBox = el("preferShort");
     if (shortBox && shortBox.addEventListener) shortBox.addEventListener("change", () => setPreferShort(shortBox.checked));
     // Closing the tab is the commonest way a long compilation ends; record it.
@@ -959,10 +1030,13 @@
     document.addEventListener("fullscreenchange", () => { el("fullscreen").textContent = document.fullscreenElement ? "Exit full screen" : "Full screen"; });
     document.addEventListener("keydown", event => {
       revealControls();
-      if (state.stream === null || event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
-      if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+      if (event.target && (/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable)) return;
       const key = event.key.toLowerCase();
-      if (key === "escape") { panel.hidden = true; if (el('savedPanel') && !el('savedPanel').hidden) closeSaved(); return; }
+      if (key === "r") { event.preventDefault(); report('key'); return; }
+      if (key === "escape" && el('reportSaved') && !el('reportSaved').hidden) { dismissReport(); return; }
+      if (state.stream === null) return;
+      if (key === "escape") { if (el('reportSaved') && !el('reportSaved').hidden) dismissReport(); panel.hidden = true; if (el('savedPanel') && !el('savedPanel').hidden) closeSaved(); return; }
       if (el('savedPanel') && !el('savedPanel').hidden) return;
       if (key === "w") { event.preventDefault(); showWeights(); return; }
       if (!panel.hidden) return;
@@ -981,7 +1055,19 @@
       if (event.data.type === 'onto:cast-queue-result') castQueueResult(event.data);
       if (event.data.type === 'onto:cast-off') stopCasting(event.data.reason || 'The TV stopped playing.', { fromTv:true, play:event.data.resume !== false });
       if (event.data.type === "onto:pause") vid.pause();
+      if (event.data.type === 'onto:report-state') {
+        const reportId = event.data.reportId;
+        const snapshot = reportId ? reportSnapshots.get(reportId) || {unavailable:true} : reportState();
+        tell({type:'onto:report-state-result', requestId:event.data.requestId, state:snapshot});
+        if (reportId) reportSnapshots.delete(reportId);
+      }
+      if (event.data.type === 'onto:report-saved') showReportSaved(event.data);
+      if (event.data.type === 'onto:report-dismiss') dismissReport();
     });
+    if (environment.addEventListener) {
+      environment.addEventListener('error', event => blackboxNotice('renderer-error', {message:String(event?.message || event || '').slice(0,240)}));
+      environment.addEventListener('unhandledrejection', event => blackboxNotice('renderer-error', {message:String(event?.reason || '').slice(0,240)}));
+    }
     updateNavigation();
     updateChrome();
     publishTaste();

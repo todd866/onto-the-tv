@@ -1,6 +1,14 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('tv', {
+  reportMode: mode => ipcRenderer.invoke('report:mode', mode),
+  report: (source, state) => ipcRenderer.invoke('report:capture', source, state),
+  reportState: state => ipcRenderer.invoke('report:state-result', state),
+  reportNote: (folder, note) => ipcRenderer.invoke('report:note', folder, note),
+  blackbox: notice => ipcRenderer.invoke('report:blackbox', notice),
+  reportError: error => ipcRenderer.invoke('report:error', error),
+  onReportState: listener => ipcRenderer.on('report:state', (_event, value) => listener(value)),
+  onReportSaved: listener => ipcRenderer.on('report:saved', (_event, value) => listener(value)),
   recordHistory: input => ipcRenderer.invoke('history:record', input),
   saveTaste: input => ipcRenderer.invoke('taste:save', input),
   get: () => ipcRenderer.invoke('app:get'),

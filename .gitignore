@@ -37,3 +37,7 @@ curation/whitelist.json
 
 # Private file watch history
 playback-history.json
+
+# Private problem reports and flight recorder
+reports/
+blackbox.jsonl*

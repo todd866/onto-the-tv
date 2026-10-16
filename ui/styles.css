@@ -225,3 +225,9 @@ input { background:#0c151c; border-color:#354955; }
   .ambient-option small { display:none; }
   .ambient-actions { margin:0; }
 }
+
+.report-saved { position:fixed; z-index:100; bottom:18px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; width:min(540px,calc(100% - 24px)); padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); box-shadow:0 4px 24px #0004; }
+.report-saved span { white-space:nowrap; font-size:13px; font-variant-numeric:tabular-nums; }
+.report-saved input { min-width:0; flex:1; width:0; padding:6px 8px; border:0; border-left:1px solid var(--line); border-right:1px solid var(--line); border-radius:0; background:transparent; color:inherit; }
+.report-saved input::placeholder { color:var(--muted); }
+.report-saved button { padding:6px 9px; }
