@@ -16,6 +16,7 @@
     "cast": "node casting/src/cli.js",
     "refresh": "node bin/refresh.js",
     "report": "node bin/report.js",
+    "audit:tv": "node bin/tv-audit.js",
     "curate": "node curation/src/cli.js"
   },
   "devDependencies": {

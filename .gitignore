@@ -41,3 +41,6 @@ playback-history.json
 # Private problem reports and flight recorder
 reports/
 blackbox.jsonl*
+
+# Private TV audit bundles and evidence (synthetic fixtures are tracked separately)
+tv-audit-private/

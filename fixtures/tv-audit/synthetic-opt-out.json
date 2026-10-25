@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "id": "synthetic-opt-out",
+  "title": "Synthetic opt-out rehearsal",
+  "provenance": "synthetic",
+  "device": {
+    "platform": "unknown",
+    "model": "Synthetic TV",
+    "firmware": "fixture-1"
+  },
+  "question": "Does a recorded signal persist after a verified opt-out?",
+  "expectedBehavior": "Optional viewing analytics should stop after the setting is disabled; endpoint traffic alone does not identify analytics.",
+  "references": [],
+  "evidence": [
+    {
+      "id": "before-setting",
+      "kind": "setting-record",
+      "provenance": "synthetic",
+      "source": "hand-authored fixture; no capture file",
+      "summary": "Synthetic settings screen records analytics enabled.",
+      "observedAt": "2026-10-25T10:00:00Z"
+    },
+    {
+      "id": "before-traffic",
+      "kind": "traffic-summary",
+      "provenance": "synthetic",
+      "source": "hand-authored fixture; no capture file",
+      "summary": "Synthetic counter records 12 connections. Encrypted contents and purpose unknown.",
+      "observedAt": "2026-10-25T10:00:00Z"
+    },
+    {
+      "id": "after-setting",
+      "kind": "setting-record",
+      "provenance": "synthetic",
+      "source": "hand-authored fixture; no capture file",
+      "summary": "Synthetic settings screen records analytics disabled.",
+      "observedAt": "2026-10-25T10:05:00Z"
+    },
+    {
+      "id": "after-traffic",
+      "kind": "traffic-summary",
+      "provenance": "synthetic",
+      "source": "hand-authored fixture; no capture file",
+      "summary": "Synthetic counter records 6 connections. Encrypted contents and purpose unknown.",
+      "observedAt": "2026-10-25T10:05:00Z"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "before",
+      "phase": "before",
+      "context": "same fixture firmware, account and network; no reboot",
+      "activity": "idle home screen",
+      "startedAt": "2026-10-25T10:00:00Z",
+      "durationSeconds": 60,
+      "setting": "enabled",
+      "settingVerified": true,
+      "coverageComplete": true,
+      "evidenceIds": [
+        "before-setting",
+        "before-traffic"
+      ],
+      "signals": [
+        {
+          "key": "telemetry.example.invalid",
+          "count": 12,
+          "evidenceIds": [
+            "before-traffic"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "after",
+      "phase": "after",
+      "context": "same fixture firmware, account and network; no reboot",
+      "activity": "idle home screen",
+      "startedAt": "2026-10-25T10:05:00Z",
+      "durationSeconds": 120,
+      "setting": "disabled",
+      "settingVerified": true,
+      "coverageComplete": true,
+      "evidenceIds": [
+        "after-setting",
+        "after-traffic"
+      ],
+      "signals": [
+        {
+          "key": "telemetry.example.invalid",
+          "count": 6,
+          "evidenceIds": [
+            "after-traffic"
+          ]
+        }
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "id": "persistent-signal",
+      "status": "observation",
+      "statement": "The synthetic after window contains six connections.",
+      "evidenceIds": [
+        "after-traffic"
+      ]
+    },
+    {
+      "id": "collection-question",
+      "status": "hypothesis",
+      "statement": "Optional analytics might continue after opt-out. This fixture does not establish that.",
+      "evidenceIds": [
+        "after-setting",
+        "after-traffic"
+      ],
+      "alternatives": "Required service traffic, delayed queue flush, shared infrastructure, or unrelated account activity.",
+      "limitations": "Invented data; no decoded payload, independent repetition or real TV validation."
+    }
+  ],
+  "comparisons": [
+    {
+      "id": "analytics-pair",
+      "beforeId": "before",
+      "afterId": "after",
+      "signalKey": "telemetry.example.invalid"
+    }
+  ]
+}
