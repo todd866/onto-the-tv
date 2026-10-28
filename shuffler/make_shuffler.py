@@ -139,7 +139,7 @@ def load_sources(path=None, home=None):
     return values["roots"], values["picks"]
 
 
-def probe_video(path, ffprobe="ffprobe"):
+def probe_video(path, ffprobe="ffprobe", tv=False):
     """Return duration for a readable MP4 with a real video stream, or an error."""
     try:
         result = subprocess.run(
@@ -156,13 +156,13 @@ def probe_video(path, ffprobe="ffprobe"):
                    and int(s.get("width", 0)) > 0 and int(s.get("height", 0)) > 0]
         if not streams:
             return None, "no usable video stream"
-        if path.suffix.lower() not in PLAYABLE_SUFFIXES:
+        if path.suffix.lower() not in PLAYABLE_SUFFIXES | (TV_SUFFIXES if tv else set()):
             return None, f"{path.suffix.lower()} container does not play in a browser; convert to a browser-compatible MP4 or WebM"
         video = streams[0].get("codec_name")
         if video not in PLAYABLE_VIDEO:
             return None, f"{video} video does not play in a browser; convert to a browser-compatible MP4 or WebM"
         audio = [s.get("codec_name") for s in data.get("streams", []) if s.get("codec_type") == "audio"]
-        if audio and audio[0] not in PLAYABLE_AUDIO:
+        if audio and audio[0] not in PLAYABLE_AUDIO | (TV_AUDIO if tv else set()):
             return None, f"{audio[0]} audio does not play in a browser; convert to a browser-compatible MP4 or WebM"
         durations = [data.get("format", {}).get("duration")] + [s.get("duration") for s in streams]
         for value in durations:
@@ -181,14 +181,14 @@ def clean_title(stem):
     return re.sub(r"\s*\[[\w-]{8,}\]$", "", stem)
 
 
-def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, tiers=None):
+def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, tiers=None, tv=False):
     """Gather playable videos from every configured root plus the individual picks."""
     if roots is None:
         roots = [{"label": "", "path": library, "classify": "shows"}]
     videos, rejected, warned, seen = [], [], set(), {}
 
     def add(path, src, channel, title, tier):
-        duration, error = probe_video(path, ffprobe)
+        duration, error = probe_video(path, ffprobe, tv)
         if error:
             rejected.append((src, error))
             return
@@ -263,9 +263,6 @@ def main(argv=None):
     parser.add_argument("--no-sources", action="store_true", help="use only --library, ignoring sources.json")
     parser.add_argument("--tv", action="store_true", help="also accept formats a Samsung TV plays (MKV, MOV, Dolby Digital)")
     args = parser.parse_args(argv)
-    if args.tv:
-        PLAYABLE_SUFFIXES.update(TV_SUFFIXES)
-        PLAYABLE_AUDIO.update(TV_AUDIO)
     library = args.library.expanduser().resolve()
     output = (args.output or library / "kids-shuffler.html").expanduser().resolve()
     if not library.is_dir():
@@ -287,7 +284,7 @@ def main(argv=None):
     if not any(path.is_file() and path.suffix.lower() in MEDIA_SUFFIXES
                for path in library.rglob("*")):
         parser.error(f"No playable videos found under {library}; existing output left unchanged")
-    videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers)
+    videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers, args.tv)
     for name, error in rejected:
         print(f"Excluded {name}: {error}", file=sys.stderr)
     if not videos:

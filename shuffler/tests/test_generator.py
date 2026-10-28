@@ -144,6 +144,11 @@ class SourceTests(unittest.TestCase):
             reasons = dict(rejected)
             self.assertIn('.mkv container', reasons['grown-ups/Films/WrongContainer.mkv'])
             self.assertIn('ac3 audio', reasons['grown-ups/Films/WrongAudio.mp4'])
+            # The TV's own player takes both; the browser rules are unchanged afterwards.
+            videos, rejected = generator.collect_videos(Path(directory), output, roots=roots, tv=True)
+            self.assertEqual(sorted(v['src'] for v in videos), ['grown-ups/Films/Playable.mp4',
+                             'grown-ups/Films/WrongAudio.mp4', 'grown-ups/Films/WrongContainer.mkv'])
+            self.assertEqual(len(generator.collect_videos(Path(directory), output, roots=roots)[0]), 1)
 
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'ffmpeg/ffprobe required')
     def test_an_empty_library_is_refused_even_when_other_sources_have_videos(self):
