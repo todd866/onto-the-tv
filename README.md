@@ -30,6 +30,19 @@ frames and is cached privately; browsing does not start playback. Add more video
 folders through Library settings. These additions are for browsing and do not
 change the children's channel groups.
 
+## Watch from the TV instead
+
+A Mac that stays on (for example a spare one with a media drive) can serve the library to
+the TV, which then browses and plays with its own remote: channels, Continue and every show.
+Channels pick and learn exactly as they do in the app.
+
+```sh
+scripts/install_tv_server.sh      # runs bin/tv-server.js at login on port 8765
+```
+
+Then open `http://<Mac address>:8765/` in the TV's web browser, or install the TV app:
+see [tizen/README.md](tizen/README.md).
+
 ## Install on a Mac
 
 You need macOS 13 or later, Node.js 22.12+, Python 3.10+ and FFmpeg. Node builds
