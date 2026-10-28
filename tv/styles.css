@@ -43,3 +43,11 @@ html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; backgro
 #osd-fill { height: 100%; width: 0; background: var(--fill); }
 #osd-keys { display: flex; gap: 48px; margin-top: 18px; color: var(--dim); font-size: 24px; }
 #osd-play { color: var(--text); }
+
+#setup { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg); display: flex; flex-direction: column;
+  justify-content: center; align-items: center; gap: 24px; }
+#setup[hidden] { display: none; }
+#setup label { color: var(--dim); font-size: 32px; }
+#setup input { width: 760px; padding: 18px 24px; font-size: 44px; border-radius: 10px; border: 4px solid var(--focus);
+  background: var(--tile); color: var(--text); font-variant-numeric: tabular-nums; }
+#setup p { margin: 0; color: var(--dim); min-height: 36px; }

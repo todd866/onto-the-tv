@@ -76,7 +76,7 @@ test('server streams only catalogue files and serves the UI', async () => {
   await writeFile(file, Buffer.alloc(1000, 7));
   await writeFile(join(dir, 'index.html'), '<!doctype html>ok');
   const library = createTvLibrary({ videos: [{ ...videos[0], file }], history, storage });
-  const server = createTvServer({ library, history, storage, uiRoot: dir });
+  const server = createTvServer({ library, history, storage, uiRoot: dir, token: 'secret' });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
@@ -87,7 +87,15 @@ test('server streams only catalogue files and serves the UI', async () => {
     assert.equal((await fetch(`${base}/media?src=${encodeURIComponent('/etc/passwd')}`)).status, 404);
     assert.equal((await fetch(`${base}/..%2fclip.mp4`)).status, 404);
     assert.equal(await (await fetch(`${base}/`)).text(), '<!doctype html>ok');
-    assert.equal((await fetch(`${base}/api/next?channel=all`)).status, 200);
+    const post = (body, headers = {}) => fetch(`${base}/api/next`, { method: 'POST', body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json', ...headers } });
+    assert.equal((await post({ channel: 'all' })).status, 200);
+    assert.equal((await fetch(`${base}/api/next?channel=all`)).status, 404, 'GET must not change taste');
+    assert.equal((await post({ channel: 'all' }, { Origin: 'http://evil.example' })).status, 403);
+    const paired = await post({ channel: 'all' }, { Origin: 'file://', 'X-Onto-Token': 'secret' });
+    assert.equal(paired.status, 200);
+    assert.equal(paired.headers.get('access-control-allow-origin'), 'file://');
+    assert.equal((await fetch(`${base}/api/home`, { headers: { Origin: 'null' } })).status, 403);
     assert.equal((await fetch(`${base}/api/home`)).headers.get('access-control-allow-origin'), null);
     assert.equal((await fetch(`${base}/api/progress`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'text/plain' } })).status, 415);
   } finally { await new Promise(resolve => server.close(resolve)); }

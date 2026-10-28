@@ -208,9 +208,10 @@ async function streamFile(request, response, file) {
 }
 
 /**
- * HTTP front end. `artwork` is optional (createArtworkCache); `uiRoot` holds the TV web UI.
+ * HTTP front end. `artwork` is optional (createArtworkCache); `uiRoot` holds the TV web UI;
+ * `token` is the pairing secret the installed TV app sends.
  */
-export function createTvServer({ library, history, storage, artwork, uiRoot, log = () => {} }) {
+export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', log = () => {} }) {
   let dirty = false;
   const save = () => {
     if (!dirty) return;
@@ -225,17 +226,31 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, log
       if (!isHomeAddress(request.socket.remoteAddress)) return send(response, 403, { error: 'Home network only.' });
       const url = new URL(request.url, 'http://tv.local');
       const path = url.pathname;
-      // The TV loads this page from the server itself, so no cross-origin access is
-      // granted. A Host check blocks DNS rebinding; JSON-only POSTs force a preflight.
+      // A Host check blocks DNS rebinding. The page served here is same-origin; the
+      // installed TV app is cross-origin and must carry the pairing token. JSON-only
+      // POSTs force a preflight, so other pages cannot change taste or history.
       if (!isHomeHost(request.headers.host)) return send(response, 403, { error: 'Use this Mac’s address.' });
+      const origin = request.headers.origin;
+      if (origin && origin !== `http://${request.headers.host}`) {
+        if (request.method === 'OPTIONS') {
+          response.writeHead(204, { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST',
+            'Access-Control-Allow-Headers': 'Content-Type, X-Onto-Token', 'Access-Control-Max-Age': '600', Vary: 'Origin' });
+          return response.end();
+        }
+        if (!token || (request.headers['x-onto-token'] !== token && url.searchParams.get('t') !== token)) {
+          return send(response, 403, { error: 'Pair this TV first.' });
+        }
+        response.setHeader('Access-Control-Allow-Origin', origin);
+        response.setHeader('Vary', 'Origin');
+      }
       if (request.method === 'POST' && !/^application\/json\b/.test(request.headers['content-type'] || '')) {
         return send(response, 415, { error: 'JSON only.' });
       }
       if (path === '/api/home') return send(response, 200, library.home());
       if (path === '/api/show') return send(response, 200, library.show(url.searchParams.get('name') || ''));
-      if (path === '/api/next') {
-        const params = Object.fromEntries(url.searchParams);
-        const item = library.next(params.channel || '', params);
+      if (path === '/api/next' && request.method === 'POST') {
+        const params = await readBody(request);
+        const item = library.next(String(params.channel || ''), params);
         dirty = true;
         return send(response, 200, item);
       }

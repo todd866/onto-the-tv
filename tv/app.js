@@ -2,11 +2,13 @@
    so it sticks to ES2017: no optional chaining, no nullish coalescing. */
 (function () {
   'use strict';
-  var SERVER = (function () {
-    try { var saved = localStorage.getItem('onto.server'); if (saved) return saved.replace(/\/$/, ''); } catch (e) {}
-    if (window.ONTO_SERVER) return window.ONTO_SERVER;
-    return location.protocol === 'http:' || location.protocol === 'https:' ? location.origin : '';
-  })();
+  // Served by the Mac, the page talks to its own origin. Packaged as the TV app,
+  // config.js supplies the Mac's likely addresses and the pairing token.
+  var CONFIG = window.ONTO_CONFIG || {};
+  var TOKEN = CONFIG.token || '';
+  var PACKAGED = !(location.protocol === 'http:' || location.protocol === 'https:');
+  var SERVER = PACKAGED ? '' : location.origin;
+
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 10009, ESC: 27, BACKSPACE: 8,
     PLAYPAUSE: 10252, PLAY: 415, PAUSE: 19, STOP: 413, FF: 417, RW: 412, NEXT: 10233, PREV: 10232,
     CH_UP: 427, CH_DOWN: 428, SPACE: 32 };
@@ -23,6 +25,9 @@
   var osdTimer = 0;
 
   function api(path, options) {
+    options = options || {};
+    options.headers = options.headers || {};
+    if (TOKEN) options.headers['X-Onto-Token'] = TOKEN;
     return fetch(SERVER + path, options).then(function (response) {
       return response.json().then(function (body) {
         if (!response.ok) throw new Error(body.error || ('Server error ' + response.status));
@@ -31,6 +36,10 @@
     });
   }
   function q(value) { return encodeURIComponent(value); }
+  function post(path, body) {
+    return api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  }
+  function fileUrl(kind, src) { return SERVER + '/' + kind + '?src=' + q(src) + (TOKEN ? '&t=' + TOKEN : ''); }
   function clock(seconds) {
     seconds = Math.max(0, Math.floor(seconds || 0));
     var h = Math.floor(seconds / 3600), m = Math.floor(seconds / 60) % 60, s = seconds % 60;
@@ -55,11 +64,11 @@
       name.textContent = item.label;
       count.textContent = item.count;
     } else if (kind === 'show') {
-      art.style.backgroundImage = 'url("' + SERVER + '/art?src=' + q(item.src) + '")';
+      art.style.backgroundImage = 'url("' + fileUrl('art', item.src) + '")';
       name.textContent = item.name;
       count.textContent = item.count;
     } else {
-      art.style.backgroundImage = 'url("' + SERVER + '/art?src=' + q(item.src) + '")';
+      art.style.backgroundImage = 'url("' + fileUrl('art', item.src) + '")';
       name.textContent = item.title;
       if (item.duration) {
         var badge = document.createElement('span');
@@ -84,7 +93,17 @@
 
   function fill(el, items, kind) {
     el.innerHTML = '';
-    items.forEach(function (item) { el.appendChild(tile(item, kind)); });
+    items.forEach(function (item, col) {
+      var t = tile(item, kind);
+      // The TV's own browser drives pages with a pointer: a click focuses and opens.
+      t.addEventListener('click', function () {
+        for (var r = 0; r < rows.length; r++) if (rows[r].el === el) focus.row = r;
+        focus.col = col;
+        moveFocus(0, 0);
+        select();
+      });
+      el.appendChild(t);
+    });
   }
 
   function render() {
@@ -153,8 +172,59 @@
 
   function loadHome() {
     status('Connecting to ' + (SERVER || 'the Mac') + '…');
-    return api('/api/home').then(function (home) { data = home; render(); }).catch(fail);
+    return api('/api/home').then(function (home) { data = home; render(); }).catch(function (error) {
+      if (PACKAGED) return findServer();
+      fail(error);
+    });
   }
+
+  // ---------- finding the Mac (packaged app only) ----------
+  function probe(base) {
+    return new Promise(function (resolve) {
+      var done = false, timer = setTimeout(function () { done = true; resolve(false); }, 2500);
+      fetch(base + '/api/health', { headers: { 'X-Onto-Token': TOKEN } }).then(function (response) {
+        if (!done) { clearTimeout(timer); resolve(response.ok); }
+      }).catch(function () { if (!done) { clearTimeout(timer); resolve(false); } });
+    });
+  }
+  function findServer() {
+    var saved = '';
+    try { saved = localStorage.getItem('onto.server') || ''; } catch (e) {}
+    var candidates = [saved].concat(CONFIG.servers || []).filter(Boolean);
+    status('Looking for the Mac…');
+    var tryNext = function (i) {
+      if (i >= candidates.length) return askForServer();
+      return probe(candidates[i]).then(function (ok) {
+        if (!ok) return tryNext(i + 1);
+        SERVER = candidates[i];
+        try { localStorage.setItem('onto.server', SERVER); } catch (e) {}
+        return loadHome();
+      });
+    };
+    return tryNext(0);
+  }
+  function askForServer() {
+    var box = $('setup'), input = $('setup-address');
+    box.hidden = false;
+    input.value = (SERVER || (CONFIG.servers || [])[0] || 'http://192.168.').replace(/^http:\/\//, '');
+    input.focus();
+    status('');
+  }
+  $('setup-address').addEventListener('keydown', function (event) {
+    if (event.keyCode !== KEY.ENTER && event.keyCode !== 65376) return;   // 65376: Tizen IME Done
+    event.stopPropagation();
+    var value = 'http://' + this.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (!/:\d+$/.test(value)) value += ':' + (CONFIG.port || 8765);
+    $('setup-message').textContent = 'Trying ' + value + '…';
+    probe(value).then(function (ok) {
+      if (!ok) { $('setup-message').textContent = '⚠ No answer from ' + value; return; }
+      SERVER = value;
+      try { localStorage.setItem('onto.server', SERVER); } catch (e) {}
+      $('setup').hidden = true;
+      $('setup-message').textContent = '';
+      loadHome();
+    });
+  });
   function fail(error) { status('⚠ ' + error.message); }
 
   // ---------- playback ----------
@@ -182,7 +252,7 @@
     play.lastSave = Date.now();
     $('home').hidden = true;
     $('player').hidden = false;
-    video.src = SERVER + '/media?src=' + q(item.src);
+    video.src = fileUrl('media', item.src);
     video.load();
     var start = function () {
       video.removeEventListener('loadedmetadata', start);
@@ -196,13 +266,15 @@
 
   function startChannel(channel, fromItem, reason) {
     play = play && play.channel === channel ? play : { mode: 'channel', channel: channel };
-    var query = '/api/next?channel=' + q(channel.id);
+    var body = { channel: channel.id };
     if (fromItem) {
-      query += '&current=' + q(fromItem.src) + '&reason=' + reason + '&time=' + Math.floor(video.currentTime || 0) +
-        '&watched=' + Math.floor(Math.max(0, (video.currentTime || 0) - play.visitStart)) +
-        '&duration=' + Math.floor(video.duration || fromItem.duration || 0);
+      body.current = fromItem.src;
+      body.reason = reason;
+      body.time = Math.floor(video.currentTime || 0);
+      body.watched = Math.floor(Math.max(0, (video.currentTime || 0) - play.visitStart));
+      body.duration = Math.floor(video.duration || fromItem.duration || 0);
     }
-    return api(query).then(load).catch(function (error) { stopPlayback(); fail(error); });
+    return post('/api/next', body).then(load).catch(function (error) { stopPlayback(); fail(error); });
   }
 
   function startList(mode, list, index) {
@@ -213,9 +285,8 @@
   function saveProgress(completed) {
     if (!play || !play.item || !isFinite(video.currentTime)) return;
     play.lastSave = Date.now();
-    api('/api/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ src: play.item.src, positionSeconds: completed ? 0 : video.currentTime,
-        durationSeconds: isFinite(video.duration) ? video.duration : 0, completed: !!completed }) }).catch(function () {});
+    post('/api/progress', { src: play.item.src, positionSeconds: completed ? 0 : video.currentTime,
+      durationSeconds: isFinite(video.duration) ? video.duration : 0, completed: !!completed }).catch(function () {});
   }
 
   function next(reason) {
@@ -264,10 +335,13 @@
     if (play.mode === 'channel') startChannel(play.channel, null); else stopPlayback();
   });
   video.addEventListener('pause', function () { updateOsd(); showOsd(); });
+  video.addEventListener('click', togglePause);
+  $('osd-next').addEventListener('click', function () { next('skip'); });
 
   // ---------- keys ----------
   document.addEventListener('keydown', function (event) {
     var key = event.keyCode;
+    if (!$('setup').hidden) return;
     var playing = !$('player').hidden;
     if (playing) {
       if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE || key === KEY.STOP) stopPlayback();

@@ -5,7 +5,8 @@
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { readSettings } from '../src/settings.js';
 import { buildPlayer, playerExists } from '../src/shuffler.js';
 import { loadPlaybackHistory } from '../src/playback-history.js';
@@ -32,8 +33,12 @@ const history = await loadPlaybackHistory(join(data, 'playback-history.json'));
 const storage = await createFileStorage(join(data, 'taste-storage.json'));
 const artwork = createArtworkCache({ directory: join(appData, 'artwork'),
   ffmpeg: process.env.FFMPEG || 'ffmpeg', ffprobe: process.env.FFPROBE || 'ffprobe' });
+// The installed TV app embeds this token (tizen/build.sh reads it).
+const tokenFile = join(data, 'pairing-token');
+let token = (await readFile(tokenFile, 'utf8').catch(() => '')).trim();
+if (!token) { token = randomBytes(24).toString('hex'); await writeFile(tokenFile, token + '\n', { mode: 0o600 }); }
 const library = createTvLibrary({ videos, history, storage });
-const server = createTvServer({ library, history, storage, artwork, uiRoot: join(root, 'tv'), log });
+const server = createTvServer({ library, history, storage, artwork, uiRoot: join(root, 'tv'), token, log });
 server.listen(port, host, () => log(`serving ${videos.length} videos on http://${host}:${port}/`));
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => { log(`${signal}: saving and stopping`); server.close(() => process.exit(0));
