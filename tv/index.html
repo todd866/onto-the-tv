@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<title>Onto the TV</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main id="home">
+  <section class="row" data-row="channels"><h2>Channels</h2><div class="tiles" id="channels"></div></section>
+  <section class="row" data-row="continue" id="continue-row" hidden><h2>Continue</h2><div class="tiles" id="continue"></div></section>
+  <section class="row" data-row="shows"><h2 id="shows-title">Shows</h2><div class="tiles" id="shows"></div></section>
+  <p id="status" role="status"></p>
+</main>
+<div id="player" hidden>
+  <video id="video" preload="auto"></video>
+  <div id="osd">
+    <div id="osd-title"><span id="osd-show"></span><span id="osd-episode"></span><span id="osd-channel"></span></div>
+    <div id="osd-bar"><span id="osd-elapsed">0:00</span><div id="osd-track"><div id="osd-fill"></div></div><span id="osd-duration">0:00</span></div>
+    <div id="osd-keys"><span id="osd-play" aria-label="Play or pause">⏸</span><span aria-label="Back 30 seconds">◀ 30s</span><span aria-label="Forward 30 seconds">30s ▶</span><span id="osd-next" aria-label="Next episode">⏭ next</span></div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
