@@ -4,6 +4,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, normalize } from 'node:path';
 import { isIP } from 'node:net';
+import { timingSafeEqual } from 'node:crypto';
 import { readCatalogue } from './shuffler.js';
 import { writeAtomically } from './atomic-write.js';
 
@@ -41,6 +42,12 @@ export function isHomeAddress(address) {
   }
   if (isIP(value) === 6) return value === '::1' || /^f[cd]/i.test(value) || /^fe[89ab]/i.test(value);
   return false;
+}
+
+function sameSecret(offered, token) {
+  if (!token || typeof offered !== 'string') return false;
+  const a = Buffer.from(offered), b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** True for a Host header naming this Mac by IP, localhost, a .local name or a Tailscale name. */
@@ -237,7 +244,9 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
             'Access-Control-Allow-Headers': 'Content-Type, X-Onto-Token', 'Access-Control-Max-Age': '600', Vary: 'Origin' });
           return response.end();
         }
-        if (!token || (request.headers['x-onto-token'] !== token && url.searchParams.get('t') !== token)) {
+        // <video> and <img> cannot send headers, so only /media and /art take the token in the URL.
+        const offered = request.headers['x-onto-token'] || (path === '/media' || path === '/art' ? url.searchParams.get('t') : '');
+        if (!sameSecret(offered, token)) {
           return send(response, 403, { error: 'Pair this TV first.' });
         }
         response.setHeader('Access-Control-Allow-Origin', origin);
@@ -279,7 +288,8 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
     } catch (error) {
       if (!response.headersSent) send(response, error.status || 500, { error: error.message });
       else response.destroy();
-      if (!error.status) log(`error ${request.url}: ${error.stack || error.message}`);
+      // Path only: the query can carry the pairing token.
+      if (!error.status) log(`error ${request.method} ${String(request.url).split('?')[0]}: ${error.stack || error.message}`);
     }
   });
   const close = server.close.bind(server);

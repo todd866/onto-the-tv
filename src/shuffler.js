@@ -99,9 +99,9 @@ export function generatorArgs(root, settings) {
   return args;
 }
 
-export async function buildPlayer(root, settings, runner = execute) {
+export async function buildPlayer(root, settings, runner = execute, extraArgs = []) {
   try {
-    const { stdout } = await runner('python3', generatorArgs(root, settings), {
+    const { stdout } = await runner('python3', [...generatorArgs(root, settings), ...extraArgs], {
       timeout: 600_000, maxBuffer: 4 * 1024 * 1024, env: process.env,
     });
     return stdout.trim();

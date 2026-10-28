@@ -46,6 +46,10 @@ SOURCES = HERE / "sources.json"
 PLAYABLE_SUFFIXES = {".mp4", ".m4v", ".webm"}
 PLAYABLE_VIDEO = {"h264", "av1", "vp8", "vp9", "hevc"}
 PLAYABLE_AUDIO = {"aac", "mp3", "opus", "vorbis", "flac"}
+# A Samsung TV's own player also takes Matroska/QuickTime and Dolby Digital (--tv).
+# DTS is left out: Samsung dropped it from 2018 models.
+TV_SUFFIXES = {".mkv", ".mov"}
+TV_AUDIO = {"ac3", "eac3"}
 # Containers worth probing at all. Anything else is not media we can route.
 MEDIA_SUFFIXES = {".mp4", ".m4v", ".webm", ".mkv", ".avi", ".mov"}
 
@@ -257,7 +261,11 @@ def main(argv=None):
     parser.add_argument("--sources", type=Path, help="extra roots and picks (default: sources.json if present)")
     parser.add_argument("--tiers", type=Path, help="folder classification JSON (default: tiers.json if present)")
     parser.add_argument("--no-sources", action="store_true", help="use only --library, ignoring sources.json")
+    parser.add_argument("--tv", action="store_true", help="also accept formats a Samsung TV plays (MKV, MOV, Dolby Digital)")
     args = parser.parse_args(argv)
+    if args.tv:
+        PLAYABLE_SUFFIXES.update(TV_SUFFIXES)
+        PLAYABLE_AUDIO.update(TV_AUDIO)
     library = args.library.expanduser().resolve()
     output = (args.output or library / "kids-shuffler.html").expanduser().resolve()
     if not library.is_dir():

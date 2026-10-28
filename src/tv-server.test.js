@@ -96,6 +96,8 @@ test('server streams only catalogue files and serves the UI', async () => {
     assert.equal(paired.status, 200);
     assert.equal(paired.headers.get('access-control-allow-origin'), 'file://');
     assert.equal((await fetch(`${base}/api/home`, { headers: { Origin: 'null' } })).status, 403);
+    assert.equal((await fetch(`${base}/api/home?t=secret`, { headers: { Origin: 'null' } })).status, 403, 'URL token only for files');
+    assert.equal((await fetch(`${base}/media?src=${encodeURIComponent('Bluey/a.mp4')}&t=secret`, { headers: { Origin: 'null' } })).status, 200);
     assert.equal((await fetch(`${base}/api/home`)).headers.get('access-control-allow-origin'), null);
     assert.equal((await fetch(`${base}/api/progress`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'text/plain' } })).status, 415);
   } finally { await new Promise(resolve => server.close(resolve)); }
