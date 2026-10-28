@@ -5,7 +5,7 @@ The TV pulls from a Mac on the same network that runs the TV server
 
 ## Quickest: the TV's web browser
 
-Open **Internet** on the TV and go to `http://<Mac address>:8765/`, then bookmark it.
+Open **Internet** on the TV and go to `http://<Mac address>:8686/`, then bookmark it.
 The Mac's address is printed by the install script. The browser drives the page with a
 pointer: click a tile to open it, click the video to pause.
 

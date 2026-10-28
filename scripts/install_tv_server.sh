@@ -7,7 +7,7 @@ LABEL=com.onto-the-tv.server
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/onto-tv-server.log"
-PORT="${ONTO_TV_PORT:-8765}"
+PORT="${ONTO_TV_PORT:-8686}"
 NODE="$(command -v node || true)"
 
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true

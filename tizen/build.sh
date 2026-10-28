@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build the Samsung TV app (.wgt) that talks to the Mac running bin/tv-server.js.
-#   tizen/build.sh [--server-host m2] [--address http://192.168.1.30:8765 ...]
+#   tizen/build.sh [--server-host m2] [--address http://192.168.1.30:8686 ...]
 # The pairing token is read from the server Mac (locally, or over ssh with --server-host).
 # Signing needs Tizen Studio's CLI and a Samsung certificate profile; see tizen/README.md.
 set -eu
@@ -18,17 +18,17 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "$HOST" ]; then
   TOKEN=$(ssh "$HOST" "cat \"\$HOME/$TOKEN_PATH\"")
-  [ ${#ADDRESSES[@]} -gt 0 ] || ADDRESSES=("http://$(ssh "$HOST" 'ipconfig getifaddr en0 || ipconfig getifaddr en1'):8765")
+  [ ${#ADDRESSES[@]} -gt 0 ] || ADDRESSES=("http://$(ssh "$HOST" 'ipconfig getifaddr en0 || ipconfig getifaddr en1'):8686")
 else
   TOKEN=$(cat "$HOME/$TOKEN_PATH")
-  [ ${#ADDRESSES[@]} -gt 0 ] || ADDRESSES=("http://$(ipconfig getifaddr en0 || ipconfig getifaddr en1):8765")
+  [ ${#ADDRESSES[@]} -gt 0 ] || ADDRESSES=("http://$(ipconfig getifaddr en0 || ipconfig getifaddr en1):8686")
 fi
 [ -n "$TOKEN" ] || { echo "no pairing token: start bin/tv-server.js once on the server Mac"; exit 1; }
 
 mkdir -p "$APP"
 cp "$ROOT"/tv/index.html "$ROOT"/tv/app.js "$ROOT"/tv/styles.css "$HERE"/config.xml "$HERE"/icon.png "$APP"/
 servers=$(printf '"%s",' "${ADDRESSES[@]}"); servers="[${servers%,}]"
-printf 'window.ONTO_CONFIG = {"servers":%s,"token":"%s","port":8765};\n' "$servers" "$TOKEN" > "$APP/config.js"
+printf 'window.ONTO_CONFIG = {"servers":%s,"token":"%s","port":8686};\n' "$servers" "$TOKEN" > "$APP/config.js"
 chmod 600 "$APP/config.js"
 echo "app files: $APP (servers $servers)"
 

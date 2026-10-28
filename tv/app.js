@@ -214,7 +214,7 @@
     if (event.keyCode !== KEY.ENTER && event.keyCode !== 65376) return;   // 65376: Tizen IME Done
     event.stopPropagation();
     var value = 'http://' + this.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-    if (!/:\d+$/.test(value)) value += ':' + (CONFIG.port || 8765);
+    if (!/:\d+$/.test(value)) value += ':' + (CONFIG.port || 8686);
     $('setup-message').textContent = 'Trying ' + value + '…';
     probe(value).then(function (ok) {
       if (!ok) { $('setup-message').textContent = '⚠ No answer from ' + value; return; }

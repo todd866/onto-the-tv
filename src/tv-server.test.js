@@ -28,9 +28,9 @@ test('only home-network addresses are served', () => {
 });
 
 test('only this Mac\'s own names are accepted as Host', () => {
-  for (const host of ['192.168.1.20:8765', 'localhost:8765', 'iantodds-macbook-air.local:8765', '[fd7a::1]:8765',
+  for (const host of ['192.168.1.20:8686', 'localhost:8686', 'iantodds-macbook-air.local:8686', '[fd7a::1]:8686',
     'iantodds-macbook-air.tail8cd07b.ts.net', 'm2']) assert.equal(isHomeHost(host), true, host);
-  for (const host of ['evil.example.com', 'evil.example.com:8765', 'a.b.local.evil.com', '']) assert.equal(isHomeHost(host), false, host);
+  for (const host of ['evil.example.com', 'evil.example.com:8686', 'a.b.local.evil.com', '']) assert.equal(isHomeHost(host), false, host);
 });
 
 test('byte ranges', () => {

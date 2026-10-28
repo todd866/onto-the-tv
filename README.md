@@ -37,10 +37,10 @@ the TV, which then browses and plays with its own remote: channels, Continue and
 Channels pick and learn exactly as they do in the app.
 
 ```sh
-scripts/install_tv_server.sh      # runs bin/tv-server.js at login on port 8765
+scripts/install_tv_server.sh      # runs bin/tv-server.js at login on port 8686
 ```
 
-Then open `http://<Mac address>:8765/` in the TV's web browser, or install the TV app:
+Then open `http://<Mac address>:8686/` in the TV's web browser, or install the TV app:
 see [tizen/README.md](tizen/README.md).
 
 ## Install on a Mac

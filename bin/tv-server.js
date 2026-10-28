@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Serve the library to the TV app: node bin/tv-server.js [--port 8765] [--refresh]
+// Serve the library to the TV app: node bin/tv-server.js [--port 8686] [--refresh]
 // Uses the app's settings (library folder, show groups, sources) but builds its own
 // catalogue, which also admits formats only the TV plays (MKV, Dolby Digital), and
 // keeps its own taste and watch history in <app data>/tv-server/.
@@ -18,7 +18,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = (name, fallback) => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : fallback; };
 const appData = option('--app-data', join(homedir(), 'Library/Application Support/Onto the TV'));
-const port = Number(option('--port', process.env.ONTO_TV_PORT || 8765));
+const port = Number(option('--port', process.env.ONTO_TV_PORT || 8686));
 const host = option('--host', '0.0.0.0');
 const RESCAN_MS = 10 * 60_000;
 const log = message => console.log(`${new Date().toISOString()} ${message}`);
