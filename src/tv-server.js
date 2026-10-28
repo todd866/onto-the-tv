@@ -43,6 +43,13 @@ export function isHomeAddress(address) {
   return false;
 }
 
+/** True for a Host header naming this Mac by IP, localhost, a .local name or a Tailscale name. */
+export function isHomeHost(host) {
+  const name = String(host || '').toLowerCase().replace(/:\d+$/, '').replace(/^\[(.*)\]$/, '$1');
+  return isIP(name) > 0 || name === 'localhost' || /^[a-z0-9-]+\.local$/.test(name) || /\.ts\.net$/.test(name)
+    || /^[a-z0-9-]+$/.test(name);
+}
+
 /** A localStorage stand-in persisted as one JSON file, so player.js learns unchanged. */
 export async function createFileStorage(path) {
   let data = Object.create(null);
@@ -177,8 +184,7 @@ async function readBody(request, limit = 16 * 1024) {
 
 function send(response, status, body, headers = {}) {
   const content = typeof body === 'string' ? body : JSON.stringify(body);
-  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
-    'Access-Control-Allow-Origin': '*', ...headers });
+  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
   response.end(content);
 }
 
@@ -186,7 +192,7 @@ async function streamFile(request, response, file) {
   const info = await stat(file);
   const type = MIME[extname(file).toLowerCase()] || 'application/octet-stream';
   const range = parseRange(request.headers.range, info.size);
-  const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*' };
+  const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes' };
   if (range?.unsatisfiable) {
     response.writeHead(416, { ...headers, 'Content-Range': `bytes */${info.size}` });
     return response.end();
@@ -219,10 +225,11 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, log
       if (!isHomeAddress(request.socket.remoteAddress)) return send(response, 403, { error: 'Home network only.' });
       const url = new URL(request.url, 'http://tv.local');
       const path = url.pathname;
-      if (request.method === 'OPTIONS') {
-        response.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST',
-          'Access-Control-Allow-Headers': 'Content-Type' });
-        return response.end();
+      // The TV loads this page from the server itself, so no cross-origin access is
+      // granted. A Host check blocks DNS rebinding; JSON-only POSTs force a preflight.
+      if (!isHomeHost(request.headers.host)) return send(response, 403, { error: 'Use this Mac’s address.' });
+      if (request.method === 'POST' && !/^application\/json\b/.test(request.headers['content-type'] || '')) {
+        return send(response, 415, { error: 'JSON only.' });
       }
       if (path === '/api/home') return send(response, 200, library.home());
       if (path === '/api/show') return send(response, 200, library.show(url.searchParams.get('name') || ''));
@@ -242,8 +249,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, log
         const item = library.video(url.searchParams.get('src') || '');
         const file = artwork ? await artwork.get(item.file, { durationSeconds: item.duration }) : null;
         if (!file) return send(response, 404, { error: 'No artwork.' });
-        response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=86400',
-          'Access-Control-Allow-Origin': '*' });
+        response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=86400' });
         return createReadStream(file).pipe(response);
       }
       if (path === '/api/health') return send(response, 200, { ok: true });

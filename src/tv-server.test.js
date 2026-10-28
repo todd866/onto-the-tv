@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createFileStorage, createTvLibrary, createTvServer, isHomeAddress, parseRange } from './tv-server.js';
+import { createFileStorage, createTvLibrary, createTvServer, isHomeAddress, isHomeHost, parseRange } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 
 const videos = [
@@ -25,6 +25,12 @@ test('only home-network addresses are served', () => {
     assert.equal(isHomeAddress(address), true, address);
   for (const address of ['8.8.8.8', '172.32.0.1', '100.128.0.1', '2001:4860::1', '', undefined])
     assert.equal(isHomeAddress(address), false, String(address));
+});
+
+test('only this Mac\'s own names are accepted as Host', () => {
+  for (const host of ['192.168.1.20:8765', 'localhost:8765', 'iantodds-macbook-air.local:8765', '[fd7a::1]:8765',
+    'iantodds-macbook-air.tail8cd07b.ts.net', 'm2']) assert.equal(isHomeHost(host), true, host);
+  for (const host of ['evil.example.com', 'evil.example.com:8765', 'a.b.local.evil.com', '']) assert.equal(isHomeHost(host), false, host);
 });
 
 test('byte ranges', () => {
@@ -82,5 +88,7 @@ test('server streams only catalogue files and serves the UI', async () => {
     assert.equal((await fetch(`${base}/..%2fclip.mp4`)).status, 404);
     assert.equal(await (await fetch(`${base}/`)).text(), '<!doctype html>ok');
     assert.equal((await fetch(`${base}/api/next?channel=all`)).status, 200);
+    assert.equal((await fetch(`${base}/api/home`)).headers.get('access-control-allow-origin'), null);
+    assert.equal((await fetch(`${base}/api/progress`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'text/plain' } })).status, 415);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
