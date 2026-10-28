@@ -228,21 +228,24 @@
   function fail(error) { status('⚠ ' + error.message); }
 
   // ---------- playback ----------
+  var media = window.ontoPlayer(video, $('av'));
+  if (media.engine === 'avplay') document.body.classList.add('avplay');
+
   function showOsd() {
     osd.classList.remove('hidden');
     clearTimeout(osdTimer);
-    osdTimer = setTimeout(function () { if (!video.paused) osd.classList.add('hidden'); }, OSD_MS);
+    osdTimer = setTimeout(function () { if (!media.paused()) osd.classList.add('hidden'); }, OSD_MS);
   }
   function updateOsd() {
     if (!play || !play.item) return;
-    var duration = video.duration || play.item.duration || 0;
+    var duration = media.duration() || play.item.duration || 0;
     $('osd-show').textContent = play.item.show;
     $('osd-episode').textContent = play.item.title;
     $('osd-channel').textContent = play.channel ? play.channel.label : '';
-    $('osd-elapsed').textContent = clock(video.currentTime);
+    $('osd-elapsed').textContent = clock(media.time());
     $('osd-duration').textContent = clock(duration);
-    $('osd-fill').style.width = duration ? Math.min(100, 100 * video.currentTime / duration) + '%' : '0';
-    $('osd-play').textContent = video.paused ? '▶' : '⏸';
+    $('osd-fill').style.width = duration ? Math.min(100, 100 * media.time() / duration) + '%' : '0';
+    $('osd-play').textContent = media.paused() ? '▶' : '⏸';
     $('osd-next').hidden = play.mode === 'single';
   }
 
@@ -252,14 +255,8 @@
     play.lastSave = Date.now();
     $('home').hidden = true;
     $('player').hidden = false;
-    video.src = fileUrl('media', item.src);
-    video.load();
-    var start = function () {
-      video.removeEventListener('loadedmetadata', start);
-      if (item.resume) video.currentTime = item.resume;
-      video.play();
-    };
-    video.addEventListener('loadedmetadata', start);
+    document.body.classList.add('playing');
+    media.load(fileUrl('media', item.src), item.resume || 0);
     updateOsd();
     showOsd();
   }
@@ -270,9 +267,9 @@
     if (fromItem) {
       body.current = fromItem.src;
       body.reason = reason;
-      body.time = Math.floor(video.currentTime || 0);
-      body.watched = Math.floor(Math.max(0, (video.currentTime || 0) - play.visitStart));
-      body.duration = Math.floor(video.duration || fromItem.duration || 0);
+      body.time = Math.floor(media.time());
+      body.watched = Math.floor(Math.max(0, media.time() - play.visitStart));
+      body.duration = Math.floor(media.duration() || fromItem.duration || 0);
     }
     return post('/api/next', body).then(load).catch(function (error) { stopPlayback(); fail(error); });
   }
@@ -283,10 +280,10 @@
   }
 
   function saveProgress(completed) {
-    if (!play || !play.item || !isFinite(video.currentTime)) return;
+    if (!play || !play.item) return;
     play.lastSave = Date.now();
-    post('/api/progress', { src: play.item.src, positionSeconds: completed ? 0 : video.currentTime,
-      durationSeconds: isFinite(video.duration) ? video.duration : 0, completed: !!completed }).catch(function () {});
+    post('/api/progress', { src: play.item.src, positionSeconds: completed ? 0 : media.time(),
+      durationSeconds: media.duration(), completed: !!completed }).catch(function () {});
   }
 
   function next(reason) {
@@ -302,39 +299,39 @@
   }
 
   function stopPlayback() {
-    if (play && play.item && !video.ended) saveProgress(false);
+    if (play && play.item && !media.ended()) saveProgress(false);
     play = null;
-    video.pause();
-    video.removeAttribute('src');
-    video.load();
+    media.stop();
+    document.body.classList.remove('playing');
     $('player').hidden = true;
     $('home').hidden = false;
     loadHome();
   }
 
   function seek(seconds) {
-    if (!isFinite(video.duration)) return;
-    video.currentTime = Math.max(0, Math.min(video.duration - 1, video.currentTime + seconds));
+    var duration = media.duration();
+    if (!duration) return;
+    media.seek(Math.max(0, Math.min(duration - 1, media.time() + seconds)));
     showOsd();
   }
   function togglePause() {
-    if (video.paused) video.play(); else video.pause();
+    if (media.paused()) media.play(); else media.pause();
     updateOsd();
     showOsd();
   }
 
-  video.addEventListener('timeupdate', function () {
+  media.on('time', function () {
     updateOsd();
     if (play && Date.now() - play.lastSave > SAVE_EVERY) saveProgress(false);
   });
-  video.addEventListener('ended', function () { next('ended'); });
-  video.addEventListener('error', function () {
+  media.on('ended', function () { next('ended'); });
+  media.on('error', function () {
     if (!play) return;
     status('⚠ Could not play ' + (play.item ? play.item.title : 'that video'));
     // A file the TV cannot decode teaches nothing; channels move on, single files return home.
     if (play.mode === 'channel') startChannel(play.channel, null); else stopPlayback();
   });
-  video.addEventListener('pause', function () { updateOsd(); showOsd(); });
+  media.on('pause', function () { updateOsd(); showOsd(); });
   video.addEventListener('click', togglePause);
   $('osd-next').addEventListener('click', function () { next('skip'); });
 
@@ -346,12 +343,12 @@
     if (playing) {
       if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE || key === KEY.STOP) stopPlayback();
       else if (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) togglePause();
-      else if (key === KEY.PLAY) { video.play(); showOsd(); }
-      else if (key === KEY.PAUSE) { video.pause(); showOsd(); }
+      else if (key === KEY.PLAY) { media.play(); showOsd(); }
+      else if (key === KEY.PAUSE) { media.pause(); showOsd(); }
       else if (key === KEY.LEFT || key === KEY.RW) seek(-SEEK);
       else if (key === KEY.RIGHT || key === KEY.FF) seek(SEEK);
       else if (key === KEY.NEXT || key === KEY.CH_UP || key === KEY.DOWN) next('skip');
-      else if (key === KEY.PREV || key === KEY.CH_DOWN) { video.currentTime = 0; showOsd(); }
+      else if (key === KEY.PREV || key === KEY.CH_DOWN) { media.seek(0); showOsd(); }
       else if (key === KEY.UP) showOsd();
       else return;
     } else {
@@ -381,7 +378,7 @@
   }
   // Leaving the app (Home button) saves the place.
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden && play) { saveProgress(false); video.pause(); }
+    if (document.hidden && play) { saveProgress(false); media.pause(); }
   });
 
   loadHome();

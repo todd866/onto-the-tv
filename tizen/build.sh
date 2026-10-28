@@ -26,10 +26,12 @@ fi
 [ -n "$TOKEN" ] || { echo "no pairing token: start bin/tv-server.js once on the server Mac"; exit 1; }
 
 mkdir -p "$APP"
-cp "$ROOT"/tv/index.html "$ROOT"/tv/app.js "$ROOT"/tv/styles.css "$HERE"/config.xml "$HERE"/icon.png "$APP"/
+cp "$ROOT"/tv/index.html "$ROOT"/tv/app.js "$ROOT"/tv/player.js "$ROOT"/tv/styles.css "$HERE"/config.xml "$HERE"/icon.png "$APP"/
 servers=$(printf '"%s",' "${ADDRESSES[@]}"); servers="[${servers%,}]"
 printf 'window.ONTO_CONFIG = {"servers":%s,"token":"%s","port":8686};\n' "$servers" "$TOKEN" > "$APP/config.js"
 chmod 600 "$APP/config.js"
+# Samsung's web APIs (AVPlay) load only inside an installed app.
+perl -0pi -e 's|<script src="config.js"></script>|<script src="\$WEBAPIS/webapis/webapis.js"></script>\n<script src="config.js"></script>|' "$APP/index.html"
 echo "app files: $APP (servers $servers)"
 
 TIZEN="${TIZEN:-$(command -v tizen || echo "$HOME/tizen-studio/tools/ide/bin/tizen")}"
