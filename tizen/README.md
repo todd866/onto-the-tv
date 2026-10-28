@@ -18,8 +18,12 @@ One-off setup, at the TV with a Mac on the same Wi-Fi:
 
 1. **Developer mode on the TV.** Apps → press `1 2 3 4 5` on the remote → Developer mode
    **On**, and enter the IP address of the Mac you will install from. Restart the TV.
-2. **Tizen Studio** on that Mac with the CLI and the *Samsung Certificate Extension* and
-   *TV Extensions* (Package Manager → Extension SDK).
+2. **Tizen Studio** on that Mac: the CLI installer (`web-cli_Tizen_Studio_6.1_macos-64.bin
+   --accept-license ~/tizen-studio`), then `package-manager-cli.bin install --accept-license
+   cert-add-on Certificate-Manager TV-SAMSUNG-Extension-Tools TV-SAMSUNG-Public-WebAppDevelopment`.
+   On Apple silicon: its bundled Java and `sdb` are Intel-only. Link `~/tizen-studio/jdk` and
+   `~/.package-manager/jdk` to an ARM Java 8 (Azul Zulu 8 tarball; the package manager needs
+   JAXB, so not 17), and install Rosetta for `sdb`: `softwareupdate --install-rosetta --agree-to-license`.
 3. **Samsung certificate.** Tizen Studio → Certificate Manager → new profile `onto`,
    type *Samsung*, device *TV*. It signs in to a Samsung account in the browser and binds the
    certificate to the TV's DUID (the TV must be connected: `sdb connect <TV address>`).
