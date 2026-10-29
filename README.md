@@ -117,7 +117,8 @@ teaches nothing either way.
 Numbered series (titles with `S01E05`) play in order: opening an adult channel
 resumes what that person was watching, the shuffle picks the show and the story
 picks the episode, and the last two minutes count as finished. When an episode
-ends, **Next episode** counts down from ten beside **Something else**. A click on
+ends, on the laptop or the TV, **Next episode** counts down from ten beside
+**Something else** (shown on the laptop). A click on
 the picture pauses.
 
 Each adult has independent episode weights and bookmarks. Both uses the harmonic

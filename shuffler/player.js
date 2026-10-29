@@ -784,11 +784,14 @@
       upNextLeft--;
       upNextTimer = environment.setTimeout(upNextTick, 1000);
     }
-    function endOfEpisode() {
+    function upNextFor() {
       const current = state.cur >= 0 ? videos[state.cur] : null;
+      if (!current || !adult() || !el('upNext') || episodeNumber(current) === null) return -1;
       const available = state.pool.filter(index => !state.deferred.has(index) && !state.failed.has(index));
-      const following = current && adult() && el('upNext') && episodeNumber(current) !== null
-        ? seriesNext(videos, available, current.channel || "Other", bookmarks, finishedEpisodes(true), state.cur) : -1;
+      return seriesNext(videos, available, current.channel || "Other", bookmarks, finishedEpisodes(true), state.cur);
+    }
+    function endOfEpisode() {
+      const following = upNextFor();
       if (following < 0) { next('ended'); return; }
       const button = el('upNextPlay'), label = document.createElement('span');
       label.textContent = '▶ Next episode · ' + videos[following].title;
@@ -803,6 +806,7 @@
       if (state.cur < 0) return;
       hideUpNext();
       state.avoidShow = videos[state.cur].channel || "Other";
+      if (casting()) state.cast.next = null;
       next('ended');
     }
     function back() {
@@ -932,7 +936,7 @@
         // A later poll of the same empty renderer must not skip again.
         if (state.cast.done || !state.cast.acked) return;
         state.cast.done = true;
-        next('ended');
+        endOfEpisode();
         return;
       }
       if (tv.status === 'idle') {
@@ -967,7 +971,8 @@
         // A native next-track starts at zero. Keep resumed adult entries on the
         // existing software path so their saved places are not lost.
         const time = forward >= 0 ? (state.navigation[forward].completed ? 0 : state.navigation[forward].time) : (adult() ? bookmarks[videos[index].src]?.time || 0 : 0);
-        state.cast.next = { index, software:time > 5, attempts:0 };
+        // A serial waits for Next episode or Something else, so the TV is not pre-queued.
+        state.cast.next = { index, software:time > 5 || upNextFor() >= 0, attempts:0 };
       }
       const plan = state.cast.next;
       if (plan.software || plan.pending || plan.queued || plan.attempts >= 2) return;

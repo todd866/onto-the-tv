@@ -1483,3 +1483,22 @@ test('a finished serial offers the next episode with a countdown, or something e
   last.player.startStream('dad'); last.vid.ended=true; last.vid.dispatch('ended');
   assert.equal(last.elements.upNext.hidden,true);
 });
+test('on the TV a finished serial waits for Next episode or Something else instead of pre-queueing', () => {
+  const timers=new Map(); let id=0;
+  const tick=()=>{ for (const [key,callback] of [...timers]) { timers.delete(key); callback(); } };
+  const f=castFixture({videos:seriesLibrary,profileFlow:false,random:()=>0,setTimeout:(callback)=>{timers.set(++id,callback);return id;},clearTimeout:key=>timers.delete(key)});
+  f.player.startStream('dad'); f.player.startCasting();
+  const first=seriesLibrary[f.player.state.cur].src;
+  f.tv({path:first,positionSeconds:60,durationSeconds:2500,status:'playing'});
+  assert.equal(f.last('onto:cast-queue-next'),undefined,'the TV is not handed E06 in advance');
+  f.tv({path:first,positionSeconds:2500,durationSeconds:2500,status:'finished'});
+  assert.equal(f.elements.upNext.hidden,false);
+  assert.equal(f.elements.upNextPlay.children[0].textContent,'▶ Next episode · Mobland S01E06');
+  for (let i=0;i<11;i++) tick();
+  assert.equal(f.last('onto:cast-play').src,mobland[1].src);
+  // Something else on the TV changes show.
+  f.tv({path:mobland[1].src,positionSeconds:60,durationSeconds:2500,status:'playing'});
+  f.tv({path:mobland[1].src,positionSeconds:2500,durationSeconds:2500,status:'finished'});
+  f.elements.upNextOther.dispatch('click');
+  assert.equal(f.last('onto:cast-play').src,'Films/Weapons (2025).mp4');
+});
