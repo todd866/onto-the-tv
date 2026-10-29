@@ -1,4 +1,5 @@
 import { expandPaths as expandPathsDefault, normalizeUri } from './paths.js';
+import { pickBindHost } from '../casting/src/config.js';
 
 const END_SLACK_SECONDS = 10;
 // Steady playback only moves the position; save it this often, and everything else at once.
@@ -6,7 +7,7 @@ const HISTORY_SAVE_MS = 15_000;
 const MIN_NEW_CHANNEL_SECONDS = 30;
 
 export function createSession({ config, prepareMedia, createServer, createRenderer,
-  expandPaths = expandPathsDefault, fs, history, pollMs = 2000, now = Date.now } = {}) {
+  expandPaths = expandPathsDefault, fs, history, pollMs = 2000, now = Date.now, pickHost = pickBindHost } = {}) {
   let server, renderer, timer, preparation;
   let items = [];
   let currentIndex = -1;
@@ -73,8 +74,13 @@ export function createSession({ config, prepareMedia, createServer, createRender
   async function ensure() {
     if (closed) throw new Error('This TV session is closed.');
     if (!config?.avTransportUrl) throw new Error('Choose a TV in Settings before sending a video.');
+    // An automatic address follows the Wi-Fi: launching before joining, or
+    // changing network, must not leave the TV fetching from loopback.
+    const host = config.autoBind ? pickHost(server?.host) : config.bindHost;
+    if (config.autoBind && host === '127.0.0.1') throw new Error('This Mac isn’t on a network. Join the TV’s Wi-Fi and try again.');
+    if (server && server.host !== host) { const old = server; server = null; await old.close(); }
     if (!server) {
-      const candidate = createServer({ host: config.bindHost });
+      const candidate = createServer({ host });
       await candidate.listen();
       server = candidate;
     }

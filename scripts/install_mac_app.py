@@ -45,7 +45,7 @@ def production_files(root: Path) -> list[Path]:
     required = [
         Path("package.json"), Path("src/main.js"), Path("src/preload.cjs"),
         Path("ui/index.html"), Path("ui/app.js"), Path("ui/styles.css"),
-        Path("ui/ambient.js"), Path("ui/ambient-slide.js"),
+        Path("ui/ambient.js"), Path("ui/ambient-slide.js"), Path("ui/report.js"),
         Path("ui/ambient.css"), Path("ui/ambient-render.html"), Path("ui/ambient-render.js"),
         Path("brand/onto-the-tv-icon.png"), Path("brand/AppIcon.icns"),
         Path("shuffler/player.js"), Path("shuffler/player.html"),

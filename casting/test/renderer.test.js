@@ -110,3 +110,20 @@ describe('SamsungRenderer', () => {
     assert.match(requests[0].body, /NextURI>http:\/\/192\.0\.2\.20:9\/token\/next\.mp4/);
   });
 });
+
+describe('SetAVTransportURI retry', () => {
+  it('does not resend when the TV cannot be reached', async () => {
+    const renderer = new SamsungRenderer({ avTransportUrl: 'http://127.0.0.1:9/upnp/control/AVTransport1' });
+    let calls = 0;
+    renderer.invoke = async () => { calls++; throw new Error('TV SOAP SetAVTransportURI failed: connect ENETUNREACH'); };
+    await assert.rejects(renderer.setUri({ url: 'http://x/a.mp4', title: 'a', mimeType: 'video/mp4' }), /ENETUNREACH/);
+    assert.equal(calls, 1);
+  });
+  it('retries with raw metadata when the TV rejects the request', async () => {
+    const renderer = new SamsungRenderer({ avTransportUrl: 'http://127.0.0.1:9/upnp/control/AVTransport1' });
+    const options = [];
+    renderer.invoke = async (action, fields, option) => { options.push(option); if (options.length === 1) throw new Error('UPnP 714: Illegal MIME-type'); };
+    await renderer.setUri({ url: 'http://x/a.mp4', title: 'a', mimeType: 'video/mp4' });
+    assert.deepEqual(options[1], { rawFields: ['CurrentURIMetaData'] });
+  });
+});
