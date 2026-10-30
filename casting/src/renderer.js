@@ -37,6 +37,8 @@ export class SamsungRenderer {
     try {
       await this.invoke('SetAVTransportURI', fields);
     } catch (error) {
+      // Retry with raw metadata only when the TV answered and rejected it.
+      if (!/^(UPnP |TV SOAP \S+ HTTP )/.test(error.message)) throw error;
       await this.invoke('SetAVTransportURI', fields, { rawFields: ['CurrentURIMetaData'] });
     }
   }

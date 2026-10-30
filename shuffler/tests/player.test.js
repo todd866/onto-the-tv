@@ -12,12 +12,12 @@ class Element {
   addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
   dispatch(name, event={}) { for (const callback of this.listeners[name] || []) callback(event); }
   appendChild(child) { this.children.push(child); }
-  replaceChildren() { this.children=[]; }
+  replaceChildren(...children) { this.children=children; }
   set innerHTML(_) { throw new Error('Unsafe innerHTML assignment'); }
 }
 function fixture(options={}) {
   const elements={};
-  for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','music','cast','fullscreen','report','reportSaved','reportSavedAt','reportNote','reportDone','closePanel','reset']) elements[id]=new Element();
+  for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','music','cast','fullscreen','report','reportSaved','reportSavedAt','reportNote','reportDone','closePanel','reset','upNext','upNextPlay','upNextOther']) elements[id]=new Element();
   if (options.profileFlow) for (const id of ['profiles','streams','pickerTitle','audienceSwitch','pmum','pdad','pboth','pgrown','p2','p6']) {
     elements[id]=new Element();
     if (id.startsWith('p') && id.length<=6) { const name=new Element('SPAN'); name.className='channel-name'; elements[id].appendChild(name); elements[id].querySelector=selector=>selector==='.channel-name'?name:null; }
@@ -35,7 +35,7 @@ function fixture(options={}) {
   document.documentElement={};
   const entries={};
   let clock=1000;
-  const environment={parent:options.parent,ONTO_TASTE_TOKEN:options.exportToken,ONTO_AUDIENCES:options.audiences,ONTO_AUDIENCE_NAMES:options.names,location:{search:options.search || ''},setTimeout:()=>1,clearTimeout:()=>{},confirm:()=>true,random:options.random || (()=>0),
+  const environment={parent:options.parent,ONTO_TASTE_TOKEN:options.exportToken,ONTO_AUDIENCES:options.audiences,ONTO_AUDIENCE_NAMES:options.names,location:{search:options.search || ''},setTimeout:options.setTimeout || (()=>1),clearTimeout:options.clearTimeout || (()=>{}),confirm:()=>true,random:options.random || (()=>0),
     now:options.now || (()=>clock++),addEventListener:(name,callback)=>{(window.listeners[name] ||= []).push(callback);},
     localStorage:options.storage || {getItem:key=>(key in entries ? entries[key] : null),setItem:(key,value)=>{entries[key]=value;}}};
   const window={listeners:{},dispatch(name,event={}){for (const callback of window.listeners[name] || []) callback(event);}};
@@ -1393,4 +1393,112 @@ test('report state includes live navigation, weights, bounded log and cast plan'
   assert.equal(data.poolSize,f.player.state.pool.length);
   f.player.next('skip');
   assert.equal(data.cast.lastTvStatus.positionSeconds,30,'returned report remains detached');
+});
+const mobland = [5,6,7,8,9,10].map(n => ({src:`grown-ups/Mobland/Mobland S01E${String(n).padStart(2,'0')}.mp4`, title:`Mobland S01E${String(n).padStart(2,'0')}`, channel:'Mobland', tier:'grownup', duration:2500}));
+const seriesLibrary = [...mobland, {src:'Films/Weapons (2025).mp4', title:'Weapons (2025)', channel:'Films', tier:'grownup', duration:7700}];
+const titleOf = f => seriesLibrary[f.player.state.cur].title;
+test('episode numbers order a series and ignore titles without them', () => {
+  const {episodeNumber}=require('../player.js');
+  assert.ok(episodeNumber({title:'Mobland S01E10'}) > episodeNumber({title:'Mobland S01E09'}));
+  assert.ok(episodeNumber({title:'Show S02E01'}) > episodeNumber({title:'Show S01E12'}));
+  assert.equal(episodeNumber({title:'Weapons (2025)'}), null);
+  assert.equal(episodeNumber({title:'Series 1 The Doctor [CH1702Q021S00]'}), null);
+});
+test('a serial picks the episode in progress, then the one after the last finished', () => {
+  const {seriesNext}=require('../player.js');
+  const all=mobland.map((_,i)=>i), src=i=>mobland[i].src;
+  assert.equal(seriesNext(mobland,all,'Mobland',{},new Map()),0);
+  // A three-second sample of E08 is not where the story is.
+  assert.equal(seriesNext(mobland,all,'Mobland',{[src(0)]:{time:121,updated:5},[src(3)]:{time:3,updated:9}},new Map()),0);
+  assert.equal(seriesNext(mobland,all,'Mobland',{},new Map([[src(0),10],[src(1),20]])),2);
+  // Abandoning an older episode after finishing a newer one follows the newer.
+  assert.equal(seriesNext(mobland,all,'Mobland',{[src(0)]:{time:600,updated:5}},new Map([[src(1),20]])),2);
+  assert.equal(seriesNext(mobland,all,'Mobland',{},new Map(mobland.map(v=>[v.src,1]))),-1);
+  // Skipping the current episode moves on rather than restarting it.
+  assert.equal(seriesNext(mobland,all,'Mobland',{[src(0)]:{time:600,updated:5}},new Map(),0),1);
+});
+test('opening Dad resumes the episode in progress, not a random later one', () => {
+  const f=fixture({videos:seriesLibrary,random:()=>0.99});
+  f.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[0].src]:{time:121,saved:false,updated:5},[mobland[3].src]:{time:3.4,saved:false,updated:9}});
+  f.player.startStream('dad');
+  assert.equal(titleOf(f),'Mobland S01E05');
+  assert.equal(f.player.state.navigation[0].time,121);
+});
+test('a shuffle that lands on a serial starts at its first unwatched episode', () => {
+  for (const roll of [0,0.2,0.4]) {
+    const f=fixture({videos:seriesLibrary,random:()=>roll});
+    f.player.startStream('dad');
+    assert.ok(['Mobland S01E05','Weapons (2025)'].includes(titleOf(f)),titleOf(f));
+  }
+});
+test('finishing an episode plays the next one, and credits count as finished', () => {
+  const f=fixture({videos:seriesLibrary,random:()=>0});
+  f.player.startStream('dad'); assert.equal(titleOf(f),'Mobland S01E05');
+  f.vid.currentTime=120; f.player.next('ended');
+  assert.equal(titleOf(f),'Mobland S01E06');
+  // Stopped in the credits of E06 last time: a new session starts E07.
+  const later=fixture({videos:seriesLibrary,random:()=>0});
+  later.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[1].src]:{time:2450,saved:false,updated:5}});
+  later.player.startStream('dad');
+  assert.equal(titleOf(later),'Mobland S01E07');
+});
+test('kids channels keep shuffling numbered episodes', () => {
+  const kids=mobland.map(v=>({...v,tier:'shared',duration:300}));
+  const f=fixture({videos:kids,random:()=>0.99});
+  f.player.startStream(2);
+  assert.equal(kids[f.player.state.cur].title,'Mobland S01E10');
+});
+test('clicking the picture pauses and plays, but a double-click only goes fullscreen', () => {
+  const timers=new Map(); let id=0;
+  const f=fixture({videos:seriesLibrary,setTimeout:(callback)=>{timers.set(++id,callback);return id;},clearTimeout:key=>timers.delete(key)});
+  const fire=()=>{ for (const [key,callback] of [...timers]) { timers.delete(key); callback(); } };
+  f.document.fullscreenElement=null; f.document.documentElement.requestFullscreen=()=>{ f.document.fullscreenElement=f.document.documentElement; return Promise.resolve(); };
+  f.player.startStream('dad'); assert.equal(f.vid.paused,false);
+  f.vid.dispatch('click',{pointerType:'mouse'}); fire(); assert.equal(f.vid.paused,true);
+  f.vid.dispatch('click',{pointerType:'mouse'}); fire(); assert.equal(f.vid.paused,false);
+  f.vid.dispatch('click',{pointerType:'mouse'}); f.vid.dispatch('click',{pointerType:'mouse'});
+  f.vid.dispatch('dblclick',{preventDefault(){}}); fire(); assert.equal(f.vid.paused,false);
+  f.vid.dispatch('click',{pointerType:'touch'}); fire(); assert.equal(f.vid.paused,false);
+});
+test('a finished serial offers the next episode with a countdown, or something else', () => {
+  const timers=new Map(); let id=0;
+  const options={videos:seriesLibrary,random:()=>0,setTimeout:(callback)=>{timers.set(++id,callback);return id;},clearTimeout:key=>timers.delete(key)};
+  const tick=()=>{ for (const [key,callback] of [...timers]) { timers.delete(key); callback(); } };
+  const f=fixture(options);
+  f.player.startStream('dad'); assert.equal(titleOf(f),'Mobland S01E05');
+  f.vid.currentTime=120; f.vid.ended=true; f.vid.dispatch('ended');
+  assert.equal(f.elements.upNext.hidden,false);
+  assert.equal(titleOf(f),'Mobland S01E05','waits for a choice');
+  assert.equal(f.elements.upNextPlay.children[0].textContent,'▶ Next episode · Mobland S01E06');
+  assert.equal(f.elements.upNextPlay.children[1].textContent,'10');
+  for (let i=0;i<10;i++) tick();
+  assert.equal(f.elements.upNextPlay.children[1].textContent,'0');
+  tick(); assert.equal(titleOf(f),'Mobland S01E06'); assert.equal(f.elements.upNext.hidden,true);
+  // Something else leaves the show.
+  f.vid.ended=true; f.vid.dispatch('ended'); assert.equal(f.elements.upNext.hidden,false);
+  f.elements.upNextOther.dispatch('click');
+  assert.equal(titleOf(f),'Weapons (2025)'); assert.equal(f.elements.upNext.hidden,true);
+  // The last episode of a run simply moves on.
+  const last=fixture({...options,videos:[mobland[5],seriesLibrary[6]]});
+  last.player.startStream('dad'); last.vid.ended=true; last.vid.dispatch('ended');
+  assert.equal(last.elements.upNext.hidden,true);
+});
+test('on the TV a finished serial waits for Next episode or Something else instead of pre-queueing', () => {
+  const timers=new Map(); let id=0;
+  const tick=()=>{ for (const [key,callback] of [...timers]) { timers.delete(key); callback(); } };
+  const f=castFixture({videos:seriesLibrary,profileFlow:false,random:()=>0,setTimeout:(callback)=>{timers.set(++id,callback);return id;},clearTimeout:key=>timers.delete(key)});
+  f.player.startStream('dad'); f.player.startCasting();
+  const first=seriesLibrary[f.player.state.cur].src;
+  f.tv({path:first,positionSeconds:60,durationSeconds:2500,status:'playing'});
+  assert.equal(f.last('onto:cast-queue-next'),undefined,'the TV is not handed E06 in advance');
+  f.tv({path:first,positionSeconds:2500,durationSeconds:2500,status:'finished'});
+  assert.equal(f.elements.upNext.hidden,false);
+  assert.equal(f.elements.upNextPlay.children[0].textContent,'▶ Next episode · Mobland S01E06');
+  for (let i=0;i<11;i++) tick();
+  assert.equal(f.last('onto:cast-play').src,mobland[1].src);
+  // Something else on the TV changes show.
+  f.tv({path:mobland[1].src,positionSeconds:60,durationSeconds:2500,status:'playing'});
+  f.tv({path:mobland[1].src,positionSeconds:2500,durationSeconds:2500,status:'finished'});
+  f.elements.upNextOther.dispatch('click');
+  assert.equal(f.last('onto:cast-play').src,'Films/Weapons (2025).mp4');
 });

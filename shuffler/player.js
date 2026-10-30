@@ -129,6 +129,40 @@
     }, random);
     return weightedChoice(groups.get(show), pickWeight, random);
   }
+  // Serial drama is watched in order: the shuffle chooses the show, the story
+  // chooses the episode. A place under a minute is a sample, not a watch.
+  const EPISODE = /\bS(\d{1,3})\s*E(\d{1,4})\b/i, WATCHING_SECONDS = 60;
+  function episodeNumber(video) {
+    const match = EPISODE.exec((video && (video.title || video.src)) || "");
+    return match ? Number(match[1]) * 10000 + Number(match[2]) : null;
+  }
+  // Stopping during the credits finishes an episode as surely as reaching the end.
+  const nearlyFinished = (time, duration) => Number.isFinite(time) && Number.isFinite(duration) && duration > 0
+    && (time >= duration * 0.95 || (duration >= 1200 && duration - time <= 120));
+  function watchedNow(place, video) {
+    return !!place && place.time >= WATCHING_SECONDS && !nearlyFinished(place.time, video.duration);
+  }
+  function seriesNext(videos, available, show, places, finished, current = -1) {
+    // places: src -> {time, updated}; finished: src -> when it was finished.
+    const episodes = available.filter(index => (videos[index].channel || "Other") === show && episodeNumber(videos[index]) !== null)
+      .sort((a, b) => episodeNumber(videos[a]) - episodeNumber(videos[b]));
+    if (!episodes.length) return -1;
+    const unfinished = position => episodes.slice(position).find(index => !finished.has(videos[index].src));
+    let best = -1, bestAt = -Infinity, latest = -1, latestAt = -Infinity;
+    episodes.forEach((index, position) => {
+      const src = videos[index].src, place = places[src];
+      if (watchedNow(place, videos[index]) && !finished.has(src) && (place.updated || 0) > bestAt) { best = index; bestAt = place.updated || 0; }
+      if (finished.has(src) && finished.get(src) >= latestAt) { latest = position; latestAt = finished.get(src); }
+    });
+    if (latest >= 0 && latestAt >= bestAt) {
+      const following = unfinished(latest + 1);
+      if (following !== undefined) { best = following; bestAt = latestAt; }
+    }
+    if (best < 0) best = unfinished(0) ?? -1;
+    // Skipping the current episode of a serial means the next one.
+    if (best === current) best = unfinished(episodes.indexOf(current) + 1) ?? -1;
+    return best;
+  }
 
   function createPlayer(document, environment, videos) {
     const el = id => document.getElementById(id);
@@ -137,7 +171,7 @@
     try { storage = environment.localStorage; } catch (_) { storage = null; }
     const state = { stream:null, pool:[], weights:Object.create(null), cur:-1, history:[], failed:new Set(), token:0, played:false,
       navigation:[], navIndex:-1, direction:1, pendingSeek:null, feedback:new Map(), dirty:new Set(),
-      preferShort:true, visitLogged:false, visitStart:0, watchFrom:0, deferred:new Set(), scrubbing:false, cast:null };
+      preferShort:true, avoidShow:null, visitLogged:false, visitStart:0, watchFrom:0, deferred:new Set(), scrubbing:false, cast:null };
     let toastTimer = null;
     let audience = null;
     const profileFlow = !!el("profiles");
@@ -285,6 +319,8 @@
       const position = mediaTime(), duration = mediaDuration(), at = now();
       if (!Number.isFinite(position) || position < 0 || (!force && at - lastHistorySave < 5000)) return;
       const video = videos[state.cur];
+      // Leaving during the credits finishes it; periodic saves stay positions.
+      if (force && !reset && duration >= 1200 && duration - position <= 120) completed = true;
       if (tell({ type:'onto:history', src:video.src, title:video.title,
         positionSeconds:position, durationSeconds:Number.isFinite(duration) && duration > 0 ? duration : 0, completed, ...(reset ? {reset:true} : {}) })) lastHistorySave = at;
     }
@@ -329,11 +365,15 @@
     function revealControls() {
       const controls = el('controls');
       controls.classList?.remove('dimmed');
+      document.documentElement.classList?.remove('cursor-idle');
       environment.clearTimeout(controlsTimer);
-      if (!adult()) return;
+      if (!adult() && !document.fullscreenElement) return;
       controlsTimer = environment.setTimeout(() => {
         const saved = el('savedPanel');
-        if (!vid.paused && !state.scrubbing && panel.hidden && (!saved || saved.hidden)) controls.classList?.add('dimmed');
+        if (!vid.paused && !casting() && !state.scrubbing && panel.hidden && (!saved || saved.hidden) && (el('reportSaved')?.hidden !== false) && !controls.querySelector?.(':focus-visible')) {
+          controls.classList?.add('dimmed');
+          if (document.fullscreenElement) document.documentElement.classList?.add('cursor-idle');
+        }
       }, 3000);
     }
     function updateTimeline() {
@@ -383,16 +423,28 @@
         played:false, completed:false, graded:false, feedback:null });
       trimNavigation(); playEntry(state.navigation.length - 1, 1);
     }
-    function showSaved() {
+    function showSaved(all = false) {
       if (!adult()) return;
       resumeAfterSaved = !vid.paused;
       vid.pause(); rememberPosition();
       const rows = el('savedRows'); rows.replaceChildren();
-      const saved = state.pool.filter(index => bookmarks[videos[index].src]?.saved);
+      const saved = state.pool.filter(index => all || bookmarks[videos[index].src]?.saved);
+      if (all) saved.sort((a,b) => videos[a].channel.localeCompare(videos[b].channel) || videos[a].title.localeCompare(videos[b].title, undefined, {numeric:true}));
+      if (el('savedTitle')) el('savedTitle').textContent = all ? 'Episodes' : 'Later';
       for (const index of saved) {
         const button = document.createElement('button');
-        button.textContent = videos[index].title + ' · ' + clock(bookmarks[videos[index].src].time);
+        const time = bookmarks[videos[index].src]?.time || 0;
+        button.textContent = (index === state.cur ? '▶ ' : '') + videos[index].title + (time ? ' · Resume ' + clock(time) : ' · Play');
         button.addEventListener('click', () => resumeSaved(index)); rows.appendChild(button);
+      }
+      if (all && state.cur >= 0) {
+        const current = videos[state.cur];
+        const following = saved.find(index => videos[index].channel === current.channel && videos[index].title.localeCompare(current.title, undefined, {numeric:true}) > 0);
+        if (following !== undefined) {
+          const button = document.createElement('button');
+          button.textContent = 'Next episode · ' + videos[following].title;
+          button.addEventListener('click', () => resumeSaved(following)); rows.insertBefore(button, rows.firstChild);
+        }
       }
       el('savedEmpty').hidden = saved.length > 0;
       el('savedPanel').hidden = false; revealControls();
@@ -453,6 +505,7 @@
       el("pause").textContent = paused ? (grown ? "Play" : "▶") : (grown ? "Pause" : "⏸");
     }
     function stopVideo() {
+      hideUpNext();
       state.scrubbing = false;
       state.cur = -1;
       state.token++;
@@ -587,6 +640,7 @@
       } catch (_) { /* Retry once playable if this browser cannot seek yet. */ }
     }
     function playEntry(index, direction, tv) {
+      hideUpNext();
       state.scrubbing = false;
       state.navIndex = index;
       const entry = state.navigation[index];
@@ -627,9 +681,53 @@
       }
       updateTimeline(); revealControls();
     }
-    function pickNext() {
-      const available = state.pool.filter(index => !state.deferred.has(index));
-      return pickVideo(videos, available, selectionWeights(), state.cur, state.failed, state.history.slice(-6), random, state.preferShort);
+    function finishedEpisodes(includeCurrent) {
+      // What this audience has finished, from the viewing log and from places
+      // left in the credits. An unlogged finish still keeps the story moving.
+      const finished = new Map();
+      try {
+        const log = JSON.parse(storage.getItem(LOG_KEY));
+        if (Array.isArray(log)) for (const entry of log) {
+          if (!entry || audienceFor(entry.s) !== audienceFor(state.stream)) continue;
+          if (entry.r === "ended" || nearlyFinished(entry.w, entry.d)) finished.set(entry.v, Number(entry.t) || 0);
+        }
+      } catch (_) {}
+      for (const video of videos) {
+        const place = bookmarks[video.src];
+        if (place && nearlyFinished(place.time, video.duration)) finished.set(video.src, Math.max(finished.get(video.src) || 0, place.updated));
+      }
+      // A replay after finishing reopens the episode only once it is properly under way.
+      for (const video of videos) if (finished.has(video.src) && watchedNow(bookmarks[video.src], video) && bookmarks[video.src].updated > finished.get(video.src)) finished.delete(video.src);
+      if (includeCurrent && state.cur >= 0) finished.set(videos[state.cur].src, now());
+      return finished;
+    }
+    function pickNext(reason) {
+      const available = state.pool.filter(index => !state.deferred.has(index) && !state.failed.has(index));
+      if (adult() && reason === "start") {
+        // Opening a channel picks up whatever this person was last watching.
+        let latest = -1;
+        for (const index of available) {
+          const place = bookmarks[videos[index].src];
+          if (watchedNow(place, videos[index]) && (latest < 0 || place.updated > bookmarks[videos[latest].src].updated)) latest = index;
+        }
+        if (latest >= 0) return latest;
+      }
+      // "Something else" leaves this show, unless it is all there is.
+      const avoid = state.avoidShow; state.avoidShow = null;
+      if (avoid !== null && available.some(index => (videos[index].channel || "Other") !== avoid)) {
+        const others = available.filter(index => (videos[index].channel || "Other") !== avoid);
+        available.length = 0; available.push(...others);
+      }
+      const ending = avoid === null && reason === "ended" && state.cur >= 0 && episodeNumber(videos[state.cur]) !== null;
+      // Finishing an episode plays the next one; otherwise the shuffle picks the show.
+      if (adult() && ending) {
+        const following = seriesNext(videos, available, videos[state.cur].channel || "Other", bookmarks, finishedEpisodes(true), state.cur);
+        if (following >= 0) return following;
+      }
+      const selected = pickVideo(videos, available, selectionWeights(), state.cur, state.failed, state.history.slice(-6), random, state.preferShort);
+      if (!adult() || selected < 0 || episodeNumber(videos[selected]) === null) return selected;
+      const story = seriesNext(videos, available, videos[selected].channel || "Other", bookmarks, finishedEpisodes(reason === "ended"), state.cur);
+      return story >= 0 ? story : selected;
     }
     function chooseNew(selected = pickNext(), tv) {
       if (!state.pool.includes(selected) || state.failed.has(selected)) selected = pickNext();
@@ -671,7 +769,45 @@
       }
       const target = historyIndex(1);
       if (target >= 0) playEntry(target, 1, tv);
-      else chooseNew(planned?.index, tv);
+      else chooseNew(planned ? planned.index : pickNext(reason), tv);
+    }
+    // A finished serial offers its next episode, counting down, or a change of show.
+    const UP_NEXT_SECONDS = 10;
+    let upNextTimer = null, upNextLeft = 0, upNextCount = null;
+    function hideUpNext() {
+      environment.clearTimeout(upNextTimer); upNextTimer = null;
+      if (el('upNext')) el('upNext').hidden = true;
+    }
+    function upNextTick() {
+      if (upNextCount) upNextCount.textContent = String(upNextLeft);
+      if (upNextLeft <= 0) { hideUpNext(); next('ended'); return; }
+      upNextLeft--;
+      upNextTimer = environment.setTimeout(upNextTick, 1000);
+    }
+    function upNextFor() {
+      const current = state.cur >= 0 ? videos[state.cur] : null;
+      if (!current || !adult() || !el('upNext') || episodeNumber(current) === null) return -1;
+      const available = state.pool.filter(index => !state.deferred.has(index) && !state.failed.has(index));
+      return seriesNext(videos, available, current.channel || "Other", bookmarks, finishedEpisodes(true), state.cur);
+    }
+    function endOfEpisode() {
+      const following = upNextFor();
+      if (following < 0) { next('ended'); return; }
+      const button = el('upNextPlay'), label = document.createElement('span');
+      label.textContent = '▶ Next episode · ' + videos[following].title;
+      upNextCount = document.createElement('span'); upNextCount.className = 'count';
+      button.replaceChildren(label, upNextCount);
+      button.title = 'Plays in ' + UP_NEXT_SECONDS + ' s (Enter). Esc stays here.';
+      el('upNext').hidden = false; revealControls();
+      button.focus?.();
+      upNextLeft = UP_NEXT_SECONDS; upNextTick();
+    }
+    function somethingElse() {
+      if (state.cur < 0) return;
+      hideUpNext();
+      state.avoidShow = videos[state.cur].channel || "Other";
+      if (casting()) state.cast.next = null;
+      next('ended');
     }
     function back() {
       if (state.stream === null) return;
@@ -800,7 +936,7 @@
         // A later poll of the same empty renderer must not skip again.
         if (state.cast.done || !state.cast.acked) return;
         state.cast.done = true;
-        next('ended');
+        endOfEpisode();
         return;
       }
       if (tv.status === 'idle') {
@@ -829,12 +965,14 @@
       if (!casting() || !state.cast.acked) return;
       if (!state.cast.next) {
         const forward = historyIndex(1);
-        const index = forward >= 0 ? state.navigation[forward].index : pickNext();
+        // The lookahead is what follows a natural end on the TV.
+        const index = forward >= 0 ? state.navigation[forward].index : pickNext("ended");
         if (index < 0 || index === state.cur) return;
         // A native next-track starts at zero. Keep resumed adult entries on the
         // existing software path so their saved places are not lost.
         const time = forward >= 0 ? (state.navigation[forward].completed ? 0 : state.navigation[forward].time) : (adult() ? bookmarks[videos[index].src]?.time || 0 : 0);
-        state.cast.next = { index, software:time > 5, attempts:0 };
+        // A serial waits for Next episode or Something else, so the TV is not pre-queued.
+        state.cast.next = { index, software:time > 5 || upNextFor() >= 0, attempts:0 };
       }
       const plan = state.cast.next;
       if (plan.software || plan.pending || plan.queued || plan.attempts >= 2) return;
@@ -884,11 +1022,11 @@
       } catch (_) { showToast("Full screen is unavailable. You can keep watching here."); }
     }
     const isCurrentSource = () => state.cur >= 0 && (!vid.currentSrc || vid.currentSrc === vid.src);
-    vid.addEventListener("ended", () => { if (isCurrentSource() && vid.ended) next("ended"); });
+    vid.addEventListener("ended", () => { if (isCurrentSource() && vid.ended) endOfEpisode(); });
     // Source clearing/replacement can leave queued events from the old media.
     vid.addEventListener("error", () => { if (vid.error && isCurrentSource()) next("error"); });
     vid.addEventListener("loadedmetadata", restorePosition);
-    vid.addEventListener("playing", () => { if (!casting() && isCurrentSource()) { restorePosition(); state.played = true; historyPlayedToken = state.token; publishHistory(); status("", false); updatePause(); } });
+    vid.addEventListener("playing", () => { if (!casting() && isCurrentSource()) { restorePosition(); state.played = true; historyPlayedToken = state.token; publishHistory(); status("", false); updatePause(); revealControls(); } });
     vid.addEventListener("pause", () => { updatePause(); rememberPosition(); publishHistory(true); revealControls(); });
     vid.addEventListener('timeupdate', () => {
       if (!isCurrentSource()) return;
@@ -899,13 +1037,15 @@
     vid.addEventListener('loadedmetadata', updateTimeline);
     document.addEventListener('pointermove', revealControls);
     document.addEventListener('pointerdown', revealControls);
+    document.addEventListener('focusin', revealControls);
+    document.addEventListener('visibilitychange', revealControls);
     if (el('seek')) {
       el('seek').addEventListener('input', () => { state.scrubbing = true; updateTimeline(); revealControls(); });
       el('seek').addEventListener('change', () => seekTo(el('seek').value));
       el('rewind').addEventListener('click', () => seekTo(mediaTime() - 10));
       el('forward').addEventListener('click', () => seekTo(mediaTime() + 10));
       el('later').addEventListener('click', later);
-      el('saved').addEventListener('click', showSaved);
+      el('saved').addEventListener('click', () => showSaved());
       el('closeSaved').addEventListener('click', closeSaved);
     }
     function chooseAudience(id) {
@@ -1005,6 +1145,18 @@
     el("preferences").addEventListener("click", showWeights);
     el("closePanel").addEventListener("click", () => { panel.hidden = true; });
     el("fullscreen").addEventListener("click", toggleFullscreen);
+    // A click on the picture pauses or plays; waiting out a double-click keeps
+    // fullscreen from also flickering the pause. A tap only reveals the controls.
+    let clickTimer = null;
+    vid.addEventListener("click", event => {
+      if (event.pointerType === "touch" || state.cur < 0) return;
+      environment.clearTimeout(clickTimer);
+      clickTimer = environment.setTimeout(() => { clickTimer = null; togglePause(); revealControls(); }, 250);
+    });
+    vid.addEventListener("dblclick", event => { event.preventDefault(); environment.clearTimeout(clickTimer); clickTimer = null; toggleFullscreen(); });
+    if (el("episodes")) el("episodes").addEventListener("click", () => showSaved(true));
+    if (el("upNextPlay")) el("upNextPlay").addEventListener("click", () => { hideUpNext(); next('ended'); });
+    if (el("upNextOther")) el("upNextOther").addEventListener("click", somethingElse);
     if (el("report")) el("report").addEventListener("click", () => report('button'));
     if (el("reportDone")) el("reportDone").addEventListener("click", saveReportNote);
     if (el("reportNote")) el("reportNote").addEventListener("input", resetReportIdle);
@@ -1027,15 +1179,17 @@
         showToast("Preferences reset");
       }
     });
-    document.addEventListener("fullscreenchange", () => { el("fullscreen").textContent = document.fullscreenElement ? "Exit full screen" : "Full screen"; });
+    document.addEventListener("fullscreenchange", () => { revealControls(); el("fullscreen").textContent = document.fullscreenElement ? "Exit full screen" : "Full screen"; });
     document.addEventListener("keydown", event => {
       revealControls();
+      if (event.key === 'Escape' && document.fullscreenElement) { event.preventDefault(); Promise.resolve(document.exitFullscreen()).catch(() => {}); }
       if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
       if (event.target && (/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable)) return;
       const key = event.key.toLowerCase();
       if (key === "r") { event.preventDefault(); report('key'); return; }
       if (key === "escape" && el('reportSaved') && !el('reportSaved').hidden) { dismissReport(); return; }
       if (state.stream === null) return;
+      if (key === "escape" && el('upNext') && !el('upNext').hidden) { hideUpNext(); return; }
       if (key === "escape") { if (el('reportSaved') && !el('reportSaved').hidden) dismissReport(); panel.hidden = true; if (el('savedPanel') && !el('savedPanel').hidden) closeSaved(); return; }
       if (el('savedPanel') && !el('savedPanel').hidden) return;
       if (key === "w") { event.preventDefault(); showWeights(); return; }
@@ -1074,7 +1228,7 @@
     return { state, next, back, startStream, switchStream, showWeights, togglePause, setPreferShort, seekTo, later, showSaved, resumeSaved, chooseAudience, chooseChannel, toggleMusic, startCasting, stopCasting };
   }
   const api = { togetherWeight, bookmarkKey, keyFor, weightFor, encodePath, durationWeight, inStream, STREAMS, STREAM_LABELS,
-    readWeights, readStored, saveWeights, appendLog, learnedWeight, pickVideo, createPlayer };
+    readWeights, readStored, saveWeights, appendLog, learnedWeight, pickVideo, episodeNumber, nearlyFinished, seriesNext, createPlayer };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else createPlayer(document, window, VIDEOS);
 })();

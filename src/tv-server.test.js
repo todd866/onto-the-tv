@@ -102,3 +102,22 @@ test('server streams only catalogue files and serves the UI', async () => {
     assert.equal((await fetch(`${base}/api/progress`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'text/plain' } })).status, 415);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+
+test('grown-up serials play in order on the TV', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  const history = await loadPlaybackHistory(join(dir, 'history.json'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  const episode = n => ({ src: `MobLand/MobLand S01E0${n}.mp4`, file: `/m/MobLand/MobLand S01E0${n}.mp4`,
+    title: `MobLand S01E0${n}`, channel: 'MobLand', tier: 'grownup', duration: 3000 });
+  const serial = [episode(5), episode(7), episode(8), episode(6)];
+  // A middling random draw would shuffle to a later episode.
+  const library = createTvLibrary({ videos: serial, history, storage, random: () => 0.6 });
+  // Nothing watched yet: the first episode on disk.
+  assert.equal(library.next('grown').title, 'MobLand S01E05');
+  // Part-way through E05: the shuffle still lands on it.
+  history.set(serial[0].file, { title: 'E05', positionSeconds: 600, durationSeconds: 3000 });
+  assert.equal(library.next('grown').title, 'MobLand S01E05');
+  // Finishing E05 plays E06, not the shuffle's choice.
+  assert.equal(library.next('grown', { current: serial[0].src, reason: 'ended', time: 3000, watched: 2400, duration: 3000 }).title,
+    'MobLand S01E06');
+});

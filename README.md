@@ -121,8 +121,18 @@ Grown-ups preferences stay separate and are not assigned to either person.
 
 Adult channels add a timeline, ten-second jumps, and **Later**, which saves your
 place and moves on. Left and right move between episodes, Shift with them seeks,
-and L saves for later. The controls fade during playback. Later is neutral: it
+and L saves for later. Episodes opens a sorted list with direct Play/Resume buttons and a next-episode shortcut.
+Double-click the video or press F to toggle fullscreen; Escape exits. The cursor
+hides after three idle seconds in fullscreen and returns on movement or pause.
+The controls fade during playback. Later is neutral: it
 teaches nothing either way.
+
+Numbered series (titles with `S01E05`) play in order: opening an adult channel
+resumes what that person was watching, the shuffle picks the show and the story
+picks the episode, and the last two minutes count as finished. When an episode
+ends, on the laptop or the TV, **Next episode** counts down from ten beside
+**Something else** (shown on the laptop). A click on
+the picture pauses.
 
 Each adult has independent episode weights and bookmarks. Both uses the harmonic
 mean of the two, multiplied by its own learned weight, bounded between 0.15 and

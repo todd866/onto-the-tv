@@ -999,3 +999,23 @@ it('a channel episode surfed past on the TV stays out of watch history, a droppe
     } finally { await session.close(); }
   });
 });
+
+it('an automatic address follows the Wi-Fi and refuses to cast from loopback', async () => {
+  let host = '127.0.0.1';
+  const hosts = [], closed = [];
+  const session = createTestSession(mockRenderer(), {
+    config: { bindHost: '127.0.0.1', autoBind: true, avTransportUrl: 'http://tv/control' },
+    pickHost: () => host,
+    createServer: ({ host: bound }) => { hosts.push(bound); return { ...mockServer(), host: bound, async close() { closed.push(bound); } }; },
+  });
+  try {
+    await assert.rejects(session.addFiles(['/videos/Luxo.mp4']), /isn’t on a network/);
+    assert.deepEqual(hosts, []);
+    host = '192.168.20.5';
+    await session.addFiles(['/videos/Luxo.mp4']);
+    host = '10.0.0.7';
+    await session.addFiles(['/videos/Presto.mp4']);
+    assert.deepEqual(hosts, ['192.168.20.5', '10.0.0.7']);
+    assert.deepEqual(closed, ['192.168.20.5']);
+  } finally { await session.close(); }
+});

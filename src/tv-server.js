@@ -137,6 +137,21 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
   }
 
+  // Where each serial's story is, from the places and finishes the TV has reported.
+  function story(show, available, currentIndex, currentFinished) {
+    const byPath = new Map(videos.map(item => [item.file, item]));
+    const places = Object.create(null), finished = new Map();
+    for (const entry of history.list()) {
+      const item = byPath.get(entry.path);
+      if (!item) continue;
+      const at = Date.parse(entry.updatedAt) || 0;
+      if (entry.completed || player.nearlyFinished(entry.positionSeconds, entry.durationSeconds || item.duration)) finished.set(item.src, at);
+      else places[item.src] = { time: entry.positionSeconds, updated: at };
+    }
+    if (currentFinished && currentIndex >= 0) finished.set(videos[currentIndex].src, Date.now());
+    return player.seriesNext(videos, available, show, places, finished, currentIndex);
+  }
+
   // Grade the episode being left (as the player does), then pick the next one.
   function next(channelId, { current, reason, time, watched, duration } = {}) {
     if (!TV_CHANNELS.some(channel => channel.id === channelId)) {
@@ -158,7 +173,20 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     }
     const pool = channelPool(channelId);
     const weights = player.readWeights(storage, channelId, videos);
-    const index = player.pickVideo(videos, pool, weights, currentIndex, new Set(), played, random);
+    // Grown-up serials play in order; the kids' channels stay shuffled.
+    const serial = channelId === 'grown', ending = reason === 'ended';
+    const showOf = index => videos[index].channel || 'Other';
+    let index = -1;
+    if (serial && ending && currentIndex >= 0 && player.episodeNumber(videos[currentIndex]) !== null) {
+      index = story(showOf(currentIndex), pool, currentIndex, true);
+    }
+    if (index < 0) {
+      index = player.pickVideo(videos, pool, weights, currentIndex, new Set(), played, random);
+      if (serial && index >= 0 && player.episodeNumber(videos[index]) !== null) {
+        const following = story(showOf(index), pool, currentIndex, ending);
+        if (following >= 0) index = following;
+      }
+    }
     if (index < 0) throw Object.assign(new Error('This channel is empty.'), { status: 404 });
     played.push(index);
     recent.set(channelId, played.slice(-RECENT_LIMIT));

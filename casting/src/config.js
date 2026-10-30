@@ -4,7 +4,8 @@ export const DEFAULTS = { tvHost: '', ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', ytdl
 
 export function loadConfig(env = process.env, argv = {}) {
   const tvHost = String(argv.tvHost ?? env.SAMSUNG_TV_HOST ?? '').trim();
-  const bindHost = String(argv.bindHost || argv.bind || env.SAMSUNG_CAST_BIND || pickBindHost());
+  const explicitBind = argv.bindHost || argv.bind || env.SAMSUNG_CAST_BIND;
+  const bindHost = String(explicitBind || pickBindHost());
   let avTransportUrl = String(argv.avTransportUrl || env.SAMSUNG_TV_AVTRANSPORT || '').trim();
   if (!avTransportUrl && tvHost) {
     if (!/^[a-zA-Z0-9.-]+$/.test(tvHost)) throw new Error('Enter a TV hostname or IPv4 address without a port.');
@@ -17,7 +18,7 @@ export function loadConfig(env = process.env, argv = {}) {
     }
   }
   return {
-    tvHost, bindHost, avTransportUrl,
+    tvHost, bindHost, autoBind: !explicitBind, avTransportUrl,
     ffmpeg: argv.ffmpeg || env.FFMPEG || DEFAULTS.ffmpeg,
     ffprobe: argv.ffprobe || env.FFPROBE || DEFAULTS.ffprobe,
     ytdlp: argv.ytdlp || env.YTDLP || DEFAULTS.ytdlp,
