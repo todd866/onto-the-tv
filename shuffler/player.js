@@ -206,6 +206,16 @@
           }
         }
       } catch (_) {}
+      // The TV has no audiences: a place it saved more recently is everyone's grown-up place.
+      const tv = environment.ONTO_TV_PLACES;
+      if (!tv || typeof tv !== 'object' || !['grown','mum','dad','both'].includes(audienceFor(state.stream))) return;
+      for (const video of videos) {
+        const place = tv[video.src];
+        if (!place || !Number.isFinite(place.time) || place.time < 0 || !Number.isFinite(place.updated)) continue;
+        if (bookmarks[video.src] && bookmarks[video.src].updated >= place.updated) continue;
+        const time = place.completed && video.duration > 0 ? video.duration : place.time;
+        bookmarks[video.src] = {time, saved:!!bookmarks[video.src]?.saved, updated:place.updated};
+      }
     }
     function publishTaste(force = false) {
       if (!exportEnabled || !environment.parent || environment.parent === environment) return;

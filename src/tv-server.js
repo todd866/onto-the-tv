@@ -78,6 +78,30 @@ export async function createFileStorage(path) {
   };
 }
 
+/**
+ * The TV's own history with other stores' places laid over it (the Mac app's,
+ * read-only): for each file the most recently updated entry wins. Writes go to
+ * the TV's own store. `others` returns the current list of stores.
+ */
+export function layeredHistory(own, others = () => []) {
+  return {
+    ...own,
+    has: path => own.has(path) || others().some(store => store?.has(path)),
+    get(path) {
+      const entry = this.list().find(item => item.path === path);
+      return entry && !entry.completed ? entry.positionSeconds : 0;
+    },
+    list() {
+      const byPath = new Map();
+      for (const store of [own, ...others()]) for (const entry of store?.list() || []) {
+        const held = byPath.get(entry.path);
+        if (!held || Date.parse(entry.updatedAt) > Date.parse(held.updatedAt)) byPath.set(entry.path, entry);
+      }
+      return [...byPath.values()].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    },
+  };
+}
+
 /** Parse a single "bytes=a-b" range against a file size. Returns null for no or unusable range. */
 export function parseRange(header, size) {
   const match = /^bytes=(\d*)-(\d*)$/.exec(String(header || '').trim());
@@ -126,7 +150,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     }
     const paths = new Map(videos.map(item => [item.file, item]));
     const continueWatching = history.list()
-      .filter(entry => !entry.completed && entry.positionSeconds > 5 && paths.has(entry.path))
+      // Under way and not left in the credits; a few seconds' surf is not worth continuing.
+      .filter(entry => !entry.completed && entry.positionSeconds >= 30 && paths.has(entry.path)
+        && !player.nearlyFinished(entry.positionSeconds, entry.durationSeconds || paths.get(entry.path).duration))
       .slice(0, 12).map(entry => describe(paths.get(entry.path)));
     return { channels, continueWatching,
       shows: [...shows.values()].sort((a, b) => a.name.localeCompare(b.name)) };

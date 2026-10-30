@@ -89,6 +89,26 @@ test('preference import seeds audience keys but not the retired Music and Everyt
   } finally { await rm(dir, { recursive:true, force:true }); }
 });
 
+test('the channel page carries places the TV saved on this Mac', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tvplaces-'));
+  try {
+    const original = join(dir, 'old.html');
+    await writeFile(original, '<script>const VIDEOS = [{"src":"Family/one.mp4","path":"one.mp4","tier":"grownup"}];</script>');
+    const userData = join(dir, 'private');
+    await mkdir(join(userData, 'tv-server'), { recursive: true });
+    await writeFile(join(userData, 'tv-server', 'playback-history.json'), JSON.stringify({ version: 1, entries: [
+      { path: join(dir, 'one.mp4'), title: 'One', positionSeconds: 600, durationSeconds: 1200, completed: false,
+        updatedAt: '2026-10-30T05:00:00.000Z', points: [] },
+      { path: join(dir, 'gone.mp4'), title: 'Gone', positionSeconds: 9, durationSeconds: 99, completed: false,
+        updatedAt: '2026-10-30T05:00:00.000Z', points: [] },
+    ] }));
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const content = await readFile(fileURLToPath((await prepareChannels(root, { playerPath: original }, userData)).url), 'utf8');
+    const places = JSON.parse(/window\.ONTO_TV_PLACES = (\{.*?\});/.exec(content)[1]);
+    assert.deepEqual(places, { 'Family/one.mp4': { time: 600, updated: Date.parse('2026-10-30T05:00:00.000Z'), completed: false } });
+  } finally { await rm(dir, { recursive:true, force:true }); }
+});
+
 test('only catalogue entries can be sent to the TV', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'onto-cast-'));
   try {

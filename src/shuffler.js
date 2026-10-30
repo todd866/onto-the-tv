@@ -62,6 +62,18 @@ export async function prepareChannels(root, settings, userData) {
           && typeof value === 'string') imported[key] = value;
     }
   } catch (error) { if (error.code !== 'ENOENT') throw new Error('Could not read imported preferences.'); }
+  // Places the TV server saved on this Mac, by catalogue src, for the player to lay over its own.
+  const tvPlaces = Object.create(null);
+  try {
+    const data = JSON.parse(await readFile(join(userData, 'tv-server', 'playback-history.json'), 'utf8'));
+    const byFile = new Map(videos.map(video => [video.file, video.src]));
+    for (const entry of Array.isArray(data?.entries) ? data.entries : []) {
+      const src = byFile.get(entry?.path), updated = Date.parse(entry?.updatedAt);
+      if (src && Number.isFinite(entry.positionSeconds) && entry.positionSeconds >= 0 && Number.isFinite(updated)) {
+        tvPlaces[src] = { time: entry.positionSeconds, updated, completed: entry.completed === true };
+      }
+    }
+  } catch (error) { if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw new Error('Could not read the TV\'s places.'); }
   const seed = `try { if (!localStorage.getItem('onto.imported.v1')) {
     for (const [key,value] of Object.entries(${safeJSON(imported)})) {
       if (localStorage.getItem(key) === null) localStorage.setItem(key,value);
@@ -73,7 +85,7 @@ export async function prepareChannels(root, settings, userData) {
   for (const video of videos) catalogue[video.src] = video.file;
   const payload = videos.map(({ file, ...video }) => video);
   const content = template.replace('<head>', '<head>\n' + policy)
-    .replace('__PLAYER_JS__', 'window.ONTO_TASTE_TOKEN = ' + safeJSON(exportToken) + '; window.ONTO_AUDIENCES = ' + audiences + '; window.ONTO_AUDIENCE_NAMES = ' + safeJSON(audienceNames) + ';\n' + seed + '\n' + javascript).replace('__VIDEOS__', safeJSON(payload));
+    .replace('__PLAYER_JS__', 'window.ONTO_TASTE_TOKEN = ' + safeJSON(exportToken) + '; window.ONTO_AUDIENCES = ' + audiences + '; window.ONTO_AUDIENCE_NAMES = ' + safeJSON(audienceNames) + '; window.ONTO_TV_PLACES = ' + safeJSON(tvPlaces) + ';\n' + seed + '\n' + javascript).replace('__VIDEOS__', safeJSON(payload));
   await mkdir(userData, { recursive: true });
   const temporary = output + '.' + randomUUID() + '.tmp';
   await writeFile(temporary, content, { mode: 0o600 });

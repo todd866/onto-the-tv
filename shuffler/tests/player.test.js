@@ -35,7 +35,7 @@ function fixture(options={}) {
   document.documentElement={};
   const entries={};
   let clock=1000;
-  const environment={parent:options.parent,ONTO_TASTE_TOKEN:options.exportToken,ONTO_AUDIENCES:options.audiences,ONTO_AUDIENCE_NAMES:options.names,location:{search:options.search || ''},setTimeout:options.setTimeout || (()=>1),clearTimeout:options.clearTimeout || (()=>{}),confirm:()=>true,random:options.random || (()=>0),
+  const environment={parent:options.parent,ONTO_TASTE_TOKEN:options.exportToken,ONTO_AUDIENCES:options.audiences,ONTO_AUDIENCE_NAMES:options.names,ONTO_TV_PLACES:options.tvPlaces,location:{search:options.search || ''},setTimeout:options.setTimeout || (()=>1),clearTimeout:options.clearTimeout || (()=>{}),confirm:()=>true,random:options.random || (()=>0),
     now:options.now || (()=>clock++),addEventListener:(name,callback)=>{(window.listeners[name] ||= []).push(callback);},
     localStorage:options.storage || {getItem:key=>(key in entries ? entries[key] : null),setItem:(key,value)=>{entries[key]=value;}}};
   const window={listeners:{},dispatch(name,event={}){for (const callback of window.listeners[name] || []) callback(event);}};
@@ -1441,6 +1441,25 @@ test('finishing an episode plays the next one, and credits count as finished', (
   later.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[1].src]:{time:2450,saved:false,updated:5}});
   later.player.startStream('dad');
   assert.equal(titleOf(later),'Mobland S01E07');
+});
+test('a place the TV saved more recently is picked up on the laptop', () => {
+  // Dad stopped E05 at 2 minutes here; later the TV got to 20 minutes.
+  const tvPlaces={[mobland[0].src]:{time:1200,updated:50,completed:false}};
+  const f=fixture({videos:seriesLibrary,random:()=>0.99,tvPlaces});
+  f.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[0].src]:{time:121,saved:false,updated:5}});
+  f.player.startStream('dad');
+  assert.equal(titleOf(f),'Mobland S01E05');
+  assert.equal(f.player.state.navigation[0].time,1200);
+  // Finished on the TV: the laptop moves on to E06.
+  const done=fixture({videos:seriesLibrary,random:()=>0,tvPlaces:{[mobland[0].src]:{time:0,updated:50,completed:true}}});
+  done.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[0].src]:{time:121,saved:false,updated:5}});
+  done.player.startStream('dad');
+  assert.equal(titleOf(done),'Mobland S01E06');
+  // An older TV place does not undo the laptop's.
+  const stale=fixture({videos:seriesLibrary,random:()=>0.99,tvPlaces:{[mobland[0].src]:{time:1200,updated:1,completed:false}}});
+  stale.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[0].src]:{time:121,saved:false,updated:5}});
+  stale.player.startStream('dad');
+  assert.equal(stale.player.state.navigation[0].time,121);
 });
 test('kids channels keep shuffling numbered episodes', () => {
   const kids=mobland.map(v=>({...v,tier:'shared',duration:300}));

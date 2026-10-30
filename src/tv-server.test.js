@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createFileStorage, createTvLibrary, createTvServer, isHomeAddress, isHomeHost, parseRange } from './tv-server.js';
+import { createFileStorage, createTvLibrary, createTvServer, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 
 const videos = [
@@ -120,4 +120,31 @@ test('grown-up serials play in order on the TV', async () => {
   // Finishing E05 plays E06, not the shuffle's choice.
   assert.equal(library.next('grown', { current: serial[0].src, reason: 'ended', time: 3000, watched: 2400, duration: 3000 }).title,
     'MobLand S01E06');
+});
+
+test('the TV picks up where the Mac app stopped, and the newer place wins', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  const own = await loadPlaybackHistory(join(dir, 'tv.json'));
+  const app = await loadPlaybackHistory(join(dir, 'app.json'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  const episode = n => ({ src: `MobLand/MobLand S01E0${n}.mp4`, file: `/m/MobLand/MobLand S01E0${n}.mp4`,
+    title: `MobLand S01E0${n}`, channel: 'MobLand', tier: 'grownup', duration: 2500 });
+  const serial = [5, 6, 7, 8].map(episode);
+  const history = layeredHistory(own, () => [app]);
+  const library = createTvLibrary({ videos: serial, history, storage, random: () => 0 });
+  // Watched E06 and E07 to the credits on the laptop: the TV goes on to E08.
+  app.set(serial[0].file, { title: 'E05', positionSeconds: 5, durationSeconds: 2500 });
+  app.set(serial[1].file, { title: 'E06', positionSeconds: 2440, durationSeconds: 2500 });
+  app.set(serial[2].file, { title: 'E07', positionSeconds: 2444, durationSeconds: 2500 });
+  app.set(serial[3].file, { title: 'E08', positionSeconds: 900, durationSeconds: 2500 });
+  const next = library.next('grown');
+  assert.equal(next.title, 'MobLand S01E08');
+  // Episodes left in the credits, or only surfed, are not "continue watching".
+  assert.deepEqual(library.home().continueWatching.map(item => item.title), ['MobLand S01E08']);
+  assert.equal(next.resume, 900);
+  // Then watched further on the TV: its newer place wins; the app's file is untouched.
+  await new Promise(resolve => setTimeout(resolve, 5));
+  library.progress({ src: serial[3].src, positionSeconds: 1500, durationSeconds: 2500, completed: false });
+  assert.equal(library.next('grown').resume, 1500);
+  assert.equal(app.get(serial[3].file), 900);
 });

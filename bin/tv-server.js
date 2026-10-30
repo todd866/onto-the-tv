@@ -12,7 +12,7 @@ import { readSettings } from '../src/settings.js';
 import { buildPlayer } from '../src/shuffler.js';
 import { loadPlaybackHistory } from '../src/playback-history.js';
 import { createArtworkCache } from '../src/library-artwork.js';
-import { createFileStorage, createTvLibrary, createTvServer, loadCatalogue } from '../src/tv-server.js';
+import { createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue } from '../src/tv-server.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -20,7 +20,7 @@ const option = (name, fallback) => { const at = args.indexOf(name); return at >=
 const appData = option('--app-data', join(homedir(), 'Library/Application Support/Onto the TV'));
 const port = Number(option('--port', process.env.ONTO_TV_PORT || 8686));
 const host = option('--host', '0.0.0.0');
-const RESCAN_MS = 10 * 60_000;
+const RESCAN_MS = 10 * 60_000, APP_HISTORY_MS = 15_000;
 const log = message => console.log(`${new Date().toISOString()} ${message}`);
 
 const data = join(appData, 'tv-server');
@@ -66,7 +66,19 @@ async function rebuild(settings, force) {
 
 const settings = await readSettings(join(appData, 'settings.json'));
 await rebuild(settings, args.includes('--refresh'));
-const history = await loadPlaybackHistory(join(data, 'playback-history.json'));
+// Places saved by the Mac app are laid over the TV's own, so either picks up where the other stopped.
+const appHistoryFile = join(appData, 'playback-history.json');
+let appHistory = null, appHistoryStamp = '';
+async function reloadAppHistory() {
+  const info = await stat(appHistoryFile).catch(() => null);
+  const stamp = info ? `${info.mtimeMs}:${info.size}` : '';
+  if (stamp === appHistoryStamp) return;
+  appHistoryStamp = stamp;
+  try { appHistory = info ? await loadPlaybackHistory(appHistoryFile) : null; }
+  catch (error) { log(`cannot read the app's places: ${error.message}`); }
+}
+await reloadAppHistory();
+const history = layeredHistory(await loadPlaybackHistory(join(data, 'playback-history.json')), () => (appHistory ? [appHistory] : []));
 const storage = await createFileStorage(join(data, 'taste-storage.json'));
 const artwork = createArtworkCache({ directory: join(appData, 'artwork'),
   ffmpeg: process.env.FFMPEG || 'ffmpeg', ffprobe: process.env.FFPROBE || 'ffprobe' });
@@ -80,6 +92,8 @@ const current = { home: () => library.home(), show: name => library.show(name), 
   progress: input => library.progress(input), file: src => library.file(src), video: src => library.video(src) };
 const server = createTvServer({ library: current, history, storage, artwork, uiRoot: join(root, 'tv'), token, log });
 server.listen(port, host, () => log(`serving ${library.home().channels.find(c => c.id === 'all')?.count || 0} videos on http://${host}:${port}/`));
+
+setInterval(() => { reloadAppHistory().catch(() => {}); }, APP_HISTORY_MS).unref();
 
 // Pick up shows added to (or removed from) the drive without a restart.
 let scanning = false;
