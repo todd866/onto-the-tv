@@ -47,7 +47,8 @@ Better still, plug that Mac into the TV and let it be the smart TV: `npm run tv-
 the home screen full screen with no Mac visible. Home has big tiles for each channel and
 YouTube (YouTube's own TV app, signed in once), Continue, and Live TV, which tunes the
 Samsung's own tuner over the network; while live TV shows, the remote's channel and number
-keys pass to the TV and Home or Back comes back. Volume always goes to the TV. The TV's
+keys pass to the TV and Home or Back comes back. Volume always goes to the TV.
+`scripts/install_tv_shell.sh` starts it at login and restarts it if it quits. The TV's
 address, its HDMI input key, the Home keys and the live channel list are in
 `tv-shell.json` in the app's data folder.
 
