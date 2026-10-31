@@ -21,6 +21,25 @@ html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; backgro
 .tile .progress > div { height: 100%; background: var(--fill); }
 .channel .art { height: 120px; display: flex; align-items: center; justify-content: center; font-size: 60px; }
 .channel .label { font-size: 32px; font-weight: 600; }
+/* Home's first row: big picture tiles a child can aim for. */
+.launch { width: 250px; }
+.launch .art { width: 250px; height: 210px; display: flex; align-items: center; justify-content: center; font-size: 110px; }
+.launch .label { justify-content: center; font-size: 34px; font-weight: 700; padding: 10px; }
+.launch .count { display: none; }
+.tint-2 .art { background: #4a3218; } .tint-6 .art { background: #1a3354; } .tint-grown .art { background: #43203f; }
+.tint-music .art { background: #173f2e; } .tint-youtube .art { background: #0f0f0f; }
+.yt-mark { display: inline-block; width: 150px; height: 104px; border-radius: 28px; background: #ff0033; position: relative; }
+.yt-mark::after { content: ""; position: absolute; left: 58px; top: 30px;
+  border-left: 42px solid #fff; border-top: 22px solid transparent; border-bottom: 22px solid transparent; }
+#page-title { margin: 0 0 28px; font-size: 56px; font-weight: 700; }
+.shuffle .art { display: flex; align-items: center; justify-content: center; font-size: 96px; background: #2c3340; }
+.live .art { width: 240px; height: 120px; display: flex; align-items: center; justify-content: center; position: relative; background: #22303a; }
+.live { width: 240px; }
+.live .lcn { font-size: 72px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.on-air { position: absolute; left: 12px; top: 12px; padding: 2px 10px; border-radius: 6px; background: #e11d2e;
+  font-size: 20px; font-weight: 700; letter-spacing: .05em; }
+.live .label { font-size: 28px; font-weight: 600; padding: 8px 14px 10px; }
+
 #shows .tile, #continue .tile { width: 384px; }
 #shows .tile .art, #continue .tile .art { width: 384px; height: 216px; }
 .episode .label { height: 84px; align-items: flex-start; }

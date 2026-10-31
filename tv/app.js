@@ -20,7 +20,10 @@
   var data = { channels: [], continueWatching: [], shows: [] };
   var rows = [];            // [{ el, items, kind }]
   var focus = { row: 0, col: 0 };
+  var page = null;          // null for home, or the channel whose shows are open
   var openShow = null;      // { name, episodes } while the shows row lists one show's episodes
+  // The Mac mini or Air running the TV offers YouTube and the TV's own tuner; a browser does not.
+  var SHELL = window.ontoShell || null;
   var play = null;          // { mode: 'channel'|'show'|'single', channel, list, index, item, visitStart, lastSave }
   var osdTimer = 0;
 
@@ -59,10 +62,19 @@
     name.className = 'name';
     var count = document.createElement('span');
     count.className = 'count';
-    if (kind === 'channel') {
-      art.textContent = ICONS[item.id] || '📺';
+    if (kind === 'launch') {
+      el.className += ' tint-' + (item.app || item.id);
+      if (item.app === 'youtube') art.innerHTML = '<b class="yt-mark"></b>';
+      else art.textContent = ICONS[item.id] || '📺';
       name.textContent = item.label;
+    } else if (kind === 'shuffle') {
+      art.textContent = ICONS.all;
+      name.textContent = 'Shuffle';
       count.textContent = item.count;
+    } else if (kind === 'live') {
+      art.innerHTML = '<span class="lcn"></span><span class="on-air">LIVE</span>';
+      art.firstChild.textContent = item.lcn;
+      name.textContent = item.name;
     } else if (kind === 'show') {
       art.style.backgroundImage = 'url("' + fileUrl('art', item.src) + '")';
       name.textContent = item.name;
@@ -94,7 +106,8 @@
   function fill(el, items, kind) {
     el.innerHTML = '';
     items.forEach(function (item, col) {
-      var t = tile(item, kind);
+      // A channel's own tile at the head of its shows plays the whole channel.
+      var t = tile(item, kind === 'show' && item === page ? 'shuffle' : kind);
       // The TV's own browser drives pages with a pointer: a click focuses and opens.
       t.addEventListener('click', function () {
         for (var r = 0; r < rows.length; r++) if (rows[r].el === el) focus.row = r;
@@ -106,27 +119,77 @@
     });
   }
 
+  // Home: what to watch, what to finish, what is on air. A channel: its shows.
+  function launchItems() {
+    var items = data.channels.filter(function (channel) { return channel.id !== 'all'; });
+    if (SHELL && SHELL.youtube) items.splice(Math.min(2, items.length), 0, { app: 'youtube', label: 'YouTube' });
+    return items;
+  }
+  function onChannel(item) { return !page || (item.channels || []).indexOf(page.id) >= 0; }
   function render() {
-    fill($('channels'), data.channels, 'channel');
-    fill($('continue'), data.continueWatching, 'episode');
-    $('continue-row').hidden = !data.continueWatching.length;
-    if (openShow) {
+    var live = (SHELL && SHELL.live) || [];
+    var resume = data.continueWatching.filter(onChannel);
+    rows = [];
+    $('page-title').hidden = !page;
+    $('page-title').textContent = page ? page.label : '';
+    $('launch-row').hidden = !!page;
+    $('shows-row').hidden = !page;
+    $('live-row').hidden = !!page || !live.length;
+    if (!page) {
+      rows.push({ el: $('launch'), items: launchItems(), kind: 'launch' });
+      fill($('launch'), rows[0].items, 'launch');
+    } else if (openShow) {
       $('shows-title').textContent = openShow.name;
+      rows.push({ el: $('shows'), items: openShow.episodes, kind: 'episode' });
       fill($('shows'), openShow.episodes, 'episode');
     } else {
       $('shows-title').textContent = 'Shows';
-      fill($('shows'), data.shows, 'show');
+      var shows = [page].concat(data.shows.filter(onChannel));
+      rows.push({ el: $('shows'), items: shows, kind: 'show' });
+      fill($('shows'), shows, 'show');
     }
-    rows = [{ el: $('channels'), items: data.channels, kind: 'channel' }];
-    if (data.continueWatching.length) rows.push({ el: $('continue'), items: data.continueWatching, kind: 'continue' });
-    rows.push({ el: $('shows'), items: openShow ? openShow.episodes : data.shows, kind: openShow ? 'episode' : 'show' });
+    $('continue-row').hidden = !resume.length;
+    fill($('continue'), resume, 'episode');
+    if (resume.length) rows.push({ el: $('continue'), items: resume, kind: 'continue' });
+    if (!page && live.length) {
+      fill($('live'), live, 'live');
+      rows.push({ el: $('live'), items: live, kind: 'live' });
+    }
     focus.row = Math.min(focus.row, rows.length - 1);
     moveFocus(0, 0);
+  }
+  function openPage(channel) {
+    page = channel;
+    openShow = null;
+    focus = { row: 0, col: 0 };
+    render();
+  }
+  function goBack() {
+    if (openShow) {
+      var name = openShow.name;
+      openShow = null;
+      render();
+      focus.col = Math.max(0, rows[0].items.map(function (show) { return show.name; }).indexOf(name));
+      moveFocus(0, 0);
+      return true;
+    }
+    if (page) {
+      var id = page.id;
+      page = null;
+      focus = { row: 0, col: 0 };
+      render();
+      focus.col = Math.max(0, rows[0].items.map(function (item) { return item.id; }).indexOf(id));
+      moveFocus(0, 0);
+      return true;
+    }
+    return false;
   }
 
   function caption(row, item) {
     if (!item) return '';
-    if (row.kind === 'channel') return item.label + ' · ' + item.count + ' videos';
+    if (row.kind === 'launch') return item.app === 'youtube' ? 'YouTube' : item.label + ' · ' + item.count + ' videos';
+    if (row.kind === 'live') return 'Channel ' + item.lcn + ' · ' + item.name;
+    if (row.kind === 'show' && item === page) return 'Shuffle ' + page.label + ' · ' + page.count + ' videos';
     if (row.kind === 'show') return item.name + ' · ' + item.count + ' videos';
     var parts = [item.show, item.title];
     if (item.resume) parts.push(clock(item.resume) + ' of ' + clock(item.duration));
@@ -157,7 +220,9 @@
   function select() {
     var row = rows[focus.row], item = row && row.items[focus.col];
     if (!item) return;
-    if (row.kind === 'channel') return startChannel(item);
+    if (row.kind === 'launch') return item.app ? SHELL.open(item.app) : openPage(item);
+    if (row.kind === 'live') return SHELL.watchLive(item.lcn);
+    if (row.kind === 'show' && item === page) return startChannel(page);
     if (row.kind === 'show') {
       status('Loading ' + item.name + '…');
       return api('/api/show?name=' + q(item.name)).then(function (episodes) {
@@ -357,12 +422,8 @@
       else if (key === KEY.UP) moveFocus(-1, 0);
       else if (key === KEY.DOWN) moveFocus(1, 0);
       else if (key === KEY.ENTER) select();
-      else if ((key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) && openShow) {
-        var name = openShow.name;
-        openShow = null;
-        render();
-        focus.col = Math.max(0, data.shows.map(function (show) { return show.name; }).indexOf(name));
-        moveFocus(0, 0);
+      else if ((key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) && goBack()) {
+        // went up a level
       } else if (key === KEY.BACK && window.tizen) { try { tizen.application.getCurrentApplication().exit(); } catch (e) {} }
       else return;
     }
@@ -380,6 +441,15 @@
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && play) { saveProgress(false); media.pause(); }
   });
+
+  // The shell's Home button: whatever is on, come back to the home screen.
+  window.ontoHome = function () {
+    if (play) stopPlayback();
+    page = null;
+    openShow = null;
+    focus = { row: 0, col: 0 };
+    render();
+  };
 
   loadHome();
 })();

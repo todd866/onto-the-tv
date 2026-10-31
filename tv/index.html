@@ -8,9 +8,11 @@
 </head>
 <body>
 <main id="home">
-  <section class="row" data-row="channels"><h2>Channels</h2><div class="tiles" id="channels"></div></section>
-  <section class="row" data-row="continue" id="continue-row" hidden><h2>Continue</h2><div class="tiles" id="continue"></div></section>
-  <section class="row" data-row="shows"><h2 id="shows-title">Shows</h2><div class="tiles" id="shows"></div></section>
+  <h1 id="page-title" hidden></h1>
+  <section class="row" id="launch-row"><div class="tiles" id="launch"></div></section>
+  <section class="row" id="shows-row" hidden><h2 id="shows-title">Shows</h2><div class="tiles" id="shows"></div></section>
+  <section class="row" id="continue-row" hidden><h2>Continue</h2><div class="tiles" id="continue"></div></section>
+  <section class="row" id="live-row" hidden><h2>Live TV</h2><div class="tiles" id="live"></div></section>
   <p id="status" role="status"></p>
 </main>
 <div id="player" hidden>

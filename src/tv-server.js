@@ -131,7 +131,12 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   function describe(item) {
     const resume = history.get(item.file);
     return { src: item.src, title: item.title || item.src, show: item.channel || '', tier: item.tier,
-      duration: item.duration || 0, resume: resume > 5 ? resume : 0 };
+      channels: channelsOf(item), duration: item.duration || 0, resume: resume > 5 ? resume : 0 };
+  }
+
+  // Which of the TV's channels a video plays on, so the TV can list a channel's shows.
+  function channelsOf(item) {
+    return TV_CHANNELS.filter(channel => player.inStream(item, channel.id)).map(channel => channel.id);
   }
 
   function channelPool(id) {
@@ -144,8 +149,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const shows = new Map();
     for (const item of videos) {
       const name = item.channel || 'Other';
-      const entry = shows.get(name) || { name, count: 0, tier: item.tier, src: item.src };
+      const entry = shows.get(name) || { name, count: 0, tier: item.tier, src: item.src, channels: [] };
       entry.count += 1;
+      for (const id of channelsOf(item)) if (!entry.channels.includes(id)) entry.channels.push(id);
       shows.set(name, entry);
     }
     const paths = new Map(videos.map(item => [item.file, item]));

@@ -48,6 +48,9 @@ test('home lists non-empty channels and shows with counts', async () => {
   const home = library.home();
   assert.deepEqual(home.channels.map(channel => [channel.id, channel.count]), [['2', 3], ['6', 2], ['grown', 1], ['all', 4]]);
   assert.deepEqual(home.shows.map(show => [show.name, show.count]), [['Bing', 1], ['Bluey', 2], ['Films', 1]]);
+  // Each show says which channels it plays on, so the TV can open a channel's shows.
+  assert.deepEqual(home.shows.map(show => [show.name, show.channels]),
+    [['Bing', ['2', 'all']], ['Bluey', ['2', '6', 'all']], ['Films', ['grown', 'all']]]);
 });
 
 test('a channel only picks from its own tiers and learns from a real rejection', async () => {
