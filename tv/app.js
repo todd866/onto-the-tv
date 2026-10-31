@@ -442,6 +442,8 @@
     if (document.hidden && play) { saveProgress(false); media.pause(); }
   });
 
+  // The shell reports what it is doing to the TV (tuning, a TV that will not answer).
+  window.ontoNotice = status;
   // The shell's Home button: whatever is on, come back to the home screen.
   window.ontoHome = function () {
     if (play) stopPlayback();

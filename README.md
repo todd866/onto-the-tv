@@ -43,6 +43,14 @@ scripts/install_tv_server.sh      # runs bin/tv-server.js at login on port 8686
 Then open `http://<Mac address>:8686/` in the TV's web browser, or install the TV app:
 see [tizen/README.md](tizen/README.md).
 
+Better still, plug that Mac into the TV and let it be the smart TV: `npm run tv-shell` opens
+the home screen full screen with no Mac visible. Home has big tiles for each channel and
+YouTube (YouTube's own TV app, signed in once), Continue, and Live TV, which tunes the
+Samsung's own tuner over the network; while live TV shows, the remote's channel and number
+keys pass to the TV and Home or Back comes back. Volume always goes to the TV. The TV's
+address, its HDMI input key, the Home keys and the live channel list are in
+`tv-shell.json` in the app's data folder.
+
 ## Install on a Mac
 
 You need macOS 13 or later, Node.js 22.12+, Python 3.10+ and FFmpeg. Node builds
