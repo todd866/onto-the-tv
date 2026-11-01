@@ -773,6 +773,7 @@ test('A music-only library still offers an audience and a playable channel', () 
 
 // --- Review fixes 2026-09-10 ---
 const filmVideos = adultVideos.map(video => ({...video,duration:120}));
+const coupleVideos = adultVideos.map(video => ({...video,tier:'couple',duration:120}));
 const musicVideo = {src:'Music/a.mp4',channel:'Music',title:'Music',tier:'music',duration:200};
 test('channel starts and switches preserve existing preferences', () => {
   const f=fixture({videos:[...filmVideos,musicVideo],audiences:true});
@@ -846,8 +847,8 @@ test('bookmarks for files missing from the current library survive a save', () =
   assert.deepEqual(JSON.parse(f.entries['onto.adult.v1.dad'])['Unplugged/film.mp4'],{time:1800,saved:true,updated:1});
 });
 test('the Both panel shows the effective joint weights', () => {
-  const f=fixture({videos:filmVideos,audiences:true});
-  f.entries[keyFor('mum')]=JSON.stringify({[filmVideos[0].src]:0.15});
+  const f=fixture({videos:coupleVideos,audiences:true});
+  f.entries[keyFor('mum')]=JSON.stringify({[coupleVideos[0].src]:0.15});
   f.player.startStream('both'); f.player.showWeights();
   const shown=f.elements.weightRows.children.map(row=>row.children[2].textContent);
   assert.ok(shown.includes('0.26'),`rows ${shown}`);
