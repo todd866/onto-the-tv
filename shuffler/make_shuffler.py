@@ -26,7 +26,7 @@ TIERS = {"preschool": PRESCHOOL, "shared": SHARED, "big": BIG, "older": OLDER}
 TIER_CONFIG = HERE / "tiers.json"
 
 # Tiers that come from a whole source directory rather than a show name.
-SOURCE_TIERS = ("grownup", "music")
+SOURCE_TIERS = ("grownup", "music", "couple", "sitcom", "50s", "60s", "70s", "80s", "90s")
 
 # Stream id -> tiers it draws from. No stream is a superset of another by accident;
 # to widen a stream, name the tier here.
@@ -35,10 +35,15 @@ STREAMS = {
     6: ("shared", "big"),
     "grown": ("grownup",),
     "music": ("music",),
-    "all": ("preschool", "shared", "big", "older", "grownup", "music"),
+    "both": ("couple",),
+    "sitcoms": ("sitcom",),
+    "d50": ("50s",), "d60": ("60s",), "d70": ("70s",), "d80": ("80s",), "d90": ("90s",),
+    "all": ("preschool", "shared", "big", "older", "grownup", "couple", "sitcom", "music", "50s", "60s", "70s", "80s", "90s"),
 }
-STREAM_NAMES = {2: "Little Kids", 6: "Big Kids", "grown": "Grown-ups",
-                "music": "Music", "all": "Everything"}
+STREAM_NAMES = {2: "Little Kids", 6: "Big Kids", "grown": "Grown-ups", "both": "Mum & Dad",
+                "music": "Music", "sitcoms": "Sitcoms",
+                "d50": "1950s", "d60": "1960s", "d70": "1970s", "d80": "1980s", "d90": "1990s",
+                "all": "Everything"}
 SOURCES = HERE / "sources.json"
 
 # Candidate formats for browser playback; exact support varies by browser/OS.

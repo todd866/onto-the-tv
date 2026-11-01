@@ -9,9 +9,9 @@
   const ADULT_KEY = "onto.adult.v1";
   // Stream id -> tiers, mirroring STREAMS in make_shuffler.py. No stream is a
   // superset of another by accident: widening one means naming a tier here.
-  const STREAMS = { 2:["preschool", "shared"], 6:["shared", "big"], grown:["grownup"], mum:["grownup"], dad:["grownup"], both:["grownup"], music:["music"],
-    all:["preschool", "shared", "big", "older", "grownup", "music"] };
-  const STREAM_LABELS = { 2:"Little Kids 2+", 6:"Big Kids 6+", grown:"Grown-ups", mum:"Mum", dad:"Dad", both:"Both", music:"Music", all:"Everything" };
+  const STREAMS = { 2:["preschool", "shared"], 6:["shared", "big"], grown:["grownup"], mum:["grownup"], dad:["grownup"], both:["couple"], sitcoms:["sitcom"], music:["music"], d50:["50s"], d60:["60s"], d70:["70s"], d80:["80s"], d90:["90s"],
+    all:["preschool", "shared", "big", "older", "grownup", "couple", "sitcom", "music", "50s", "60s", "70s", "80s", "90s"] };
+  const STREAM_LABELS = { 2:"Little Kids 2+", 6:"Big Kids 6+", grown:"Grown-ups", mum:"Mum", dad:"Dad", both:"Mum & Dad", sitcoms:"Sitcoms", music:"Music", d50:"1950s", d60:"1960s", d70:"1970s", d80:"1980s", d90:"1990s", all:"Everything" };
   const audienceFor = stream => String(stream).split(".")[0];
   const keyFor = age => "kidshuffle.weights.v2.s" + audienceFor(age);
   const clamp = value => Math.max(FLOOR, Math.min(CAP, value));
@@ -19,7 +19,18 @@
   const togetherWeight = (mum, dad, both = 1) => clamp((2 * clamp(mum) * clamp(dad) / (clamp(mum) + clamp(dad))) * clamp(both));
   const bookmarkKey = stream => ADULT_KEY + (audienceFor(stream) === "grown" ? "" : "." + audienceFor(stream));
   const encodePath = path => path.split("/").map(encodeURIComponent).join("/");
-  const inStream = (video, age) => (STREAMS[String(age).split(".")[1] || age] || []).indexOf(video.tier) >= 0;
+  const inStream = (video, age) => {
+    const stream = String(age).split(".")[1] || String(age);
+    // Themed collections retain the reviewed family tiers. A seasonal word in
+    // an adult title must never pull it into a family channel.
+    if (stream === 'christmas' || stream === 'movies') {
+      if (!['preschool', 'shared', 'big'].includes(video.tier)) return false;
+      if (stream === 'movies') return ['Films', 'Family Films'].includes(video.channel);
+      return /\b(christmas|xmas|santa|no[eë]l)\b/i.test(String(video.title || '') + ' ' + String(video.src || '').replace(/[._]/g, ' '))
+        || (video.channel === 'Family Films' && /^Home Alone(?: 2)?(?: \(|$)/.test(video.title || ''));
+    }
+    return (STREAMS[stream] || []).indexOf(video.tier) >= 0;
+  };
   function durationWeight(video, preferShort) {
     if (preferShort === false) return 1;
     const duration = video && video.duration;
