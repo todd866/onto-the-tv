@@ -34,7 +34,7 @@ try {
   assert.equal((await request('/api/tv-command',{session:'s',action:'uke-open'},{'Content-Type':'application/json'})).status,403);
   await page.route('**/uke/songs/index.json',async route=>{await new Promise(r=>setTimeout(r,1000));await route.continue();});
   await page.route('**/config.js',route=>route.fulfill({contentType:'text/javascript',body:'window.ONTO_CONFIG='+JSON.stringify({token,build:'test-command'})+';'}));
-  await page.goto(base+'/');await page.locator('.tile.focused').waitFor();await page.waitForTimeout(300);
+  await page.goto(base+'/');await page.locator('.focused').waitFor();await page.waitForTimeout(300);
   const sessions=(await request('/api/diagnostics')).body.sessions;const session=sessions.at(-1).session;
   async function command(action) {
     const result=await request('/api/tv-command',{session,action});assert.equal(result.status,202);const id=result.body.id;

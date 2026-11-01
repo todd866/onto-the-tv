@@ -20,7 +20,7 @@ try {
   tv.on('pageerror', error => errors.push(error.message));
   await tv.addInitScript(() => { window.ONTO_CONFIG = { token: 'fixture', build: 'game-test' }; });
   await tv.goto(base);
-  await tv.locator('#launch .tile').filter({ hasText: 'Games' }).click();
+  await tv.locator('.channel').filter({ hasText: 'Games' }).click();
   await tv.locator('#onto-games:visible').waitFor();
   assert.equal(tv.url(), base + '/', 'games stay in the installed page');
   await tv.keyboard.press('0');

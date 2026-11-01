@@ -11,21 +11,19 @@
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 10009, ESC: 27, BACKSPACE: 8,
     PLAYPAUSE: 10252, PLAY: 415, PAUSE: 19, STOP: 413, FF: 417, RW: 412, NEXT: 10233, PREV: 10232,
     CH_UP: 427, CH_DOWN: 428, SPACE: 32 };
-  var ICONS = { '2': '🧸', '6': '🚀', christmas: '🎄', movies: '🍿', grown: '🎬', music: '🎵', all: '🔀' };
   var SEEK = 30, SAVE_EVERY = 15000, OSD_MS = 4000;
+  var FALLBACK_VIEWERS = [
+    { id: 'sam', name: 'Sam', on: true }, { id: 'jake', name: 'Jake', on: true },
+    { id: 'mum', name: 'Mum', on: true }, { id: 'dad', name: 'Dad', on: true }
+  ];
 
   var $ = function (id) { return document.getElementById(id); };
   var video = $('video'), osd = $('osd');
-  var data = { channels: [], continueWatching: [], shows: [] };
-  var rows = [];            // [{ el, items, kind }]
+  var data = { channels: [], viewers: [], ceiling: null };
+  var rows = [];
   var focus = { row: 0, col: 0 };
-  var page = null;          // null for home, or the channel whose shows are open
-  var openShow = null;      // { name, episodes } while the shows row lists one show's episodes
-  var showCache = Object.create(null), cacheOrder = [], initialHome = true;
-  var artCache = Object.create(null), artOrder = [];
-  // The Mac mini or Air running the TV offers YouTube and the TV's own tuner; a browser does not.
-  var SHELL = window.ontoShell || null;
-  var play = null;          // { mode: 'channel'|'show'|'single', channel, list, index, item, visitStart, lastSave }
+  var homeRequest = 0;
+  var play = null;          // { mode: 'channel', channel, item, visitStart, lastSave }
   var osdTimer = 0, gameState = null, tuneRequest = 0;
   var lastPlayingDiagnostic = 0;
   var mediaState = 'starting', lastProgressAt = 0, previousMediaTime = 0;
@@ -99,279 +97,206 @@
   function status(text) { $('status').textContent = text || ''; }
 
   // ---------- home ----------
-  function tile(item, kind) {
-    var el = document.createElement('div');
-    el.className = 'tile ' + kind;
-    el.setAttribute('role', 'button');
-    el.tabIndex = -1;
-    el.setAttribute('aria-label', item.name || item.title || item.label || 'Play');
-    var art = document.createElement('div');
-    art.className = 'art';
-    art.setAttribute('data-initial', (item.name || item.title || item.label || 'O').slice(0, 1));
-    var label = document.createElement('div');
-    label.className = 'label';
+  function storedViewers() {
+    try { return localStorage.getItem('onto.viewers'); } catch (e) { return null; }
+  }
+  function homePath() {
+    var stored = storedViewers();
+    if (stored === null) return '/api/home';
+    return '/api/home?viewers=' + q(stored);
+  }
+  function artUrl(path) {
+    if (!path) return '';
+    var url = path.indexOf('http') === 0 ? path : SERVER + path;
+    if (TOKEN) url += (path.indexOf('?') >= 0 ? '&' : '?') + 't=' + q(TOKEN);
+    return url;
+  }
+  function paintClock() {
+    var d = new Date(), h = d.getHours(), m = d.getMinutes();
+    var clockEl = $('clock');
+    clockEl.textContent = (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    clockEl.setAttribute('title', d.toDateString());
+  }
+  function gridCards() {
+    var cards = (data.channels || []).slice();
+    cards.push({ id: 'games', number: 6, name: 'Games', app: 'games' });
+    cards.push({ id: 'uke', number: 7, name: 'Uke', app: 'uke' });
+    return cards;
+  }
+  function selectedIds() {
+    var ids = [], people = data.viewers || [];
+    for (var i = 0; i < people.length; i++) if (people[i].on) ids.push(people[i].id);
+    return ids;
+  }
+  function toggleViewer(id) {
+    var ids = selectedIds(), at = ids.indexOf(id);
+    if (at >= 0) ids.splice(at, 1); else ids.push(id);
+    var ordered = [], people = data.viewers || [];
+    for (var i = 0; i < people.length; i++) if (ids.indexOf(people[i].id) >= 0) ordered.push(people[i].id);
+    try { localStorage.setItem('onto.viewers', ordered.join(',')); } catch (e) {}
+    var keep = { row: focus.row, col: focus.col };
+    loadHome().then(function () { focus = keep; moveFocus(0, 0); });
+  }
+  function loadArt(img, url) {
+    if (!img || !url) return;
+    var image = new Image();
+    image.onload = function () {
+      var apply = function () { if (img.isConnected) img.src = url; };
+      if (image.decode) image.decode().then(apply, apply); else apply();
+    };
+    image.onerror = function () { img.style.visibility = 'hidden'; };
+    image.src = url;
+  }
+  function viewerButton(person, col) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'viewer' + (person.on ? ' on' : '');
+    button.tabIndex = -1;
+    button.setAttribute('data-id', person.id);
+    button.setAttribute('aria-pressed', person.on ? 'true' : 'false');
+    button.setAttribute('aria-label', person.name + (person.on ? ', watching' : ', not watching'));
+    var tick = document.createElement('span');
+    tick.className = 'tick';
+    tick.setAttribute('aria-hidden', 'true');
+    tick.textContent = '✓';
+    var name = document.createElement('span');
+    name.className = 'who';
+    name.textContent = person.name;
+    button.appendChild(tick);
+    button.appendChild(name);
+    button.addEventListener('click', function () {
+      focus = { row: 0, col: col };
+      moveFocus(0, 0);
+      toggleViewer(person.id);
+    });
+    return button;
+  }
+  function channelButton(item, index) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'channel';
+    button.tabIndex = -1;
+    button._item = item;
+    var show = item.now && item.now.show;
+    button.setAttribute('aria-label', item.number + ' ' + item.name + (show ? ', ' + show : ''));
+    if (item.now && item.now.art) {
+      var img = document.createElement('img');
+      img.className = 'art';
+      img.alt = '';
+      button.appendChild(img);
+      loadArt(img, artUrl(item.now.art));
+    }
+    var copy = document.createElement('span');
+    copy.className = 'channel-copy';
+    var line = document.createElement('span');
+    line.className = 'channel-line';
+    var num = document.createElement('span');
+    num.className = 'num';
+    num.textContent = String(item.number);
     var name = document.createElement('span');
     name.className = 'name';
-    var count = document.createElement('span');
-    count.className = 'count';
-    if (kind === 'launch') {
-      el.className += ' tint-' + (item.app || item.id);
-      if (item.app === 'youtube') art.innerHTML = '<b class="yt-mark"></b>';
-      else art.textContent = item.app ? '▶' : String(data.channels.filter(function (channel) { return channel.id !== 'all'; }).indexOf(item) + 1);
-      name.textContent = item.label;
-    } else if (kind === 'shuffle') {
-      art.textContent = ICONS.all;
-      name.textContent = 'Play channel';
-      count.textContent = item.count;
-    } else if (kind === 'live') {
-      art.innerHTML = '<span class="lcn"></span><span class="on-air">LIVE</span>';
-      art.firstChild.textContent = item.lcn;
-      name.textContent = item.name;
-    } else if (kind === 'show') {
-      el._artSrc = item.src;
-      name.textContent = item.name;
-      count.textContent = item.count;
-    } else {
-      el._artSrc = item.src;
-      name.textContent = item.title;
-      if (item.duration) {
-        var badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = item.resume ? clock(item.duration - item.resume) + ' left' : clock(item.duration);
-        art.appendChild(badge);
-      }
-      if (item.resume && item.duration) {
-        var bar = document.createElement('div'), fill = document.createElement('div');
-        bar.className = 'progress';
-        fill.style.width = Math.min(100, 100 * item.resume / item.duration) + '%';
-        bar.appendChild(fill);
-        art.appendChild(bar);
-      }
+    name.textContent = item.name;
+    line.appendChild(num);
+    line.appendChild(name);
+    copy.appendChild(line);
+    if (show) {
+      var now = document.createElement('span');
+      now.className = 'now';
+      now.textContent = '▶ ' + show;
+      now.title = show;
+      copy.appendChild(now);
     }
-    label.appendChild(name);
-    label.appendChild(count);
-    el.appendChild(art);
-    el.appendChild(label);
-    return el;
-  }
-
-  function fill(el, items, kind) {
-    el.innerHTML = '';
-    items.forEach(function (item, col) {
-      // A channel's own tile at the head of its shows plays the whole channel.
-      var t = tile(item, kind === 'show' && item === page ? 'shuffle' : kind);
-      // The TV's own browser drives pages with a pointer: a click focuses and opens.
-      t.addEventListener('click', function () {
-        for (var r = 0; r < rows.length; r++) if (rows[r].el === el) focus.row = r;
-        focus.col = col;
-        moveFocus(0, 0);
-        select();
-      });
-      el.appendChild(t);
+    button.appendChild(copy);
+    button.addEventListener('click', function () {
+      var row = Math.floor(index / 4) + (rows.length && rows[0].kind === 'viewers' ? 1 : 0);
+      focus = { row: row, col: index % 4 };
+      moveFocus(0, 0);
+      activate(item);
     });
-    preloadAround(items, 0, el);
+    return button;
   }
-  function preloadAround(items, index, container) {
-    if (!container) return;
-    var end = Math.min(items.length, index + Math.ceil(window.innerWidth / 280) + 1);
-    for (var i = Math.max(0, index - 1); i < end; i++) prepareArt(container.children[i]);
-  }
-  function prepareArt(tile) {
-    if (!tile || !tile._artSrc) return;
-    var url = fileUrl('art', tile._artSrc), art = tile.querySelector('.art');
-    function apply(loaded) { if (loaded === false) return; art.classList.add('ready'); art.style.backgroundImage = 'url("' + url + '")'; }
-    if (artCache[url]) { artCache[url].then(apply); return; }
-    var pending = new Promise(function (resolve) {
-      var image = new Image();
-      image.onload = function () {
-        if (image.decode) image.decode().then(resolve, resolve); else resolve();
-      };
-      image.onerror = function () { delete artCache[url]; resolve(false); };
-      image.src = url;
-    });
-    artCache[url] = pending; artOrder.push(url);
-    if (artOrder.length > 32) delete artCache[artOrder.shift()];
-    pending.then(apply);
-  }
-
-  // Home: what to watch, what to finish, what is on air. A channel: its shows.
-  function launchItems() {
-    var items = data.channels.filter(function (channel) { return channel.id !== 'all'; });
-    if (SHELL && SHELL.youtube) {
-      items.splice(Math.min(2, items.length), 0, { app: 'youtube', label: 'YouTube' });
-    }
-    items.push({ app: 'uke', label: 'Uke' });
-    items.push({ app: 'games', label: 'Games' });
-    return items;
-  }
-  function onChannel(item) { return !page || (item.channels || []).indexOf(page.id) >= 0; }
   function render() {
-    var live = (SHELL && SHELL.live) || [];
-    var resume = openShow ? [] : data.continueWatching.filter(onChannel);
-    if (page) $('home').insertBefore($('shows-row'), $('continue-row'));
-    else $('home').insertBefore($('continue-row'), $('shows-row'));
-    rows = [];
-    $('feature').hidden = !!openShow || !!page;
-    $('brand').hidden = !!openShow || !!page;
-    $('page-title').hidden = !page;
-    $('page-title').textContent = page ? page.label : '';
-    $('launch-row').hidden = !!page || !!openShow;
-    $('shows-row').hidden = !!openShow;
-    $('live-row').hidden = !!page || !live.length;
-    if (openShow) {
-      $('shows-title').textContent = openShow.name;
-      $('shows-row').hidden = false;
-      rows.push({ el: $('shows'), items: openShow.episodes, kind: 'episode' });
-      fill($('shows'), openShow.episodes, 'episode');
-    } else if (!page) {
-      rows.push({ el: $('launch'), items: launchItems(), kind: 'launch' });
-      fill($('launch'), rows[0].items, 'launch');
-      $('shows-title').textContent = 'Browse shows';
-      fill($('shows'), data.shows, 'show');
-      rows.push({ el: $('shows'), items: data.shows, kind: 'show' });
+    var people = (data.viewers && data.viewers.length) ? data.viewers : FALLBACK_VIEWERS;
+    data.viewers = people;
+    var viewers = $('viewers');
+    viewers.innerHTML = '';
+    for (var i = 0; i < people.length; i++) viewers.appendChild(viewerButton(people[i], i));
+    var badge = $('ceiling');
+    if (data.ceiling) {
+      badge.hidden = false;
+      badge.textContent = data.ceiling;
+      badge.className = 'rating rating-' + String(data.ceiling).toLowerCase().replace('-', '');
+      badge.title = 'Rating ' + data.ceiling;
     } else {
-      $('shows-title').textContent = 'Browse shows';
-      var shows = [page].concat(data.shows.filter(onChannel));
-      rows.push({ el: $('shows'), items: shows, kind: 'show' });
-      fill($('shows'), shows, 'show');
+      badge.hidden = true;
+      badge.textContent = '';
+      badge.className = 'rating';
     }
-    $('continue-row').hidden = !resume.length;
-    fill($('continue'), resume, 'episode');
-    if (resume.length) rows.splice(1, 0, { el: $('continue'), items: resume, kind: 'continue' });
-    if (!page && live.length) {
-      fill($('live'), live, 'live');
-      rows.push({ el: $('live'), items: live, kind: 'live' });
+    paintClock();
+    var cards = gridCards();
+    var holder = $('channels');
+    holder.innerHTML = '';
+    for (var c = 0; c < cards.length; c++) holder.appendChild(channelButton(cards[c], c));
+    rows = [];
+    if (viewers.children.length) rows.push({ kind: 'viewers', els: viewers.children });
+    for (var start = 0; start < holder.children.length; start += 4) {
+      var slice = [];
+      for (var n = start; n < holder.children.length && n < start + 4; n++) slice.push(holder.children[n]);
+      rows.push({ kind: 'channels', els: slice });
     }
-    rows = rows.filter(function (row) { return row.items.length; });
-    if (initialHome && !page && !openShow) { focus.row = 0; initialHome = false; }
-    focus.row = Math.max(0, Math.min(focus.row, rows.length - 1));
+    if (!rows.length) return;
+    if (focus.row > rows.length - 1) focus.row = rows.length - 1;
     moveFocus(0, 0);
     diag('rendered', { page: 'home', state: 'ready' });
   }
-  function openPage(channel) {
-    page = channel;
-    openShow = null;
-    focus = { row: 0, col: 0 };
-    render();
-  }
-  function goBack() {
-    if (openShow) {
-      var name = openShow.name;
-      openShow = null;
-      render();
-      var showRow = rows.filter(function (row) { return row.kind === 'show'; })[0];
-      if (showRow) { focus.row = rows.indexOf(showRow); focus.col = Math.max(0, showRow.items.map(function (show) { return show.name; }).indexOf(name)); }
-      moveFocus(0, 0);
-      return true;
-    }
-    if (page) {
-      var id = page.id;
-      page = null;
-      focus = { row: 0, col: 0 };
-      render();
-      var browse = rows.filter(function (row) { return row.kind === 'launch'; })[0];
-      if (browse) { focus.row = rows.indexOf(browse); focus.col = Math.max(0, browse.items.map(function (item) { return item.id; }).indexOf(id)); }
-      moveFocus(0, 0);
-      return true;
-    }
-    return false;
-  }
-
-  function caption(row, item) {
-    if (!item) return '';
-    if (row.kind === 'launch') return item.app ? item.label : item.label + ' · OK to watch · continuous play';
-    if (row.kind === 'live') return 'Channel ' + item.lcn + ' · ' + item.name;
-    if (row.kind === 'show' && item === page) return 'Shuffle ' + page.label + ' · ' + page.count + ' videos';
-    if (row.kind === 'show') return item.name + ' · ' + item.count + ' videos';
-    var parts = [item.show, item.title];
-    if (item.resume) parts.push(clock(item.resume) + ' of ' + clock(item.duration));
-    else if (item.duration) parts.push(clock(item.duration));
-    return parts.filter(Boolean).join(' · ');
-  }
-
   function moveFocus(dRow, dCol) {
     if (!rows.length) return;
-    var previous = rows[focus.row];
+    var previous = rows[focus.row] || rows[0];
+    if (!rows[focus.row]) focus.row = 0;
     focus.row = Math.max(0, Math.min(rows.length - 1, focus.row + dRow));
     var row = rows[focus.row];
-    if (dRow && previous !== row) focus.col = Math.min(focus.col, row.items.length - 1);
-    focus.col = Math.max(0, Math.min(row.items.length - 1, focus.col + dCol));
-    updateFeature(row, row.items[focus.col]);
-    status(caption(row, row.items[focus.col]));
-    var tiles = document.querySelectorAll('.tile.focused');
-    for (var i = 0; i < tiles.length; i++) tiles[i].classList.remove('focused');
-    var el = row.el.children[focus.col];
-    if (el) {
-      el.classList.add('focused');
-      if (row.kind === 'show' || row.kind === 'continue' || row.kind === 'episode') preloadAround(row.items, focus.col, row.el);
-      // Scroll both axes for remote focus, without assuming a 1920px panel.
-      var box = el.getBoundingClientRect(), viewport = row.el.getBoundingClientRect();
-      if (box.left < viewport.left + 10) row.el.scrollLeft -= viewport.left + 10 - box.left;
-      if (box.right > viewport.right - 10) row.el.scrollLeft += box.right - viewport.right + 10;
-      var home = $('home'), bounds = home.getBoundingClientRect();
-      if (box.top < bounds.top + 12) home.scrollTop -= bounds.top + 12 - box.top;
-      var reserve = Math.max(32, $('status').offsetHeight + 20);
-      if (box.bottom > bounds.bottom - reserve) home.scrollTop += box.bottom - bounds.bottom + reserve;
-
-    }
+    if (dRow && previous !== row) focus.col = Math.min(focus.col, row.els.length - 1);
+    focus.col = Math.max(0, Math.min(row.els.length - 1, focus.col + dCol));
+    var focused = document.querySelectorAll('.focused');
+    for (var i = 0; i < focused.length; i++) focused[i].classList.remove('focused');
+    var el = row.els[focus.col];
+    if (!el) return;
+    el.classList.add('focused');
+    try { el.focus(); } catch (e) {}
   }
-
-  function updateFeature(row, item) {
-    if (!item || !$('feature') || $('feature').hidden) return;
-    var source = item.src, title = item.name || item.title || item.label;
-    var kind = row.kind === 'continue' ? 'Continue watching' : row.kind === 'show' ? 'Smart shuffle' : 'Smart channels';
-    var meta = row.kind === 'continue' ? (item.show || '') + (item.resume ? ' · ' + clock(item.duration - item.resume) + ' left' : '') : row.kind === 'show' ? item.count + ' episodes' : 'A continuous mix of shows';
-    if (row.kind === 'launch') {
-      var representative = data.shows.filter(function (show) { return (show.channels || []).indexOf(item.id) >= 0; })[0];
-      source = representative && representative.src;
-      if (item.app === 'uke') { kind = 'Play music'; meta = 'Songs and chords'; }
-      if (item.app === 'games') { kind = 'Play together'; meta = 'Remote games · couch racing'; }
-    }
-    $('feature-kind').textContent = kind; $('feature-title').textContent = title;
-    $('feature-meta').textContent = meta;
-    $('feature-action').textContent = row.kind === 'continue' ? '▶  Resume channel' : row.kind === 'launch' && !item.app ? '▶  Watch channel' : 'OK  ' + (row.kind === 'show' ? 'Browse episodes' : 'Open');
-    $('feature-art').style.backgroundImage = source ? 'url("' + fileUrl('art', source) + '")' : 'none';
-  }
-
-  function select() {
-    var row = rows[focus.row], item = row && row.items[focus.col];
+  function activate(item) {
     if (!item) return;
-    if (row.kind === 'launch') {
-      if (item.app === 'games') return openGames();
-      if (item.app === 'uke') { tuneRequest++; if (play) { watchEvent('stop'); saveProgress(false); play = null; media.stop(); } return window.ontoUke.open(SERVER, function () { moveFocus(0, 0); }); }
-      return item.app ? SHELL.open(item.app) : startChannel(item);
+    if (item.app === 'games') return openGames();
+    if (item.app === 'uke') {
+      tuneRequest++;
+      if (play) { watchEvent('stop'); saveProgress(false); play = null; media.stop(); }
+      return window.ontoUke.open(SERVER, function () { moveFocus(0, 0); });
     }
-    if (row.kind === 'live') return SHELL.watchLive(item.lcn);
-    if (row.kind === 'show' && item === page) return startChannel(page);
-    if (row.kind === 'show') {
-      status('Loading ' + item.name + '…');
-      if (showCache[item.name]) {
-        openShow = { name: item.name, episodes: showCache[item.name] };
-        focus = { row: 0, col: 0 }; render(); return;
-      }
-      return api('/api/show?name=' + q(item.name)).then(function (episodes) {
-        showCache[item.name] = episodes; cacheOrder.push(item.name);
-        if (cacheOrder.length > 8) delete showCache[cacheOrder.shift()];
-        openShow = { name: item.name, episodes: episodes };
-        focus = { row: 0, col: 0 };
-        render();
-      }).catch(fail);
-    }
-    if (row.kind === 'episode') return startList('show', openShow.episodes, focus.col);
-    if (row.kind === 'continue') return startList('single', [item], 0);
+    startChannel(item);
   }
-
+  function select() {
+    var row = rows[focus.row], el = row && row.els[focus.col];
+    if (!el) return;
+    if (row.kind === 'viewers') return toggleViewer(el.getAttribute('data-id'));
+    activate(el._item);
+  }
   function loadHome() {
     mediaState = 'connecting';
-    status('Connecting to ' + (SERVER || 'the Mac') + '…');
-    return api('/api/home').then(function (home) {
-      data = home; ensureWatchDelivery().drain(); mediaState = 'ready';
-      showCache = Object.create(null); cacheOrder = [];
+    var request = ++homeRequest;
+    return api(homePath()).then(function (home) {
+      if (request !== homeRequest) return;
+      data = home || {};
+      if (!data.channels) data.channels = [];
+      if (!data.viewers || !data.viewers.length) data.viewers = FALLBACK_VIEWERS;
+      ensureWatchDelivery().drain();
+      mediaState = 'ready';
+      status('');
       var bridge = window.ontoDiagnostics;
       if (bridge && typeof bridge.connect === 'function') { try { bridge.connect(SERVER); } catch (e) {} }
       diag('connected', { page: 'home', state: 'ready' });
       render();
     }).catch(function (error) {
+      if (request !== homeRequest) return;
       mediaState = 'offline';
       diag('offline', { page: 'home', state: 'offline' });
       if (PACKAGED) return findServer();
@@ -458,9 +383,10 @@
   function updateOsd() {
     if (!play || !play.item) return;
     var duration = media.duration() || play.item.duration || 0;
-    $('osd-show').textContent = play.item.show;
-    $('osd-episode').textContent = play.item.title;
-    $('osd-channel').textContent = play.channel ? play.channel.label : '';
+    var channel = play.channel;
+    $('osd-channel').textContent = channel ? ((channel.number ? channel.number + ' ' : '') + (channel.name || channel.label || '')) : '';
+    $('osd-show').textContent = play.item.show || '';
+    $('osd-episode').textContent = play.item.title && play.item.title !== play.item.show ? play.item.title : '';
     $('osd-elapsed').textContent = clock(media.time());
     $('osd-duration').textContent = clock(duration);
     $('osd-fill').style.width = duration ? Math.min(100, 100 * media.time() / duration) + '%' : '0';
@@ -493,6 +419,8 @@
     if (play && play.item && (!fromItem || play.channel !== channel)) watchEvent('stop');
     play = play && play.channel === channel ? play : { mode: 'channel', channel: channel };
     var body = { channel: channel.id };
+    var viewers = storedViewers();
+    if (viewers !== null) body.viewers = viewers;
     if (fromItem) {
       body.current = fromItem.src;
       body.reason = reason;
@@ -501,24 +429,6 @@
       body.duration = Math.floor(media.duration() || fromItem.duration || 0);
     }
     return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; stopPlayback(); fail(error); });
-  }
-
-  function startList(mode, list, index) {
-    tuneRequest++;
-    if (play && play.item) watchEvent('stop');
-    var item = list[index], memberships = item.channels || [];
-    // A chosen episode seeds the same audience picker as a channel. Never
-    // widen an inferred kids' channel to Everything merely to keep playing.
-    var channel = page && page.id !== 'all' && memberships.indexOf(page.id) >= 0 ? page : null;
-    if (!channel) {
-      var preferred = ['2', '6', 'grown', 'music'];
-      for (var i = 0; i < preferred.length && !channel; i++) {
-        if (memberships.indexOf(preferred[i]) < 0) continue;
-        channel = data.channels.filter(function (entry) { return entry.id === preferred[i]; })[0];
-      }
-    }
-    play = channel ? { mode: 'channel', channel: channel } : { mode: mode, list: list, index: index };
-    load(item);
   }
 
   function saveProgress(completed) {
@@ -534,10 +444,6 @@
     watchEvent(reason === 'ended' ? 'ended' : 'skip');
     saveProgress(reason === 'ended');
     if (play.mode === 'channel') return startChannel(play.channel, current, reason);
-    if (play.mode === 'show' && play.index + 1 < play.list.length) {
-      play.index += 1;
-      return load(play.list[play.index]);
-    }
     stopPlayback();
   }
 
@@ -607,6 +513,27 @@
     return window.ontoUke.command(action);
   };
 
+  function tuneNumber(number) {
+    var cards = gridCards();
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].number !== number) continue;
+      if (play && !cards[i].app) saveProgress(false);
+      activate(cards[i]);
+      return true;
+    }
+    return false;
+  }
+  function stepChannel(direction) {
+    var list = (data.channels || []).slice().sort(function (a, b) { return a.number - b.number; });
+    if (!play || !play.channel || list.length < 2) { showOsd(); return; }
+    var index = 0;
+    for (var i = 0; i < list.length; i++) if (list[i].id === play.channel.id) index = i;
+    var nextIndex = (index + direction + list.length) % list.length;
+    if (list[nextIndex].id === play.channel.id) { showOsd(); return; }
+    saveProgress(false);
+    startChannel(list[nextIndex]);
+  }
+
   // ---------- keys ----------
   document.addEventListener('keydown', function (event) {
     var key = event.keyCode;
@@ -619,10 +546,8 @@
       return;
     }
     if (!$('setup').hidden) return;
-    // Number keys tune directly; game input is handled above.
-    if (key >= 49 && key <= 57 && !openShow) {
-      var channels = data.channels.filter(function (channel) { return channel.id !== 'all'; });
-      if (channels[key - 49]) { if (play) saveProgress(false); startChannel(channels[key - 49]); event.preventDefault(); return; }
+    if (key >= 49 && key <= 57) {
+      if (tuneNumber(key - 48)) { event.preventDefault(); return; }
     }
     var playing = !$('player').hidden;
     if (!playing && play && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { stopPlayback(); event.preventDefault(); return; }
@@ -633,9 +558,10 @@
       else if (key === KEY.PAUSE) { media.pause(); showOsd(); }
       else if (key === KEY.LEFT || key === KEY.RW) seek(-SEEK);
       else if (key === KEY.RIGHT || key === KEY.FF) seek(SEEK);
-      else if (key === KEY.NEXT || key === KEY.CH_UP || key === KEY.DOWN) next('skip');
-      else if (key === KEY.PREV || key === KEY.CH_DOWN) { media.seek(0); showOsd(); }
-      else if (key === KEY.UP) showOsd();
+      else if (key === KEY.UP || key === KEY.CH_UP) { if (!event.repeat) stepChannel(1); }
+      else if (key === KEY.DOWN || key === KEY.CH_DOWN) { if (!event.repeat) stepChannel(-1); }
+      else if (key === KEY.NEXT) next('skip');
+      else if (key === KEY.PREV) { media.seek(0); showOsd(); }
       else return;
     } else {
       if (key === KEY.LEFT) moveFocus(0, -1);
@@ -643,9 +569,7 @@
       else if (key === KEY.UP) moveFocus(-1, 0);
       else if (key === KEY.DOWN) moveFocus(1, 0);
       else if (key === KEY.ENTER) select();
-      else if ((key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) && goBack()) {
-        // went up a level
-      } else if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) { focus = { row: 0, col: 0 }; $('home').scrollTop = 0; moveFocus(0, 0); }
+      else if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) { focus = { row: 0, col: 0 }; moveFocus(0, 0); }
       else return;
     }
     event.preventDefault();
@@ -671,12 +595,11 @@
     if (window.ontoUke && window.ontoUke.isOpen()) window.ontoUke.close();
     if (window.ontoGames && window.ontoGames.isOpen()) window.ontoGames.close();
     if (play) stopPlayback();
-    page = null;
-    openShow = null;
     focus = { row: 0, col: 0 };
     render();
   };
 
-  $('feature-action').addEventListener('click', select);
+  paintClock();
+  setInterval(paintClock, 1000);
   loadHome();
 })();
