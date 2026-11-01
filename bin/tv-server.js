@@ -94,7 +94,7 @@ if (!token) { token = randomBytes(24).toString('hex'); await writeFile(tokenFile
 
 let libraryVideos = await loadCatalogue(catalogue);
 let library = createTvLibrary({ videos: libraryVideos, history, storage });
-const current = { home: () => library.home(), show: name => library.show(name), next: (id, input) => library.next(id, input),
+const current = { home: viewers => library.home(viewers), show: name => library.show(name), next: (id, input) => library.next(id, input),
   progress: input => library.progress(input), file: src => library.file(src), video: src => library.video(src) };
 let mediaCache = null;
 try { mediaCache = await createMediaCache({ directory: join(homedir(), 'Library/Caches/Onto the TV/media'),

@@ -114,17 +114,3 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
   font-size: 28px; overflow-wrap: break-word;
 }
 
-@media (prefers-color-scheme: light) {
-  html, body { background: #f3f5f8; color: #1c2430; }
-  .viewer { border-color: #5c6b82; color: #1c2430; }
-  .viewer.on { background: #1c2430; border-color: #1c2430; color: #fff; }
-  .viewer:focus, .viewer.focused, .channel:focus, .channel.focused, #setup input:focus {
-    outline-color: #b86e00;
-  }
-  #clock { color: #1c2430; }
-  #setup { background: #f3f5f8; }
-  #setup label, #setup p { color: #3d4654; }
-  #setup input { background: #fff; color: #1c2430; border-color: #b86e00; }
-  #status { color: #8a5a00; }
-  #game-pairing { background: #1c2430; color: #fff; }
-}
