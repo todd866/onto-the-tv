@@ -52,6 +52,23 @@ keys pass to the TV and Home or Back comes back. Volume always goes to the TV.
 address, its HDMI input key, the Home keys and the live channel list are in
 `tv-shell.json` in the app's data folder.
 
+### Holiday mode: a second Mac with the library on a drive
+
+A second Mac (a laptop that travels) can stream from the main TV Mac at home and serve its own
+copy from an external drive when that Mac cannot be reached. Its internal disk holds only the code.
+
+```sh
+scripts/copy_holiday_library.sh /Volumes/TV --from m2           # library + settings onto the drive
+scripts/install_tv_server.sh --app-data "/Volumes/TV/Onto the TV" # runs only while the drive is in
+```
+
+The drive copy shares the main Mac's pairing token, so one TV app accepts either Mac: build it
+with both addresses (`tizen/build.sh --server-host m2 --address http://<M2>:8686 --address
+http://<second Mac>:8686`). On the second Mac, the TV shell's `tv-shell.json` takes
+`"servers": ["http://<M2>:8686/", "http://127.0.0.1:8686/"]` and shows the first that answers.
+Re-run the copy before a trip; it copies only what changed. The first time the server reads the
+drive, macOS asks whether node may use files on a removable volume: allow it at that Mac.
+
 ## Install on a Mac
 
 You need macOS 13 or later, Node.js 22.12+, Python 3.10+ and FFmpeg. Node builds

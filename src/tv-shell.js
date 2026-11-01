@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSamsungRemote } from './samsung-remote.js';
 import { createLiveTv } from './tv-live.js';
+import { answers, pickServer, serverList } from './server-pick.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CAPTURE = process.env.ONTO_SHELL_CAPTURE || '';
@@ -17,6 +18,8 @@ const CAPTURE = process.env.ONTO_SHELL_CAPTURE || '';
 const TV_AGENT = 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.0 TV Safari/537.36';
 const YOUTUBE = 'https://www.youtube.com/tv';
 const DEFAULTS = {
+  // Tried in order; the first that answers is shown. `servers: [M2, this Mac]` streams from the
+  // M2 at home and falls back to this Mac's own server (its drive) when the M2 is out of reach.
   server: 'http://127.0.0.1:8686/',
   tvHost: '192.168.20.14',
   macInput: 'KEY_HDMI',           // the key that puts the TV back on this Mac's input
@@ -26,6 +29,7 @@ const DEFAULTS = {
 };
 const BACK_KEYS = new Set(['Escape', 'Backspace', 'BrowserBack']);
 const NO_CURSOR = '* { cursor: none !important; }';
+const RECHECK_MS = 30_000;
 
 const log = (...parts) => console.log(new Date().toISOString(), ...parts);
 
@@ -111,8 +115,30 @@ app.whenReady().then(async () => {
     live.tune(lcn).then(() => notice('')).catch(error => notice(`⚠ ${error.message}`));
   });
 
-  await win.loadURL(config.server).catch(error => log(`home screen did not load: ${error.message}`));
-  if (CAPTURE) await capture(win, showYouTube, () => youtube);
+  // Show the first server that answers; if it stops answering, move to the next one that does.
+  // A working server is never swapped mid-programme just because a preferred one came back.
+  const servers = serverList(config);
+  let current = null;
+  async function connect() {
+    if (current && await answers(current)) return;
+    const next = await pickServer(servers);
+    if (!next) {
+      if (current === '') return;
+      log(`no TV server answers: ${servers.join(', ')}`);
+      current = '';
+      const page = `<body style="background:#000;color:#aaa;font:32px system-ui;display:grid;place-items:center;height:100vh;margin:0">
+        Looking for the TV server… (${servers.map(url => new URL(url).host).join(', ')})</body>`;
+      await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`).catch(() => {});
+      return;
+    }
+    if (next === current) return;
+    log(`home screen from ${next}`);
+    current = next;
+    await win.loadURL(next).catch(error => log(`home screen did not load: ${error.message}`));
+  }
+  await connect();
+  if (CAPTURE) return capture(win, showYouTube, () => youtube);
+  setInterval(() => { connect().catch(error => log(`server check failed: ${error.message}`)); }, RECHECK_MS);
 });
 
 function sizeOf(win) { const [width, height] = win.getContentSize(); return { width, height }; }
