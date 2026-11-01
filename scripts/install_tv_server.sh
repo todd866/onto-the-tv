@@ -55,7 +55,8 @@ cat > "$PLIST" <<EOF
 </dict></plist>
 EOF
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+# The first start builds the catalogue (probing every video), which takes a while on a USB drive.
+for _ in $(seq 1 60); do
   curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && break
   sleep 2
 done
