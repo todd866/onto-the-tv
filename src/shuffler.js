@@ -12,7 +12,7 @@ export function readCatalogue(html, sourcePath, outputPath) {
   if (!match) throw new Error('Refresh the library to create your channels.');
   const videos = JSON.parse(match[1]);
   if (!Array.isArray(videos) || videos.length > 100000) throw new Error('Invalid video library.');
-  const tiers = new Set(['preschool', 'shared', 'big', 'older', 'grownup', 'couple', 'sitcom', 'scifi', 'adultanim', 'comedy', 'docs', 'music', '50s', '60s', '70s', '80s', '90s']);
+  const tiers = new Set(['preschool', 'shared', 'big', 'older', 'grownup', 'couple', 'sitcom', 'scifi', 'adultanim', 'comedy', 'docs', 'classic', 'music', '50s', '60s', '70s', '80s', '90s']);
   return videos.map(video => {
     const path = video.path || video.src;
     if (typeof path !== 'string' || !path || path.includes('\0') || /^[a-z][\w+.-]*:/i.test(path)
