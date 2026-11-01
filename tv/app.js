@@ -121,6 +121,7 @@
     var cards = (data.channels || []).slice();
     cards.push({ id: 'games', number: 6, name: 'Games', app: 'games' });
     cards.push({ id: 'uke', number: 7, name: 'Uke', app: 'uke' });
+    cards.sort(function (a, b) { return a.number - b.number; });
     return cards;
   }
   function selectedIds() {
@@ -513,6 +514,7 @@
     return window.ontoUke.command(action);
   };
 
+  var digitBuffer = '', digitTimer = null;
   function tuneNumber(number) {
     var cards = gridCards();
     for (var i = 0; i < cards.length; i++) {
@@ -546,8 +548,19 @@
       return;
     }
     if (!$('setup').hidden) return;
-    if (key >= 49 && key <= 57) {
-      if (tuneNumber(key - 48)) { event.preventDefault(); return; }
+    if (key >= 48 && key <= 57) {
+      // Digits tune like a TV: wait briefly for a second digit when one could follow.
+      clearTimeout(digitTimer);
+      digitBuffer += String(key - 48);
+      var typed = Number(digitBuffer), longer = false, cardsNow = gridCards();
+      for (var d = 0; d < cardsNow.length; d++) {
+        var n = String(cardsNow[d].number);
+        if (n.length > digitBuffer.length && n.indexOf(digitBuffer) === 0) longer = true;
+      }
+      if (longer) { digitTimer = setTimeout(function () { var v = Number(digitBuffer); digitBuffer = ''; tuneNumber(v); }, 1200); }
+      else { digitBuffer = ''; tuneNumber(typed); }
+      event.preventDefault();
+      return;
     }
     var playing = !$('player').hidden;
     if (!playing && play && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { stopPlayback(); event.preventDefault(); return; }

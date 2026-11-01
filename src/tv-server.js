@@ -35,6 +35,7 @@ export const TIER_RATINGS = {
   big: 'PG',
   older: 'PG-13',
   grownup: 'M', couple: 'M', adultanim: 'M', sitcom: 'M', scifi: 'M',
+  comedy: 'M', docs: 'PG', classic: 'M',
   '50s': 'M', '60s': 'M', '70s': 'M', '80s': 'M', '90s': 'M',
 };
 
@@ -44,13 +45,19 @@ export const TIER_RATINGS = {
 // grown-up, couple, sci-fi and decade folders. Sitcoms, music and Christmas
 // keep the folders and the seasonal filter they already had.
 const CARTOON_TIERS = new Set(['preschool', 'shared', 'big', 'older', 'adultanim']);
-const MOVIE_TIERS = new Set(['grownup', 'couple', 'scifi', '50s', '60s', '70s', '80s', '90s']);
+const MOVIE_TIERS = new Set(['grownup', 'couple']);
+const RETRO_TIERS = new Set(['50s', '60s', '70s', '80s', '90s']);
 export const TV_CHANNELS = [
   { id: 'cartoons', number: 1, name: 'Cartoons' },
   { id: 'movies', number: 2, name: 'Movies' },
   { id: 'sitcoms', number: 3, name: 'Sitcoms' },
   { id: 'music', number: 4, name: 'Music' },
   { id: 'christmas', number: 5, name: 'Christmas' },
+  { id: 'comedy', number: 8, name: 'Comedy' },
+  { id: 'docs', number: 9, name: 'Sport & Docs' },
+  { id: 'scifi', number: 10, name: 'Sci-Fi' },
+  { id: 'classic', number: 11, name: 'Classics' },
+  { id: 'retro', number: 12, name: 'Retro TV' },
 ];
 
 const MIME = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska',
@@ -196,6 +203,11 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (channelId === 'music') return item.tier === 'music';
     if (channelId === 'sitcoms') return item.tier === 'sitcom';
     if (channelId === 'movies') return player.inStream(item, 'movies') || MOVIE_TIERS.has(item.tier);
+    if (channelId === 'comedy') return item.tier === 'comedy';
+    if (channelId === 'docs') return item.tier === 'docs';
+    if (channelId === 'scifi') return item.tier === 'scifi';
+    if (channelId === 'classic') return item.tier === 'classic';
+    if (channelId === 'retro') return RETRO_TIERS.has(item.tier);
     if (channelId === 'cartoons') return CARTOON_TIERS.has(item.tier) && !player.inStream(item, 'movies');
     return false;
   }
