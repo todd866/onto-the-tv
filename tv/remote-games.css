@@ -1,0 +1,33 @@
+/* Compact 10-foot game surface; no image, font or network dependency. */
+.games-overlay { position: fixed; z-index: 20; top: 0; left: 0; right: 0; bottom: 0; overflow: auto; background: #09101a; color: #f4f7fb; font: 28px/1.2 Arial, sans-serif; }
+.games-panel { width: 760px; max-width: 88vw; margin: 7vh auto; padding: 42px 48px; background: #141f2d; border: 2px solid #40536b; border-radius: 18px; text-align: center; }
+.games-panel h1 { margin: 0 0 10px; font-size: 48px; }
+.games-panel p { color: #aab7c8; margin: 10px 0 24px; }
+.game-button { display: flex; align-items: center; justify-content: center; min-height: 64px; border: 3px solid transparent; border-radius: 12px; background: #223349; margin: 14px 0; font-size: 30px; font-weight: bold; }
+.game-button.focused { border-color: #ffc857; background: #344b68; }
+.game-info { min-height: 36px; margin: 8px 0 22px; color: #ffc857; font-size: 30px; font-weight: bold; }
+.number-grid { display: flex; flex-wrap: wrap; margin: 0 auto; max-width: 500px; }
+.number-cell { width: calc(33.333% - 14px); min-height: 112px; margin: 7px; background: #28547a; font-size: 54px; }
+.number-cell.used { background: #172533; color: #64778d; }
+.memory-grid { display: flex; flex-wrap: wrap; margin: 0 auto; max-width: 560px; }
+.memory-card { width: calc(25% - 14px); min-height: 108px; margin: 7px; background: #28547a; font-size: 44px; }
+.memory-card.open { background: #2d765d; }
+.memory-card.shape-0 { border-radius: 50%; }
+.memory-card.shape-1 { border-radius: 6px; }
+.memory-card.shape-2 { border-radius: 50% 8px; }
+.memory-card.shape-3 { border-radius: 28px; }
+.memory-card.shape-4 { background: #8a5f32; }
+.memory-card.shape-5 { background: #7b3c58; }
+.game-hint { font-size: 22px; }
+.games-paused { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 24px 36px; border: 3px solid #ffc857; border-radius: 14px; background: #141f2d; color: #ffc857; font-size: 34px; font-weight: bold; }
+@media (max-width: 900px) {
+  .games-panel { padding: 24px; margin: 4vh auto; }
+  .games-panel h1 { font-size: 34px; }
+  .game-button { min-height: 52px; font-size: 22px; }
+  .number-cell, .memory-card { min-height: 72px; font-size: 34px; margin: 4px; }
+}
+
+.game-shortcut { position: absolute; top: 7px; left: 10px; font-size: 18px; color: #b9ccdf; font-weight: normal; }
+.number-cell { position: relative; }
+.games-overlay[hidden] { display: none; }
+@media(max-width:600px) { .games-panel { padding: 18px 12px; max-width: 94vw; } .game-info { font-size: 24px; } .game-shortcut { font-size: 12px; left: 5px; top: 4px; } }

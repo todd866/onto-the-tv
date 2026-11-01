@@ -106,6 +106,37 @@ test('server streams only catalogue files and serves the UI', async () => {
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
+test('diagnostics always requires the pairing token, including same-origin and no-origin requests', async () => {
+  const { dir, history, storage, library } = await setup();
+  await writeFile(join(dir, 'index.html'), 'ok');
+  const server = createTvServer({ library, history, storage, uiRoot: dir, token: 'secret' });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const body = JSON.stringify({ session: 'abc', event: 'playing', build: 'test', page: 'player', engine: 'video',
+    position: 1, duration: 10, paused: false, hidden: false, state: 'playing', server: 'http://spoof/path' });
+  try {
+    assert.equal((await fetch(`${base}/api/diagnostics`, { method: 'POST', body, headers: { 'Content-Type': 'application/json' } })).status, 403);
+    assert.equal((await fetch(`${base}/api/diagnostics`, { headers: { Origin: `http://${server.address().address}` } })).status, 403);
+    const posted = await fetch(`${base}/api/diagnostics`, { method: 'POST', body,
+      headers: { 'Content-Type': 'application/json', 'X-Onto-Token': 'secret' } });
+    assert.equal(posted.status, 200);
+    const snapshot = await fetch(`${base}/api/diagnostics`, { headers: { 'X-Onto-Token': 'secret' } }).then(response => response.json());
+    assert.equal(snapshot.events.length, 1);
+    assert.equal(snapshot.events[0].server, undefined);
+    assert.equal((await fetch(`${base}/api/diagnostics`, { method: 'POST', body: '{bad', headers: { 'Content-Type': 'application/json', 'X-Onto-Token': 'secret' } })).status, 400);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('diagnostics reject an empty configured token', async () => {
+  const { dir, history, storage, library } = await setup();
+  const server = createTvServer({ library, history, storage, uiRoot: dir, token: '' });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.equal((await fetch(`${base}/api/diagnostics`, { headers: { 'X-Onto-Token': '' } })).status, 403);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
 test('serves the games page and wasm from a subfolder', async () => {
   const { dir, history, storage, library } = await setup();
   await mkdir(join(dir, 'games'));
@@ -168,4 +199,20 @@ test('the TV picks up where the Mac app stopped, and the newer place wins', asyn
   library.progress({ src: serial[3].src, positionSeconds: 1500, durationSeconds: 2500, completed: false });
   assert.equal(library.next('grown').resume, 1500);
   assert.equal(app.get(serial[3].file), 900);
+});
+
+
+test('a Bluey seed continues across the kids channel without selecting adult content', async () => {
+  const { history, storage } = await setup();
+  const library = createTvLibrary({ videos, history, storage, random: () => 0.99 });
+  let current = videos[0];
+  const shows = new Set();
+  for (let n = 0; n < 12; n++) {
+    const next = library.next('2', { current: current.src, reason: 'ended', time: current.duration, watched: current.duration, duration: current.duration });
+    assert.ok(['shared', 'preschool'].includes(next.tier));
+    assert.notEqual(next.src, current.src);
+    shows.add(next.show);
+    current = next;
+  }
+  assert.ok(shows.has('Bing'), 'continues beyond the selected show');
 });

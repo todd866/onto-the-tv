@@ -13,6 +13,8 @@ import { buildPlayer } from '../src/shuffler.js';
 import { loadPlaybackHistory } from '../src/playback-history.js';
 import { createArtworkCache } from '../src/library-artwork.js';
 import { createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue } from '../src/tv-server.js';
+import { createMediaCache } from '../src/media-cache.js';
+import { createWatchEventStore } from '../src/watch-events.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -25,6 +27,7 @@ const log = message => console.log(`${new Date().toISOString()} ${message}`);
 
 const data = join(appData, 'tv-server');
 await mkdir(data, { recursive: true, mode: 0o700 });
+await writeFile(join(data, 'watch-events.jsonl'), '', { flag: 'a', mode: 0o600 });
 const catalogue = join(data, 'catalogue.html');
 const signatureFile = join(data, 'catalogue.signature');
 
@@ -80,6 +83,8 @@ async function reloadAppHistory() {
 await reloadAppHistory();
 const history = layeredHistory(await loadPlaybackHistory(join(data, 'playback-history.json')), () => (appHistory ? [appHistory] : []));
 const storage = await createFileStorage(join(data, 'taste-storage.json'));
+const knownSources = new Set((await loadCatalogue(catalogue)).map(video => video.src));
+const watchEvents = await createWatchEventStore({ file: join(data, 'watch-events.jsonl'), knownSources });
 const artwork = createArtworkCache({ directory: join(appData, 'artwork'),
   ffmpeg: process.env.FFMPEG || 'ffmpeg', ffprobe: process.env.FFPROBE || 'ffprobe' });
 // The installed TV app embeds this token (tizen/build.sh reads it).
@@ -87,11 +92,38 @@ const tokenFile = join(data, 'pairing-token');
 let token = (await readFile(tokenFile, 'utf8').catch(() => '')).trim();
 if (!token) { token = randomBytes(24).toString('hex'); await writeFile(tokenFile, token + '\n', { mode: 0o600 }); }
 
-let library = createTvLibrary({ videos: await loadCatalogue(catalogue), history, storage });
+let libraryVideos = await loadCatalogue(catalogue);
+let library = createTvLibrary({ videos: libraryVideos, history, storage });
 const current = { home: () => library.home(), show: name => library.show(name), next: (id, input) => library.next(id, input),
   progress: input => library.progress(input), file: src => library.file(src), video: src => library.video(src) };
-const server = createTvServer({ library: current, history, storage, artwork, uiRoot: join(root, 'tv'), token, log });
+let mediaCache = null;
+try { mediaCache = await createMediaCache({ directory: join(homedir(), 'Library/Caches/Onto the TV/media'),
+  log: entry => log('media cache: ' + JSON.stringify(entry)) }); }
+catch (error) { log('media cache unavailable; direct streaming retained: ' + (error.code || error.message)); }
+// Warm external titles sequentially; serving always takes priority over this queue.
+let warmGeneration = 0, warming = false, warmPending = libraryVideos;
+async function warmLibrary(videos) {
+  if (!mediaCache) return;
+  warmPending = videos; warmGeneration++;
+  if (warming) return;
+  warming = true;
+  try {
+    while (warmPending) {
+      const batch = warmPending, generation = warmGeneration; warmPending = null;
+      for (const video of batch) {
+        if (generation !== warmGeneration) break;
+        if (!video.file?.startsWith('/Volumes/')) continue;
+        try { await mediaCache.warm(video.file, await stat(video.file), { durationSeconds: video.duration }); }
+        catch (error) { log('cache warm skipped: ' + (error.code || error.message)); }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+  } finally { warming = false; }
+}
+const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, log });
 server.listen(port, host, () => log(`serving ${library.home().channels.find(c => c.id === 'all')?.count || 0} videos on http://${host}:${port}/`));
+
+void warmLibrary(libraryVideos);
 
 setInterval(() => { reloadAppHistory().catch(() => {}); }, APP_HISTORY_MS).unref();
 
@@ -102,13 +134,17 @@ setInterval(async () => {
   scanning = true;
   try {
     if (await rebuild(await readSettings(join(appData, 'settings.json')), false)) {
-      library = createTvLibrary({ videos: await loadCatalogue(catalogue), history, storage });
+      const refreshedVideos = await loadCatalogue(catalogue);
+      void warmLibrary(refreshedVideos);
+      library = createTvLibrary({ videos: refreshedVideos, history, storage });
+      knownSources.clear();
+      for (const video of refreshedVideos) knownSources.add(video.src);
       log(`catalogue reloaded: ${library.home().channels.find(c => c.id === 'all')?.count || 0} videos`);
     }
   } catch (error) { log(`rescan failed: ${error.message}`); } finally { scanning = false; }
 }, RESCAN_MS).unref();
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => { log(`${signal}: saving and stopping`); server.close(() => process.exit(0));
+  process.on(signal, () => { log(`${signal}: saving and stopping`); warmPending = null; warmGeneration++; server.close(async () => { await mediaCache?.close(); process.exit(0); });
     setTimeout(() => process.exit(0), 3000).unref(); });
 }

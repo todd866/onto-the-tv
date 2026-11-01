@@ -1,0 +1,200 @@
+/* Number Rover overlay — ES5-safe layout (no grid/gap/custom properties). */
+.onto-rover-overlay {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9000;
+  display: none;
+  background: #0a1628;
+  color: #f4f1ea;
+  font-family: system-ui, sans-serif;
+}
+
+.onto-rover-overlay.onto-rover-open {
+  display: block;
+}
+
+.onto-rover-hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 56px;
+  padding: 8px 20px;
+  box-sizing: border-box;
+  background: #142038;
+  border-bottom: 3px solid #4aa3ff;
+  overflow: hidden;
+}
+
+.onto-rover-hearts {
+  position: absolute;
+  left: 20px;
+  top: 12px;
+  font-size: 28px;
+  letter-spacing: 4px;
+  color: #ff4b4b;
+}
+
+.onto-rover-sum,
+.onto-rover-target {
+  position: absolute;
+  top: 10px;
+  width: 120px;
+  text-align: right;
+}
+
+.onto-rover-sum {
+  left: 50%;
+  margin-left: -140px;
+}
+
+.onto-rover-target {
+  left: 50%;
+  margin-left: 20px;
+}
+
+.onto-rover-sum-label,
+.onto-rover-target-label {
+  display: inline-block;
+  width: 36px;
+  font-size: 14px;
+  text-transform: uppercase;
+  color: #8eb8ff;
+  text-align: left;
+  margin-right: 8px;
+}
+
+.onto-rover-sum-val,
+.onto-rover-target-val {
+  display: inline-block;
+  min-width: 48px;
+  font-size: 32px;
+  font-weight: 800;
+  font-family: monospace;
+  color: #ffe566;
+}
+
+.onto-rover-target-val {
+  color: #3ee07a;
+}
+
+.onto-rover-score {
+  position: absolute;
+  right: 100px;
+  top: 16px;
+  font-size: 18px;
+  font-family: monospace;
+  color: #ffcc33;
+}
+
+.onto-rover-level {
+  position: absolute;
+  right: 20px;
+  top: 14px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #5af0ff;
+}
+
+.onto-rover-board {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 810px;
+  height: 630px;
+  margin-left: -405px;
+  margin-top: -280px;
+  border: 6px solid #6b4fd4;
+  border-radius: 12px;
+  box-shadow: 0 12px 0 #2a1850, 0 0 48px rgba(74, 163, 255, 0.35);
+  background: #1a3d5c;
+}
+
+.onto-rover-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  text-align: center;
+  font-size: 18px;
+  color: #8eb8ff;
+  letter-spacing: 0.5px;
+}
+
+.onto-rover-overlay[data-phase="won"] .onto-rover-hint::after,
+.onto-rover-overlay[data-phase="lost"] .onto-rover-hint::after {
+  display: block;
+  margin-top: 6px;
+  font-size: 26px;
+  font-weight: 800;
+  color: #ffe566;
+}
+
+.onto-rover-overlay[data-phase="won"] .onto-rover-hint::after {
+  content: "All levels clear \2014 OK to exit";
+}
+
+.onto-rover-overlay[data-phase="lost"] .onto-rover-hint::after {
+  content: "Out of hearts \2014 OK to try again";
+}
+
+@media (prefers-color-scheme: light) {
+  .onto-rover-overlay {
+    background: #e8f2ff;
+    color: #1a2030;
+  }
+
+  .onto-rover-hud {
+    background: #ffffff;
+    border-bottom-color: #4aa3ff;
+  }
+
+  .onto-rover-sum-label,
+  .onto-rover-target-label {
+    color: #3a5080;
+  }
+
+  .onto-rover-sum-val {
+    color: #c45a00;
+  }
+
+  .onto-rover-target-val {
+    color: #0a7840;
+  }
+
+  .onto-rover-score {
+    color: #9a7200;
+  }
+
+  .onto-rover-level {
+    color: #007aa8;
+  }
+
+  .onto-rover-hint {
+    color: #3a5080;
+  }
+
+  .onto-rover-board {
+    border-color: #4aa3ff;
+    box-shadow: 0 12px 0 #b8cce8, 0 0 32px rgba(74, 163, 255, 0.45);
+  }
+}
+/* One compact HUD row, and a board sized by the viewport without distortion. */
+.onto-rover-hud { display:flex; align-items:center; justify-content:space-between; height:64px; overflow:visible; }
+.onto-rover-hud > div { position:static; margin:0 4px; width:auto; font-size:20px; }
+.onto-rover-sum-label,.onto-rover-target-label { width:auto; font-size:18px; }
+.onto-rover-sum-val,.onto-rover-target-val { font-size:32px; min-width:28px; }
+.onto-rover-board { box-sizing:border-box; }
+.onto-rover-hint { left:16px;right:16px;line-height:1.4; }
+@media(max-width:600px) {
+ .onto-rover-hud { padding:8px 4px; }
+ .onto-rover-hud > div { font-size:14px; margin:0 2px;letter-spacing:0; }
+ .onto-rover-sum-label,.onto-rover-target-label {font-size:13px;margin-right:4px;}
+ .onto-rover-sum-val,.onto-rover-target-val {font-size:22px;min-width:16px;}
+ .onto-rover-hint { font-size:15px; }
+}
+.onto-rover-hud {flex-wrap:wrap;height:auto;min-height:64px;}
+.onto-rover-hud > div {white-space:nowrap;}
