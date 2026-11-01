@@ -1,0 +1,16 @@
+[package]
+name = "onto-games"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Number Snake, a co-op game for Onto the TV. std only, no wasm-bindgen."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

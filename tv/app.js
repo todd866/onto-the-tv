@@ -65,6 +65,7 @@
     if (kind === 'launch') {
       el.className += ' tint-' + (item.app || item.id);
       if (item.app === 'youtube') art.innerHTML = '<b class="yt-mark"></b>';
+      else if (item.app === 'games') art.innerHTML = '<b class="games-mark" aria-hidden="true"></b>';
       else art.textContent = ICONS[item.id] || '📺';
       name.textContent = item.label;
     } else if (kind === 'shuffle') {
@@ -122,7 +123,12 @@
   // Home: what to watch, what to finish, what is on air. A channel: its shows.
   function launchItems() {
     var items = data.channels.filter(function (channel) { return channel.id !== 'all'; });
-    if (SHELL && SHELL.youtube) items.splice(Math.min(2, items.length), 0, { app: 'youtube', label: 'YouTube' });
+    var gamesAt = 2;
+    if (SHELL && SHELL.youtube) {
+      items.splice(Math.min(2, items.length), 0, { app: 'youtube', label: 'YouTube' });
+      gamesAt = 3;
+    }
+    items.splice(Math.min(gamesAt, items.length), 0, { app: 'games', label: 'Games' });
     return items;
   }
   function onChannel(item) { return !page || (item.channels || []).indexOf(page.id) >= 0; }
@@ -187,7 +193,7 @@
 
   function caption(row, item) {
     if (!item) return '';
-    if (row.kind === 'launch') return item.app === 'youtube' ? 'YouTube' : item.label + ' · ' + item.count + ' videos';
+    if (row.kind === 'launch') return item.app ? item.label : item.label + ' · ' + item.count + ' videos';
     if (row.kind === 'live') return 'Channel ' + item.lcn + ' · ' + item.name;
     if (row.kind === 'show' && item === page) return 'Shuffle ' + page.label + ' · ' + page.count + ' videos';
     if (row.kind === 'show') return item.name + ' · ' + item.count + ' videos';
@@ -220,7 +226,14 @@
   function select() {
     var row = rows[focus.row], item = row && row.items[focus.col];
     if (!item) return;
-    if (row.kind === 'launch') return item.app ? SHELL.open(item.app) : openPage(item);
+    if (row.kind === 'launch') {
+      // The game is a page on this server, not a shell view like YouTube.
+      if (item.app === 'games') {
+        location.href = SERVER ? SERVER.replace(/\/$/, '') + '/games/' : 'games/';
+        return;
+      }
+      return item.app ? SHELL.open(item.app) : openPage(item);
+    }
     if (row.kind === 'live') return SHELL.watchLive(item.lcn);
     if (row.kind === 'show' && item === page) return startChannel(page);
     if (row.kind === 'show') {

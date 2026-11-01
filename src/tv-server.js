@@ -28,7 +28,8 @@ export const TV_CHANNELS = [
 const MIME = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska',
   '.webm': 'video/webm', '.avi': 'video/x-msvideo', '.ts': 'video/mp2t', '.m2ts': 'video/mp2t' };
 const STATIC = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json' };
+  '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json',
+  '.wasm': 'application/wasm' };
 const RECENT_LIMIT = 50;
 
 /** True for loopback, private, link-local, CGNAT/Tailscale and unique-local addresses. */
@@ -337,8 +338,9 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         return createReadStream(file).pipe(response);
       }
       if (path === '/api/health') return send(response, 200, { ok: true });
-      // Static TV UI.
-      const name = path === '/' ? '/index.html' : path;
+      // Static TV UI. A trailing slash is that folder's index, so /games/ is the games page.
+      let name = path === '/' ? '/index.html' : path;
+      if (name.endsWith('/')) name += 'index.html';
       const file = normalize(join(uiRoot, name));
       if (!file.startsWith(uiRoot + '/') || !STATIC[extname(file)]) return send(response, 404, { error: 'Not found.' });
       const content = await readFile(file).catch(() => null);

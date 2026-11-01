@@ -1,0 +1,3 @@
+/* The game is the whole screen. The shell zooms the page; the canvas fills whatever that leaves. */
+html, body { margin: 0; height: 100%; background: #000; overflow: hidden; color-scheme: dark; }
+canvas { display: block; width: 100%; height: 100%; background: #000; touch-action: none; }

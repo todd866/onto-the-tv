@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFileStorage, createTvLibrary, createTvServer, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
@@ -103,6 +103,24 @@ test('server streams only catalogue files and serves the UI', async () => {
     assert.equal((await fetch(`${base}/media?src=${encodeURIComponent('Bluey/a.mp4')}&t=secret`, { headers: { Origin: 'null' } })).status, 200);
     assert.equal((await fetch(`${base}/api/home`)).headers.get('access-control-allow-origin'), null);
     assert.equal((await fetch(`${base}/api/progress`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'text/plain' } })).status, 415);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('serves the games page and wasm from a subfolder', async () => {
+  const { dir, history, storage, library } = await setup();
+  await mkdir(join(dir, 'games'));
+  await writeFile(join(dir, 'games', 'index.html'), '<!doctype html>games');
+  await writeFile(join(dir, 'games', 'number-snake.wasm'), Buffer.from([0, 97, 115, 109]));
+  const server = createTvServer({ library, history, storage, uiRoot: dir, token: 'secret' });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.equal(await (await fetch(`${base}/games/`)).text(), '<!doctype html>games');
+    const wasm = await fetch(`${base}/games/number-snake.wasm`);
+    assert.equal(wasm.status, 200);
+    assert.equal(wasm.headers.get('content-type'), 'application/wasm');
+    assert.equal((await wasm.arrayBuffer()).byteLength, 4);
+    assert.equal((await fetch(`${base}/games/../../package.json`)).status, 404);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 

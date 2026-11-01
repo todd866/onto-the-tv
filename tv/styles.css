@@ -27,10 +27,16 @@ html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; backgro
 .launch .label { justify-content: center; font-size: 34px; font-weight: 700; padding: 10px; }
 .launch .count { display: none; }
 .tint-2 .art { background: #4a3218; } .tint-6 .art { background: #1a3354; } .tint-grown .art { background: #43203f; }
-.tint-music .art { background: #173f2e; } .tint-youtube .art { background: #0f0f0f; }
+.tint-music .art { background: #173f2e; } .tint-youtube .art { background: #0f0f0f; } .tint-games .art { background: #102033; }
 .yt-mark { display: inline-block; width: 150px; height: 104px; border-radius: 28px; background: #ff0033; position: relative; }
 .yt-mark::after { content: ""; position: absolute; left: 58px; top: 30px;
   border-left: 42px solid #fff; border-top: 22px solid transparent; border-bottom: 22px solid transparent; }
+.games-mark { display: inline-block; width: 168px; height: 96px; border-radius: 40px; background: #2a3b52; position: relative; }
+.games-mark::before { content: ""; position: absolute; left: 26px; top: 26px; width: 44px; height: 44px;
+  background: linear-gradient(#f4f7fb, #f4f7fb) center / 14px 44px no-repeat,
+    linear-gradient(#f4f7fb, #f4f7fb) center / 44px 14px no-repeat; }
+.games-mark::after { content: ""; position: absolute; right: 34px; top: 22px; width: 22px; height: 22px;
+  border-radius: 50%; background: #ff5a6a; box-shadow: 0 32px 0 #3ee07a; }
 #page-title { margin: 0 0 28px; font-size: 56px; font-weight: 700; }
 .shuffle .art { display: flex; align-items: center; justify-content: center; font-size: 96px; background: #2c3340; }
 .live .art { width: 240px; height: 120px; display: flex; align-items: center; justify-content: center; position: relative; background: #22303a; }
