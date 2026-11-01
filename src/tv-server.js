@@ -1,3 +1,4 @@
+import { createTvCommands } from './tv-commands.js';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
@@ -7,6 +8,9 @@ import { isIP } from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
 import { readCatalogue } from './shuffler.js';
 import { writeAtomically } from './atomic-write.js';
+import { createDiagnosticsStore } from './tv-diagnostics.js';
+import { createGameRelay } from './game-relay.js';
+import { createConfiguredUkeHandler } from './uke-handler.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
 // episode with the same picker and learning rules as the app's player, and streams
@@ -20,6 +24,8 @@ const player = require('../shuffler/player.js');
 export const TV_CHANNELS = [
   { id: '2', label: 'Little Kids' },
   { id: '6', label: 'Big Kids' },
+  { id: 'christmas', label: 'Christmas' },
+  { id: 'movies', label: 'Movies' },
   { id: 'grown', label: 'Grown-ups' },
   { id: 'music', label: 'Music' },
   { id: 'all', label: 'Everything' },
@@ -256,7 +262,7 @@ function send(response, status, body, headers = {}) {
   response.end(content);
 }
 
-async function streamFile(request, response, file) {
+async function streamFile(request, response, file, mediaCache) {
   const info = await stat(file);
   const type = MIME[extname(file).toLowerCase()] || 'application/octet-stream';
   const range = parseRange(request.headers.range, info.size);
@@ -269,7 +275,7 @@ async function streamFile(request, response, file) {
   response.writeHead(range ? 206 : 200, { ...headers, 'Content-Length': end - start + 1,
     ...(range ? { 'Content-Range': `bytes ${start}-${end}/${info.size}` } : {}) });
   if (request.method === 'HEAD') return response.end();
-  const stream = createReadStream(file, { start, end });
+  const stream = mediaCache ? await mediaCache.stream(file, info, { start, end }) : createReadStream(file, { start, end });
   stream.on('error', () => response.destroy());
   response.on('close', () => stream.destroy());
   stream.pipe(response);
@@ -279,14 +285,15 @@ async function streamFile(request, response, file) {
  * HTTP front end. `artwork` is optional (createArtworkCache); `uiRoot` holds the TV web UI;
  * `token` is the pairing secret the installed TV app sends.
  */
-export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', log = () => {} }) {
+export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), log = () => {} }) {
+  const tvCommands = createTvCommands();
   let dirty = false;
   const save = () => {
-    if (!dirty) return;
+    if (!dirty) return Promise.resolve();
     dirty = false;
-    Promise.all([history.flush(), storage.flush()]).catch(error => { dirty = true; log(`save failed: ${error.message}`); });
+    return Promise.all([history.flush(), storage.flush(), watchEvents?.flush?.()]).catch(error => { dirty = true; log(`save failed: ${error.message}`); throw error; });
   };
-  const timer = setInterval(save, 15_000);
+  const timer = setInterval(() => { save().catch(() => {}); }, 15_000);
   timer.unref();
 
   const server = createServer(async (request, response) => {
@@ -301,12 +308,12 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
       const origin = request.headers.origin;
       if (origin && origin !== `http://${request.headers.host}`) {
         if (request.method === 'OPTIONS') {
-          response.writeHead(204, { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST',
+          response.writeHead(204, { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, X-Onto-Token', 'Access-Control-Max-Age': '600', Vary: 'Origin' });
           return response.end();
         }
         // <video> and <img> cannot send headers, so only /media and /art take the token in the URL.
-        const offered = request.headers['x-onto-token'] || (path === '/media' || path === '/art' ? url.searchParams.get('t') : '');
+        const offered = request.headers['x-onto-token'] || (path === '/media' || path === '/art' || path.startsWith('/uke/audio/') ? url.searchParams.get('t') : '');
         if (!sameSecret(offered, token)) {
           return send(response, 403, { error: 'Pair this TV first.' });
         }
@@ -315,6 +322,50 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
       }
       if (request.method === 'POST' && !/^application\/json\b/.test(request.headers['content-type'] || '')) {
         return send(response, 415, { error: 'JSON only.' });
+      }
+      if (ukeHandler && await ukeHandler(request, response)) return;
+      // Diagnostics are deliberately stricter than ordinary same-origin APIs:
+      // telemetry can contain playback state and must never be spoofable by a
+      // page merely able to reach the home-network address.
+      if (path.startsWith('/api/game/')) {
+        const result = gameRelay.handle({ method: request.method, path: request.url,
+          headers: request.headers, ip: request.socket.remoteAddress,
+          body: request.method === 'POST' ? await readBody(request) : undefined,
+          tvAuthorized: !!token && sameSecret(request.headers['x-onto-token'], token) });
+        response.setHeader('Cache-Control', 'no-store');
+        return send(response, result.status, result.body);
+      }
+      if (path === '/api/watch') {
+        if (!watchEvents || !token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
+        if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' });
+        const result = watchEvents.record(await readBody(request));
+        dirty = true;
+        await watchEvents.flush();
+        return send(response, 200, result);
+      }
+      if (path === '/api/tv-command') {
+        if (!token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
+        response.setHeader('Cache-Control', 'no-store');
+        if (request.method === 'POST') {
+          const result = tvCommands.enqueue(await readBody(request));
+          return send(response,result.status,result.body);
+        }
+        if (request.method === 'GET') {
+          const item=tvCommands.get(url.searchParams.get('id'));
+          return send(response,item?200:404,item||{error:'Command not found.'});
+        }
+        return send(response,405,{error:'Method not allowed.'});
+      }
+      if (path === '/api/diagnostics') {
+        const offered = request.headers['x-onto-token'];
+        if (!token || !sameSecret(offered, token)) return send(response, 403, { error: 'Pair this TV first.' });
+        if (request.method === 'GET') return send(response, 200, diagnostics.snapshot());
+        if (request.method === 'POST') {
+          const body=await readBody(request), diagnostic=diagnostics.record(body);
+          tvCommands.ack(diagnostic.session,body.commandAck);
+          return send(response,200,{ok:true,diagnostic,command:tvCommands.next(diagnostic.session)});
+        }
+        return send(response, 405, { error: 'Method not allowed.' });
       }
       if (path === '/api/home') return send(response, 200, library.home());
       if (path === '/api/show') return send(response, 200, library.show(url.searchParams.get('name') || ''));
@@ -329,13 +380,17 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         if (changed) dirty = true;
         return send(response, 200, { ok: true });
       }
-      if (path === '/media') return await streamFile(request, response, library.file(url.searchParams.get('src') || ''));
+      if (path === '/media') return await streamFile(request, response, library.file(url.searchParams.get('src') || ''), mediaCache);
       if (path === '/art') {
         const item = library.video(url.searchParams.get('src') || '');
         const file = artwork ? await artwork.get(item.file, { durationSeconds: item.duration }) : null;
         if (!file) return send(response, 404, { error: 'No artwork.' });
         response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=86400' });
         return createReadStream(file).pipe(response);
+      }
+      if (path === '/api/media-cache') {
+        if (!sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
+        return send(response, 200, mediaCache?.stats() || { enabled: false });
       }
       if (path === '/api/health') return send(response, 200, { ok: true });
       // Static TV UI. A trailing slash is that folder's index, so /games/ is the games page.
@@ -355,7 +410,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
     }
   });
   const close = server.close.bind(server);
-  server.close = callback => { clearInterval(timer); dirty = true; save(); return close(callback); };
+  server.close = callback => { clearInterval(timer); dirty = true; save().catch(() => {}).finally(() => close(callback)); return server; };
   return server;
 }
 

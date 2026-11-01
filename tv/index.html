@@ -2,16 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=1920, height=1080">
+<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1">
 <title>Onto the TV</title>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="remote-games.css">
+<link id="onto-rover-styles" rel="stylesheet" href="number-rover.css">
 </head>
 <body>
 <main id="home">
+  <header id="brand">onto<span>the TV</span></header>
   <h1 id="page-title" hidden></h1>
-  <section class="row" id="launch-row"><div class="tiles" id="launch"></div></section>
-  <section class="row" id="shows-row" hidden><h2 id="shows-title">Shows</h2><div class="tiles" id="shows"></div></section>
-  <section class="row" id="continue-row" hidden><h2>Continue</h2><div class="tiles" id="continue"></div></section>
+  <section class="row" id="launch-row" aria-label="Channels"><h2>Channels</h2><div class="tiles" id="launch"></div></section>
+  <section id="feature" aria-label="Selected programme">
+    <div id="feature-art"></div><div class="feature-copy">
+      <p id="feature-kind"></p><h1 id="feature-title"></h1><p id="feature-meta"></p><button id="feature-action" tabindex="-1"></button>
+    </div>
+  </section>
+  <section class="row" id="continue-row" hidden><h2>Continue Watching</h2><div class="tiles" id="continue"></div></section>
+  <section class="row" id="shows-row"><h2 id="shows-title">Browse shows</h2><div class="tiles" id="shows"></div></section>
   <section class="row" id="live-row" hidden><h2>Live TV</h2><div class="tiles" id="live"></div></section>
   <p id="status" role="status"></p>
 </main>
@@ -30,7 +38,16 @@
   <p id="setup-message"></p>
 </div>
 <script src="config.js"></script>
+<script src="diagnostics.js"></script>
 <script src="player.js"></script>
+<script src="couch.js"></script>
+<script src="uke.js"></script>
+<script src="number-rover.js"></script>
+<script src="remote-games.js"></script>
+<script src="game-bridge.js"></script>
+<script src="watch-tracker.js"></script>
+<script src="watch-delivery.js"></script>
 <script src="app.js"></script>
+<script src="gamepad.js"></script>
 </body>
 </html>
