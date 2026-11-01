@@ -10,24 +10,21 @@
 </head>
 <body>
 <main id="home">
-  <header id="brand">onto<span>the TV</span></header>
-  <h1 id="page-title" hidden></h1>
-  <section class="row" id="launch-row" aria-label="Channels"><h2>Channels</h2><div class="tiles" id="launch"></div></section>
-  <section id="feature" aria-label="Selected programme">
-    <div id="feature-art"></div><div class="feature-copy">
-      <p id="feature-kind"></p><h1 id="feature-title"></h1><p id="feature-meta"></p><button id="feature-action" tabindex="-1"></button>
+  <div id="top">
+    <div id="viewers" role="group" aria-label="Who's watching"></div>
+    <div id="top-meta">
+      <span id="ceiling" class="rating" hidden></span>
+      <time id="clock"></time>
     </div>
-  </section>
-  <section class="row" id="continue-row" hidden><h2>Continue Watching</h2><div class="tiles" id="continue"></div></section>
-  <section class="row" id="shows-row"><h2 id="shows-title">Browse shows</h2><div class="tiles" id="shows"></div></section>
-  <section class="row" id="live-row" hidden><h2>Live TV</h2><div class="tiles" id="live"></div></section>
+  </div>
+  <div id="channels"></div>
   <p id="status" role="status"></p>
 </main>
 <div id="player" hidden>
   <object id="av" type="application/avplayer" hidden></object>
   <video id="video" preload="auto"></video>
   <div id="osd">
-    <div id="osd-title"><span id="osd-show"></span><span id="osd-episode"></span><span id="osd-channel"></span></div>
+    <div id="osd-title"><span id="osd-channel"></span><span id="osd-show"></span><span id="osd-episode"></span></div>
     <div id="osd-bar"><span id="osd-elapsed">0:00</span><div id="osd-track"><div id="osd-fill"></div></div><span id="osd-duration">0:00</span></div>
     <div id="osd-keys"><span id="osd-play" aria-label="Play or pause">⏸</span><span aria-label="Back 30 seconds">◀ 30s</span><span aria-label="Forward 30 seconds">30s ▶</span><span id="osd-next" aria-label="Next episode">⏭ next</span></div>
   </div>

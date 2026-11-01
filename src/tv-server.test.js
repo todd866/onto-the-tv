@@ -43,34 +43,97 @@ test('byte ranges', () => {
   assert.equal(parseRange('bytes=0-1,5-6', 1000), null);
 });
 
-test('home lists non-empty channels and shows with counts', async () => {
+test('home is channel-first and the youngest viewer sets the ceiling', async () => {
   const { library } = await setup();
   const home = library.home();
-  assert.deepEqual(home.channels.map(channel => [channel.id, channel.count]), [['2', 3], ['6', 2], ['grown', 1], ['all', 4]]);
-  assert.deepEqual(home.shows.map(show => [show.name, show.count]), [['Bing', 1], ['Bluey', 2], ['Films', 1]]);
-  // Each show says which channels it plays on, so the TV can open a channel's shows.
-  assert.deepEqual(home.shows.map(show => [show.name, show.channels]),
-    [['Bing', ['2', 'all']], ['Bluey', ['2', '6', 'all']], ['Films', ['grown', 'all']]]);
+  assert.equal(home.ceiling, 'G');
+  assert.deepEqual(home.viewers.map(person => [person.id, person.name, person.on]), [
+    ['sam', 'Sam', true], ['jake', 'Jake', true], ['mum', 'Mum', true], ['dad', 'Dad', true],
+  ]);
+  assert.deepEqual(home.channels.map(channel => [channel.number, channel.id, channel.name]), [[1, 'cartoons', 'Cartoons']]);
+  assert.equal(home.channels[0].now.show, 'Bluey');
+  assert.equal(home.channels[0].now.art, '/art?src=Bluey%2Fa.mp4');
+  assert.equal(home.shows, undefined);
+  assert.equal(home.continueWatching, undefined);
+
+  const dad = library.home('dad');
+  assert.equal(dad.ceiling, 'M');
+  assert.deepEqual(dad.viewers.map(person => person.on), [false, false, false, true]);
+  assert.deepEqual(dad.channels.map(channel => channel.id), ['cartoons', 'movies']);
+  assert.equal(dad.channels.find(channel => channel.id === 'movies').now.show, 'Films');
+
+  const withSam = library.home('sam,dad');
+  assert.equal(withSam.ceiling, 'G');
+  assert.equal(withSam.channels.some(channel => channel.id === 'movies'), false);
+
+  const nobody = library.home('');
+  assert.equal(nobody.ceiling, null);
+  assert.equal(nobody.channels.length, 0);
+  assert.ok(nobody.viewers.every(person => person.on === false));
 });
 
-test('a channel only picks from its own tiers and learns from a real rejection', async () => {
+test('a channel only offers titles under the ceiling and learns on the audience key', async () => {
   const { library, storage } = await setup();
-  for (let i = 0; i < 10; i++) assert.ok(['shared', 'preschool'].includes(library.next('2').tier));
-  library.next('2', { current: 'Bluey/a.mp4', reason: 'skip', time: 60, watched: 60, duration: 420 });
-  const weights = JSON.parse(storage.getItem('kidshuffle.weights.v2.s2'));
+  for (let i = 0; i < 10; i++) assert.ok(['shared', 'preschool'].includes(library.next('cartoons', { viewers: 'sam' }).tier));
+  library.next('cartoons', { viewers: 'sam,dad', current: 'Bluey/a.mp4', reason: 'skip', time: 60, watched: 60, duration: 420 });
+  const weights = JSON.parse(storage.getItem('kidshuffle.weights.v2.scartoons'));
   assert.ok(weights['Bluey/a.mp4'] < 1, 'a minute watched then skipped is a dislike');
-  library.next('2', { current: 'Bluey/b.mp4', reason: 'skip', time: 1, watched: 1, duration: 420 });
-  assert.equal(JSON.parse(storage.getItem('kidshuffle.weights.v2.s2'))['Bluey/b.mp4'], undefined, 'surfing teaches nothing');
+  assert.equal(storage.getItem('kidshuffle.weights.v2.sgrown'), null, 'a child in the room does not write Dad\'s taste');
+  library.next('cartoons', { viewers: 'sam', current: 'Bluey/b.mp4', reason: 'skip', time: 1, watched: 1, duration: 420 });
+  assert.equal(JSON.parse(storage.getItem('kidshuffle.weights.v2.scartoons'))['Bluey/b.mp4'], undefined, 'surfing teaches nothing');
+  assert.throws(() => library.next('movies'), /empty/);
   assert.throws(() => library.next('nope'), /Unknown channel/);
+});
+
+test('adults use the existing taste keys and hidden genres stay hidden', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  const history = await loadPlaybackHistory(join(dir, 'history.json'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  const catalogue = [
+    ...videos,
+    { src: 'Older/o.mp4', file: '/m/Older/o.mp4', title: 'Older Show', channel: 'Older Show', tier: 'older', duration: 1200 },
+    { src: 'Big/b.mp4', file: '/m/Big/b.mp4', title: 'Big Show', channel: 'Big Show', tier: 'big', duration: 600 },
+    { src: 'Sitcom/s.mp4', file: '/m/Sitcom/s.mp4', title: 'Sitcom', channel: 'The Sitcom', tier: 'sitcom', duration: 1300 },
+    { src: 'Music/m.mp4', file: '/m/Music/m.mp4', title: 'Song', channel: 'Music', tier: 'music', duration: 200 },
+    { src: 'Bluey/xmas.mp4', file: '/m/Bluey/xmas.mp4', title: 'Christmas Episode', channel: 'Bluey', tier: 'shared', duration: 420 },
+    { src: 'Sci/s.mp4', file: '/m/Sci/s.mp4', title: 'Sci-Fi', channel: 'Sci-Fi Show', tier: 'scifi', duration: 2400 },
+    { src: 'Anim/a.mp4', file: '/m/Anim/a.mp4', title: 'Adult Cartoon', channel: 'Adult Cartoon', tier: 'adultanim', duration: 1300 },
+  ];
+  const library = createTvLibrary({ videos: catalogue, history, storage, random: () => 0 });
+  const sam = library.home('sam');
+  assert.equal(sam.ceiling, 'G');
+  assert.deepEqual(sam.channels.map(channel => channel.id), ['cartoons', 'music', 'christmas']);
+  const jake = library.home('jake');
+  assert.equal(jake.ceiling, 'PG');
+  assert.ok(jake.channels.find(channel => channel.id === 'cartoons'));
+  assert.equal(jake.channels.some(channel => channel.id === 'sitcoms'), false);
+  assert.equal(library.next('cartoons', { viewers: 'jake' }).tier === 'older', false);
+  const adults = library.home('mum,dad');
+  assert.equal(adults.ceiling, 'M');
+  for (const id of ['cartoons', 'movies', 'sitcoms', 'music', 'christmas']) assert.ok(adults.channels.some(channel => channel.id === id), id);
+
+  library.next('movies', { viewers: 'dad', current: 'Films/d.mkv', reason: 'skip', time: 120, watched: 120, duration: 6000 });
+  assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.sgrown'))['Films/d.mkv'] < 1);
+  library.next('movies', { viewers: 'mum', current: 'Films/d.mkv', reason: 'skip', time: 120, watched: 120, duration: 6000 });
+  assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.smum'))['Films/d.mkv'] < 1);
+  library.next('movies', { viewers: 'mum,dad', current: 'Films/d.mkv', reason: 'skip', time: 120, watched: 120, duration: 6000 });
+  assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.sboth'))['Films/d.mkv'] < 1);
+  assert.equal(library.home('dad').channels.find(channel => channel.id === 'movies').now.show === 'Sci-Fi Show'
+    || library.home('dad').channels.find(channel => channel.id === 'movies').now.show === 'Films', true);
 });
 
 test('progress: surfing is not history, a real watch resumes', async () => {
   const { library } = await setup();
   assert.equal(library.progress({ src: 'Bluey/a.mp4', positionSeconds: 10, durationSeconds: 420, completed: false }), false);
   assert.equal(library.progress({ src: 'Bluey/a.mp4', positionSeconds: 200, durationSeconds: 420, completed: false }), true);
-  assert.deepEqual(library.home().continueWatching.map(item => [item.src, item.resume]), [['Bluey/a.mp4', 200]]);
+  const resumed = library.next('cartoons', { viewers: 'sam' });
+  assert.equal(resumed.src, 'Bluey/a.mp4');
+  assert.equal(resumed.resume, 200);
   library.progress({ src: 'Bluey/a.mp4', positionSeconds: 0, durationSeconds: 420, completed: true });
-  assert.equal(library.home().continueWatching.length, 0);
+  for (let i = 0; i < 6; i++) {
+    const item = library.next('cartoons', { viewers: 'sam' });
+    if (item.src === 'Bluey/a.mp4') assert.equal(item.resume, 0);
+  }
 });
 
 test('server streams only catalogue files and serves the UI', async () => {
@@ -92,16 +155,24 @@ test('server streams only catalogue files and serves the UI', async () => {
     assert.equal(await (await fetch(`${base}/`)).text(), '<!doctype html>ok');
     const post = (body, headers = {}) => fetch(`${base}/api/next`, { method: 'POST', body: JSON.stringify(body),
       headers: { 'Content-Type': 'application/json', ...headers } });
-    assert.equal((await post({ channel: 'all' })).status, 200);
-    assert.equal((await fetch(`${base}/api/next?channel=all`)).status, 404, 'GET must not change taste');
-    assert.equal((await post({ channel: 'all' }, { Origin: 'http://evil.example' })).status, 403);
-    const paired = await post({ channel: 'all' }, { Origin: 'file://', 'X-Onto-Token': 'secret' });
+    assert.equal((await post({ channel: 'cartoons' })).status, 200);
+    assert.equal((await fetch(`${base}/api/next?channel=cartoons`)).status, 404, 'GET must not change taste');
+    assert.equal((await post({ channel: 'cartoons' }, { Origin: 'http://evil.example' })).status, 403);
+    const paired = await post({ channel: 'cartoons' }, { Origin: 'file://', 'X-Onto-Token': 'secret' });
     assert.equal(paired.status, 200);
     assert.equal(paired.headers.get('access-control-allow-origin'), 'file://');
     assert.equal((await fetch(`${base}/api/home`, { headers: { Origin: 'null' } })).status, 403);
     assert.equal((await fetch(`${base}/api/home?t=secret`, { headers: { Origin: 'null' } })).status, 403, 'URL token only for files');
     assert.equal((await fetch(`${base}/media?src=${encodeURIComponent('Bluey/a.mp4')}&t=secret`, { headers: { Origin: 'null' } })).status, 200);
     assert.equal((await fetch(`${base}/api/home`)).headers.get('access-control-allow-origin'), null);
+    const dadHome = await (await fetch(`${base}/api/home?viewers=dad`)).json();
+    assert.equal(dadHome.ceiling, 'M');
+    assert.equal(dadHome.viewers.find(person => person.id === 'dad').on, true);
+    assert.equal(dadHome.viewers.find(person => person.id === 'sam').on, false);
+    assert.ok(dadHome.channels.some(channel => channel.id === 'cartoons' && channel.now.show === 'Bluey'));
+    const narrowed = await (await fetch(`${base}/api/home?viewers=sam`)).json();
+    assert.equal(narrowed.ceiling, 'G');
+    assert.equal(narrowed.channels.some(channel => channel.id === 'movies'), false);
     assert.equal((await fetch(`${base}/api/progress`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'text/plain' } })).status, 415);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
@@ -165,12 +236,12 @@ test('grown-up serials play in order on the TV', async () => {
   // A middling random draw would shuffle to a later episode.
   const library = createTvLibrary({ videos: serial, history, storage, random: () => 0.6 });
   // Nothing watched yet: the first episode on disk.
-  assert.equal(library.next('grown').title, 'MobLand S01E05');
+  assert.equal(library.next('movies', { viewers: 'dad' }).title, 'MobLand S01E05');
   // Part-way through E05: the shuffle still lands on it.
   history.set(serial[0].file, { title: 'E05', positionSeconds: 600, durationSeconds: 3000 });
-  assert.equal(library.next('grown').title, 'MobLand S01E05');
+  assert.equal(library.next('movies', { viewers: 'dad' }).title, 'MobLand S01E05');
   // Finishing E05 plays E06, not the shuffle's choice.
-  assert.equal(library.next('grown', { current: serial[0].src, reason: 'ended', time: 3000, watched: 2400, duration: 3000 }).title,
+  assert.equal(library.next('movies', { viewers: 'dad', current: serial[0].src, reason: 'ended', time: 3000, watched: 2400, duration: 3000 }).title,
     'MobLand S01E06');
 });
 
@@ -189,15 +260,13 @@ test('the TV picks up where the Mac app stopped, and the newer place wins', asyn
   app.set(serial[1].file, { title: 'E06', positionSeconds: 2440, durationSeconds: 2500 });
   app.set(serial[2].file, { title: 'E07', positionSeconds: 2444, durationSeconds: 2500 });
   app.set(serial[3].file, { title: 'E08', positionSeconds: 900, durationSeconds: 2500 });
-  const next = library.next('grown');
+  const next = library.next('movies', { viewers: 'dad' });
   assert.equal(next.title, 'MobLand S01E08');
-  // Episodes left in the credits, or only surfed, are not "continue watching".
-  assert.deepEqual(library.home().continueWatching.map(item => item.title), ['MobLand S01E08']);
   assert.equal(next.resume, 900);
   // Then watched further on the TV: its newer place wins; the app's file is untouched.
   await new Promise(resolve => setTimeout(resolve, 5));
   library.progress({ src: serial[3].src, positionSeconds: 1500, durationSeconds: 2500, completed: false });
-  assert.equal(library.next('grown').resume, 1500);
+  assert.equal(library.next('movies', { viewers: 'dad' }).resume, 1500);
   assert.equal(app.get(serial[3].file), 900);
 });
 
@@ -208,7 +277,7 @@ test('a Bluey seed continues across the kids channel without selecting adult con
   let current = videos[0];
   const shows = new Set();
   for (let n = 0; n < 12; n++) {
-    const next = library.next('2', { current: current.src, reason: 'ended', time: current.duration, watched: current.duration, duration: current.duration });
+    const next = library.next('cartoons', { viewers: 'sam', current: current.src, reason: 'ended', time: current.duration, watched: current.duration, duration: current.duration });
     assert.ok(['shared', 'preschool'].includes(next.tier));
     assert.notEqual(next.src, current.src);
     shows.add(next.show);

@@ -121,7 +121,7 @@ async function warmLibrary(videos) {
   } finally { warming = false; }
 }
 const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, log });
-server.listen(port, host, () => log(`serving ${library.home().channels.find(c => c.id === 'all')?.count || 0} videos on http://${host}:${port}/`));
+server.listen(port, host, () => log(`serving ${library.home().channels.length} channels on http://${host}:${port}/`));
 
 void warmLibrary(libraryVideos);
 
@@ -139,7 +139,7 @@ setInterval(async () => {
       library = createTvLibrary({ videos: refreshedVideos, history, storage });
       knownSources.clear();
       for (const video of refreshedVideos) knownSources.add(video.src);
-      log(`catalogue reloaded: ${library.home().channels.find(c => c.id === 'all')?.count || 0} videos`);
+      log(`catalogue reloaded: ${library.home().channels.length} channels`);
     }
   } catch (error) { log(`rescan failed: ${error.message}`); } finally { scanning = false; }
 }, RESCAN_MS).unref();

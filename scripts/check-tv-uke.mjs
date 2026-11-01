@@ -28,9 +28,9 @@ try {
   page.on('console', message => { if (message.type() === 'error') console.error('CONSOLE', message.text()); });
   page.on('response', response => { if (response.status() >= 400) console.error('HTTP', response.status(), response.url()); });
   await page.goto(`${base}/`);
-  try { await page.locator('.tile', { hasText: 'Uke' }).waitFor({ timeout: 5000 }); }
-  catch (error) { console.error('LAUNCH', await page.locator('#launch').innerText().catch(() => ''), await page.locator('#status').innerText().catch(() => '')); throw error; }
-  await page.locator('.tile', { hasText: 'Uke' }).click();
+  try { await page.locator('.channel', { hasText: 'Uke' }).waitFor({ timeout: 5000 }); }
+  catch (error) { console.error('LAUNCH', await page.locator('#channels').innerText().catch(() => ''), await page.locator('#status').innerText().catch(() => '')); throw error; }
+  await page.locator('.channel', { hasText: 'Uke' }).click();
   const frame = page.frameLocator('#onto-uke');
   await page.locator('#onto-uke').waitFor();
   console.error('FRAMES', page.frames().map(item => item.url()));

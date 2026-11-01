@@ -1,4 +1,4 @@
-// Headless UI regression with synthetic library; never connects to the real TV.
+// Headless UI regression with a synthetic library; never connects to the real TV.
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -8,11 +8,31 @@ const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE ||
 const root = fileURLToPath(new URL('../tv/', import.meta.url));
 const out = process.env.TV_UI_OUTPUT || '/private/tmp/onto-tv-ui';
 await mkdir(out, { recursive: true });
-const shows = ['Blue Planet', 'The Great Adventure', 'A Very Long Show Name That Must Remain Readable When Selected', 'The Workshop', 'Wild Australia', 'Our Solar System'].map((name, n) => ({ name, src: 'show' + n, count: 12, channels: ['grown'] }));
-const episodes = [{ src: 'episode', show: 'Blue Planet', title: 'The Deep', resume: 120, duration: 1800, channels: ['grown'] }];
-const library = { channels: [{ id: '2', label: 'Little Kids', count: 20 }, { id: '6', label: 'Big Kids', count: 30 }, { id: 'grown', label: 'Grown Ups', count: 72 }, { id: 'music', label: 'Music', count: 15 }], continueWatching: episodes, shows };
+const longShow = 'A Very Long Show Name That Must Remain Readable When Selected On The Card';
+function homeFor(viewers) {
+  const ids = viewers == null ? ['sam', 'jake', 'mum', 'dad'] : String(viewers).split(',').filter(Boolean);
+  const on = id => ids.includes(id);
+  const ceiling = on('sam') ? 'G' : on('jake') ? 'PG' : ids.length ? 'M' : null;
+  const channels = [
+    { id: 'cartoons', number: 1, name: 'Cartoons', now: { show: longShow, art: '/art?src=show0' } },
+    { id: 'movies', number: 2, name: 'Movies', now: { show: 'The Great Adventure', art: '/art?src=show1' } },
+    { id: 'music', number: 4, name: 'Music', now: { show: 'The Workshop', art: '/art?src=show3' } },
+    { id: 'christmas', number: 5, name: 'Christmas', now: { show: 'Wild Australia', art: '/art?src=show4' } },
+  ];
+  if (ceiling === 'M') channels.splice(2, 0, { id: 'sitcoms', number: 3, name: 'Sitcoms', now: { show: 'Our Solar System', art: '/art?src=show2' } });
+  return {
+    ceiling,
+    viewers: [
+      { id: 'sam', name: 'Sam', on: on('sam') },
+      { id: 'jake', name: 'Jake', on: on('jake') },
+      { id: 'mum', name: 'Mum', on: on('mum') },
+      { id: 'dad', name: 'Dad', on: on('dad') },
+    ],
+    channels,
+  };
+}
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
-let showRequests = 0, diagnostics = [], nextRequests = [];
+let homeQueries = [], diagnostics = [], nextRequests = [];
 try {
   const page = await browser.newPage();
   const errors = [];
@@ -21,72 +41,86 @@ try {
     const url = new URL(route.request().url());
     if (url.pathname === '/config.js') return route.fulfill({ contentType: 'text/javascript', body: 'window.ONTO_CONFIG={token:"fixture",build:"ui-test"};' });
     if (url.pathname === '/api/diagnostics') { diagnostics.push(route.request().postDataJSON()); return route.fulfill({ json: { ok: true } }); }
-    if (url.pathname === '/api/next') { nextRequests.push(route.request().postDataJSON()); return route.fulfill({ json: { ...episodes[0], src: 'next-episode', title: 'Next episode', resume: 0 } }); }
+    if (url.pathname === '/api/next') {
+      const body = route.request().postDataJSON();
+      nextRequests.push(body);
+      return route.fulfill({ json: { src: body.channel + '.mp4', show: 'Bluey', title: 'Channel ' + body.channel, resume: 120, duration: 420, channels: [body.channel] } });
+    }
     if (url.pathname === '/api/progress') return route.fulfill({ json: { ok: true } });
-    if (url.pathname === '/api/home') return route.fulfill({ json: library });
-    if (url.pathname === '/api/show') { showRequests++; return route.fulfill({ json: episodes }); }
+    if (url.pathname === '/api/home') {
+      homeQueries.push(url.searchParams.get('viewers'));
+      return route.fulfill({ json: homeFor(url.searchParams.has('viewers') ? url.searchParams.get('viewers') : null) });
+    }
     if (url.pathname === '/art') {
       const colors = ['#184e77', '#386641', '#6a4c93', '#9c6644', '#007f5f', '#1d3557'];
       const n = +(url.searchParams.get('src') || '').replace('show', '') || 0;
-      return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="768" height="432"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="${colors[n % colors.length]}"/><stop offset="1" stop-color="#080d18"/></linearGradient></defs><rect width="768" height="432" fill="url(#g)"/><circle cx="540" cy="130" r="90" fill="white" opacity=".12"/><path d="M0 390L200 160L400 390L570 230L768 420" fill="white" opacity=".12"/></svg>` });
+      return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="${colors[n % colors.length]}"/><stop offset="1" stop-color="#080d18"/></linearGradient></defs><rect width="1280" height="720" fill="url(#g)"/><circle cx="900" cy="180" r="120" fill="white" opacity=".12"/></svg>` });
     }
     try { return route.fulfill({ body: await readFile(path.join(root, url.pathname === '/' ? 'index.html' : url.pathname.slice(1))), contentType: url.pathname.endsWith('.js') ? 'text/javascript' : url.pathname.endsWith('.css') ? 'text/css' : 'text/html' }); }
     catch { return route.fulfill({ status: 404, body: '' }); }
   });
-  for (const [label, width, height] of [['tv',1920,1080],['laptop',1366,768],['short',1280,640],['phone',390,844],['landscape',844,390]]) {
-    await page.setViewportSize({ width, height });
-    await page.goto('http://tv.test/');
-    await page.locator('.tile.focused').waitFor();
-    await page.screenshot({ path: path.join(out, label + '.png') });
-    assert.equal(await page.getByText('Games', { exact: true }).count(), 1);
-    await assertViewport(page, { primary: [{ selector: '#home' }], controls: [{ selector: '.tile.focused' }] });
-    for (let n = 0; n < 2; n++) await page.keyboard.press('ArrowDown');
-    for (let n = 0; n < 5; n++) await page.keyboard.press('ArrowRight');
-    await page.waitForTimeout(220);
-    await assertViewport(page, { primary: ['#home'], controls: [{ selector: '.tile.focused' }] });
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(50);
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(50);
-    assert.equal(await page.locator('#shows .tile').count(), shows.length);
-  }
-  // Cached show navigation survives an unavailable server, and Back restores the selected show.
-  const before = showRequests;
-  await page.route('http://tv.test/api/show**', route => route.abort());
-  await page.keyboard.press('Enter');
-  await page.locator('#shows .episode').waitFor();
-  assert.equal(showRequests, before);
-  await page.keyboard.press('Escape');
-  assert.equal(await page.locator('.focused .name').textContent(), 'Our Solar System');
-  await page.unroute('http://tv.test/api/show**');
-  await page.setViewportSize({ width: 1366, height: 768 });
+
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('http://tv.test/');
-  await page.locator('.focused').waitFor();
-  await page.evaluate(() => {
-    const elements = [...document.querySelectorAll('#home .name, #home h2, #home .count, #status')];
-    const sizes = elements.map(el => parseFloat(getComputedStyle(el).fontSize));
-    elements.forEach((el, i) => el.style.fontSize = (sizes[i] * 2) + 'px');
+  await page.locator('.viewer.focused').waitFor();
+  await page.screenshot({ path: path.join(out, 'home-dark.png') });
+  assert.equal(await page.locator('h1, h2').count(), 0);
+  assert.equal(await page.getByText('Continue Watching').count(), 0);
+  assert.equal(await page.getByText('Browse shows').count(), 0);
+  assert.equal(await page.getByText('Games', { exact: true }).count(), 1);
+  assert.equal(await page.locator('#ceiling').textContent(), 'G');
+  assert.equal(await page.locator('.viewer.on').count(), 4);
+  assert.equal(await page.locator('.channel .now').first().getAttribute('title'), longShow);
+  const tooSmall = await page.evaluate(() => {
+    const nodes = [...document.querySelectorAll('#home button, #home .num, #home .name, #home .now, #home .who, #ceiling, #clock')];
+    return nodes.filter(el => el.textContent.trim() && parseFloat(getComputedStyle(el).fontSize) < 26).map(el => el.className + ' ' + getComputedStyle(el).fontSize);
   });
-  await page.keyboard.press('ArrowRight');
-  await assertViewport(page, { primary: ['#home'], controls: [{ selector: '.tile.focused' }] });
-  await page.screenshot({ path: path.join(out, 'large-text.png') });
+  assert.deepEqual(tooSmall, []);
+  const card = await page.locator('.channel').first().boundingBox();
+  assert.ok(Math.abs(card.width - 440) < 2 && Math.abs(card.height - 412) < 2, JSON.stringify(card));
+  await assertViewport(page, { primary: [{ selector: '#home' }], controls: [{ selector: '.viewer.focused' }] });
+
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('http://tv.test/');
-  await page.locator('.focused').waitFor();
-  await page.screenshot({ path: path.join(out, 'light-preference.png') });
+  await page.locator('.viewer.focused').waitFor();
+  await page.screenshot({ path: path.join(out, 'home-light.png') });
+  await page.keyboard.press('ArrowDown');
+  await page.locator('.channel.focused').waitFor();
+  await page.screenshot({ path: path.join(out, 'home-light-focus.png') });
+  await assertViewport(page, { primary: ['#home'], controls: [{ selector: '.channel.focused' }] });
 
-  // Real app integration against a deterministic, silent player adapter.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('http://tv.test/');
+  await page.locator('.viewer.focused').waitFor();
+  homeQueries = [];
+  await page.keyboard.press('Enter');
+  await page.locator('#ceiling', { hasText: 'PG' }).waitFor();
+  assert.equal(homeQueries.at(-1), 'jake,mum,dad');
+  assert.equal(await page.locator('#ceiling').textContent(), 'PG');
+  assert.equal(await page.locator('.viewer').first().getAttribute('aria-pressed'), 'false');
+  await page.screenshot({ path: path.join(out, 'home-dark-unticked.png') });
+
   await page.route('http://tv.test/player.js', route => route.fulfill({ contentType: 'text/javascript', body: `
     window.ontoPlayer=function(){var h={},t=0,p=true; window.testMedia={finish:function(){(h.ended||function(){})();},tick:function(v){t=v;(h.time||function(){})();}};
     return {engine:'video',on:function(n,f){h[n]=f},time:function(){return t},duration:function(){return 1800},paused:function(){return p},ended:function(){return false},load:function(u,start){t=start||0;p=false},play:function(){p=false},pause:function(){p=true;(h.pause||function(){})();},stop:function(){p=true},seek:function(v){t=v}};};` }));
   await page.goto('http://tv.test/');
-  await page.locator('#launch .focused').waitFor();
-  await page.keyboard.press('ArrowDown');
-  await page.locator('#continue .focused').waitFor();
+  await page.locator('.viewer.focused').waitFor();
   diagnostics = [];
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
+  await page.locator('#player:visible').waitFor();
   await page.waitForTimeout(100);
   assert.ok(diagnostics.some(event => event.event === 'play_request' && event.state === 'loading'));
+  assert.match(await page.locator('#osd-channel').textContent(), /^1 Cartoons/);
+  assert.equal(await page.locator('#osd-show').textContent(), 'Bluey');
+  assert.equal(await page.locator('#osd-episode').textContent(), 'Channel cartoons');
+  const hint = await page.locator('#osd-keys').evaluate(el => parseFloat(getComputedStyle(el).fontSize));
+  assert.ok(hint >= 28, 'key hints ' + hint);
+  await page.screenshot({ path: path.join(out, 'osd-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(out, 'osd-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
   await page.evaluate(() => window.testMedia.tick(120));
   await page.waitForTimeout(50);
   assert.ok(!diagnostics.some(event => event.event === 'playing'));
@@ -96,59 +130,35 @@ try {
   await page.keyboard.press('Enter');
   await page.waitForTimeout(100);
   assert.ok(diagnostics.some(event => event.event === 'pause' && event.paused));
+  nextRequests = [];
+  await page.keyboard.press('ArrowUp');
+  await page.waitForTimeout(80);
+  assert.equal(nextRequests.at(-1).channel, 'movies');
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(80);
+  assert.equal(nextRequests.at(-1).channel, 'cartoons');
   await page.keyboard.press('Escape');
   await page.locator('#home:visible').waitFor();
-  // Picking a shared kids' episode seeds Little Kids, then continues beyond that episode.
-  episodes[0] = { src: 'Bluey/a.mp4', show: 'Bluey', title: 'Keepy Uppy', tier: 'shared', channels: ['2', '6', 'all'], duration: 420, resume: 0 };
-  await page.goto('http://tv.test/');
-  await page.locator('#launch .focused').waitFor();
-  await page.keyboard.press('ArrowDown');
-  await page.locator('#continue .focused').waitFor();
-  nextRequests = [];
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('2');
   await page.locator('#player:visible').waitFor();
-  assert.equal(await page.locator('#osd-episode').textContent(), 'Keepy Uppy');
-  assert.equal(nextRequests.length, 0, 'plays the selected seed before asking for another');
-  await page.evaluate(() => { window.testMedia.tick(420); window.testMedia.finish(); });
-  await page.waitForTimeout(150);
-  assert.equal(nextRequests[0].channel, '2');
-  assert.equal(nextRequests[0].current, 'Bluey/a.mp4');
-  assert.equal(nextRequests[0].reason, 'ended');
-  assert.equal(await page.locator('#osd-episode').textContent(), 'Next episode');
-  await page.keyboard.press('ArrowDown');
-  await page.waitForTimeout(100);
-  assert.equal(nextRequests[1].channel, '2');
-  assert.equal(nextRequests[1].reason, 'skip');
-  await page.keyboard.press('Escape');
-  await page.goto('http://tv.test/');
-  await page.locator('#launch .tile').filter({ hasText: 'Big Kids' }).click();
-  await page.screenshot({ path: path.join(out, 'channel.png') });
-  await page.locator('#player:visible').waitFor();
-  assert.equal(nextRequests.at(-1).channel, '6', 'channel preset tunes immediately without an episode picker');
-  await page.evaluate(() => { window.testMedia.tick(420); window.testMedia.finish(); });
-  await page.waitForTimeout(100);
-  assert.equal(nextRequests.at(-1).channel, '6', 'explicit Big Kids selection is preserved');
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('1');
-  await page.locator('#player:visible').waitFor();
-  await page.waitForTimeout(100);
-  assert.equal(nextRequests.at(-1).channel, '2', 'number key tunes the matching preset');
-  // A slow earlier tune must not replace the latest channel selection.
+  await page.waitForTimeout(80);
+  assert.equal(nextRequests.at(-1).channel, 'movies', 'number key tunes that channel');
   await page.keyboard.press('Escape');
   var releaseFirst;
   await page.route('http://tv.test/api/next', async route => {
     var body = route.request().postDataJSON();
-    if (body.channel === '2') await new Promise(resolve => { releaseFirst = resolve; });
-    await route.fulfill({json:{...episodes[0],src:body.channel+'.mp4',title:'Channel '+body.channel}});
+    if (body.channel === 'cartoons') await new Promise(resolve => { releaseFirst = resolve; });
+    nextRequests.push(body);
+    await route.fulfill({ json: { src: body.channel + '.mp4', show: 'Bluey', title: 'Channel ' + body.channel, resume: 0, duration: 420 } });
   });
   await page.keyboard.press('1');
   await page.waitForTimeout(50);
   await page.keyboard.press('2');
   await page.waitForTimeout(100);
-  assert.equal(await page.locator('#osd-episode').textContent(),'Channel 6');
+  assert.equal(await page.locator('#osd-episode').textContent(), 'Channel movies');
   releaseFirst();
   await page.waitForTimeout(100);
-  assert.equal(await page.locator('#osd-episode').textContent(),'Channel 6');
+  assert.equal(await page.locator('#osd-episode').textContent(), 'Channel movies');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, viewports: 5, showRequests, screenshots: out }));
+  console.log(JSON.stringify({ passed: true, screenshots: out, homeQueries: homeQueries.length }));
 } finally { await browser.close(); }
