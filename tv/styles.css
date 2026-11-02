@@ -326,3 +326,47 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
   #options { left: 12px; right: 12px; width: auto; padding: 12px; }
   .opt { padding: 0 8px; font-size: 28px; }
 }
+
+/* Same player inside the native control surface, at desktop density. */
+.desktop-embedded #osd { left:12px; right:12px; bottom:12px; padding:10px 14px; border-radius:14px; }
+.desktop-embedded #osd-title { padding-top:0; margin-bottom:8px; flex-wrap:wrap; gap:6px; }
+.desktop-embedded #osd-channel { font-size:16px; margin-right:8px; }
+.desktop-embedded .tv-chip { min-width:32px; padding:5px 8px; border-radius:7px; }
+.desktop-embedded #osd-num-digits { font-size:20px; }
+.desktop-embedded #osd-chname { font-size:16px; margin-left:8px; }
+.desktop-embedded #osd-show { font-size:18px; margin:0 8px 0 0; }
+.desktop-embedded #osd-episode { font-size:13px; }
+.desktop-embedded #osd-bar { font-size:14px; flex-wrap:wrap; }
+.desktop-embedded #osd-track { height:6px; }
+.desktop-embedded #osd-keys { width:auto; margin:0; }
+.desktop-embedded #osd-keys > button { margin-right:4px; padding:5px; border-radius:8px; }
+.desktop-embedded #osd-keys .icon { width:22px; height:22px; }
+.desktop-embedded #options { left:auto; right:12px; bottom:130px; width:min(340px,calc(100% - 24px)); padding:8px; border-width:3px; border-radius:14px; }
+.desktop-embedded .opt { min-height:42px; font-size:15px; padding:0 10px; border-radius:8px; }
+.desktop-embedded .opt .glyph,.desktop-embedded .opt .glyph svg { width:24px; height:24px; }
+.desktop-embedded #jump-strip { bottom:130px; }
+.desktop-embedded #jump-strip img { width:100px; height:56px; border-width:3px; }
+.desktop-embedded #tune-num { top:24px; left:16px; min-width:70px; padding:10px; border-width:3px; border-radius:14px; }
+.desktop-embedded #tune-digits { font-size:40px; }
+.desktop-embedded #ad-chip { top:16px; right:16px; font-size:15px; border-width:3px; border-radius:8px; padding:6px 10px; }
+.desktop-embedded #skip-intro { right:16px; bottom:130px; min-height:40px; padding:6px 10px; border-width:3px; border-radius:8px; font-size:15px; }
+.desktop-embedded #ad-chip .glyph,.desktop-embedded #ad-chip .glyph svg,
+.desktop-embedded #skip-intro .glyph,.desktop-embedded #skip-intro .glyph svg { width:22px; height:22px; }
+.desktop-embedded video::cue { font-size:20px; }
+
+/* Short companion windows need a complete focused card inside the scrolling grid. */
+@media (max-height:500px) and (max-width:1100px) and (min-width:601px) {
+  #top { min-height:56px; margin-bottom:8px; padding:0 8px; }
+  .viewer { min-height:52px; margin:0 6px 0 0; padding:6px 10px; border-width:4px; font-size:26px; }
+  .viewer .tick,.viewer .tick svg { width:26px; height:26px; }
+  .viewer .tick { margin-right:8px; }
+  #top-meta { margin:0 0 0 auto; align-items:center; }
+  .rating { min-width:64px; min-height:44px; margin:0 12px 0 0; padding:6px 10px; font-size:26px; }
+  #clock { font-size:32px; }
+  .channel { height:210px; }
+  .bezel { border-width:8px; border-radius:36px; }
+  .channel-copy { padding:24px 14px 12px; }
+  .channel .name { font-size:32px; }
+  .channel .num { font-size:36px; }
+  .channel .now { font-size:26px; }
+}

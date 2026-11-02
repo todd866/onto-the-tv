@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('tv', {
   onReportSaved: listener => ipcRenderer.on('report:saved', (_event, value) => listener(value)),
   recordHistory: input => ipcRenderer.invoke('history:record', input),
   saveTaste: input => ipcRenderer.invoke('taste:save', input),
+  getTvHome: viewers => ipcRenderer.invoke('tv-home:get', viewers),
   get: () => ipcRenderer.invoke('app:get'),
   openFiles: paths => ipcRenderer.invoke('drop:open', paths),
   seek: (seconds, path) => ipcRenderer.invoke('drop:seek', seconds, path),

@@ -1,3 +1,4 @@
+import { fetchTvHome } from './tv-home-client.js';
 import { createBlackbox } from './blackbox.js';
 import { createReportService } from './report-service.js';
 import { createStateTrace, shortArgs } from './report-trace.js';
@@ -198,7 +199,7 @@ async function createWindow() {
   newSession();
   win = new BrowserWindow({
     width: 980, height: 720, minWidth: 520, minHeight: 560,
-    backgroundColor: '#17130f', title: 'Onto the TV', titleBarStyle: 'hiddenInset',
+    backgroundColor: '#0b1428', title: 'Onto the TV', titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 19 }, show: false,
     webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, webviewTag: false },
@@ -249,6 +250,7 @@ handle('taste:save', input => {
   return tasteWriter(input);
 });
 handle('app:get', snapshot);
+handle('tv-home:get', viewers => fetchTvHome(viewers));
 handle('history:record', async input => {
   if (await recordLocalHistory(playbackHistory, catalogue, input, { casting: channelCasting })) sendState(session.getState());
 });

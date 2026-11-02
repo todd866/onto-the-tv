@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' file:; media-src file:; connect-src 'none'; frame-src file: about:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' file: http://localhost:8686; media-src file:; connect-src 'none'; frame-src file: about: http://localhost:8686; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Onto the TV</title>
   <link rel="icon" href="../brand/onto-the-tv-icon.png">
-  <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="ambient.css">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main>
@@ -23,8 +23,15 @@
       <button id="library-toggle" title="Library settings" aria-label="Library settings">⚙</button>
     </header>
     <section id="local-view" aria-label="Channels">
-      <iframe id="channel-player" title="Channels" sandbox="allow-scripts allow-same-origin" allow="autoplay *; fullscreen *" allowfullscreen hidden></iframe>
-      <div id="empty-library" hidden><button class="primary" id="start-library">Choose videos…</button></div>
+      <div class="channel-tools">
+        <button id="channel-back" aria-label="Back to channels" title="Back to channels" hidden>←</button>
+        <div id="channel-viewers" role="group" aria-label="Who's watching"></div>
+        <output id="channel-ceiling" aria-label="Rating ceiling">—</output>
+        <span id="channel-state" role="status" aria-live="polite"></span>
+        <button id="channel-refresh" title="Refresh channels" aria-label="Refresh channels">↻</button>
+      </div>
+      <div id="channel-home"><div id="channel-list" aria-label="TV channels"></div></div>
+      <iframe id="channel-player" title="Channel playback" sandbox="allow-scripts allow-same-origin" allow="autoplay *; fullscreen *" allowfullscreen hidden></iframe>
     </section>
     <section id="library-view" hidden aria-label="Video library">
       <div class="library-toolbar">
@@ -127,6 +134,7 @@
   <script src="ambient.js"></script>
   <form id="report-saved" class="report-saved" hidden aria-label="Problem report"><span id="report-time"></span><input id="report-note" maxlength="10000" placeholder="What went wrong?" aria-label="What went wrong?"><button type="submit">Done</button></form>
   <script src="report.js"></script>
+  <script src="channels.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

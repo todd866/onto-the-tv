@@ -3,7 +3,6 @@ const $ = id => document.getElementById(id);
 let mode = 'local';
 let latestTv;
 let busy = false;
-let loadedLibrary = null;
 let seekTimer;
 let pendingSeek = null;
 let seekVersion = 0;
@@ -53,7 +52,8 @@ async function act(work) {
 }
 
 function setMode(value) {
-  if (value !== 'local') $('channel-player').contentWindow?.postMessage({ type: 'onto:pause' }, '*');
+  if (value !== 'local') window.channelView?.stop();
+  else window.channelView?.enter();
   if (mode === 'ambient' && value !== 'ambient') window.ambientView?.leave();
   mode = value;
   api?.reportMode?.(mode).catch(() => {});
@@ -271,13 +271,6 @@ function renderSettings(state) {
   $('library-path').textContent = state.library;
   $('config-summary').textContent = [state.tiersPath ? 'Groups set.' : 'No groups yet.',
     state.sourcesPath ? 'Extra folders set.' : ''].filter(Boolean).join(' ');
-  $('empty-library').hidden = state.hasPlayer;
-  $('channel-player').hidden = !state.hasPlayer;
-  if (state.hasPlayer && loadedLibrary !== state.playerPath) {
-    loadedLibrary = state.playerPath;
-    void act(() => loadChannels());
-  }
-  if (!state.hasPlayer) { loadedLibrary = null; $('channel-player').src = 'about:blank'; }
   if (!state.tvHost) $('tv-settings').open = true;
   renderTv(state.tv);
 }
@@ -296,13 +289,6 @@ $('choose-media-folder').onclick = () => act(async () => {
   const result = await api.addLibraryFolder();
   libraryItems = result.items; libraryLoaded = true; renderLibrary();
 });
-async function loadChannels() {
-  const result = await api.openShuffler();
-  $('channel-player').onload = () => {
-    if (result.exportToken) $('channel-player').contentWindow.postMessage({type:'onto:export', token:result.exportToken}, '*');
-  };
-  $('channel-player').src = result.url;
-}
 function showLibrary(open) {
   $('library-settings').hidden = !open;
   $('library-toggle').setAttribute('aria-expanded', String(open));
@@ -313,7 +299,6 @@ $('library-close').onclick = () => showLibrary(false);
 window.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !$('library-settings').hidden) { event.preventDefault(); showLibrary(false); }
 });
-$('start-library').onclick = () => { $('library-settings').hidden = false; $('choose-library').click(); };
 for (const kind of ['library', 'player', 'tiers', 'sources']) {
   $('choose-' + kind).onclick = () => act(async () => renderSettings(await api.chooseShuffler(kind)));
 }
@@ -325,7 +310,7 @@ $('build-shuffler').onclick = () => act(async () => {
   try {
     const result = await api.buildShuffler();
     renderSettings(result.state);
-    await loadChannels();
+    await window.channelView?.refresh();
     libraryLoaded = false;
     message('Library updated.');
   } finally { busy = false; $('build-shuffler').disabled = false; }
@@ -385,6 +370,7 @@ if (api) {
   api.onState(renderTv); api.onMode(setMode); api.onError(text => message(text, true));
   if (api.onCast) api.onCast(notice => $('channel-player').contentWindow?.postMessage(notice, '*'));
   void act(async () => renderSettings(await api.get()));
+  window.channelView?.enter();
 } else {
   message('Open this view with the Onto the TV app.');
   document.querySelectorAll('button').forEach(button => { if (!button.id.startsWith('mode-')) button.disabled = true; });

@@ -110,7 +110,16 @@
   // A manual choice holds until the next switch.
   var NIGHT_VIEWERS = 'mum,dad';
   function band(d) { var h = (d || new Date()).getHours(); return (h >= 20 || h < 5) ? 'night' : 'day'; }
+  // Native desktop handoff is explicit and session-only; it never changes TV defaults.
+  var desktopQuery = /(?:^|[?&])desktop=1(?:&|$)/.test(location.search) && window.parent !== window;
+  function desktopParam(name) {
+    var match = new RegExp('(?:^|[?&])' + name + '=([^&]*)').exec(location.search);
+    try { return match ? decodeURIComponent(match[1]) : ''; } catch (e) { return ''; }
+  }
+  var desktopChannel = desktopQuery ? desktopParam('channel') : '';
+  if (desktopQuery) document.body.classList.add('desktop-embedded');
   function storedViewers() {
+    if (desktopQuery) return desktopParam('viewers');
     try {
       var now = band();
       if (localStorage.getItem('onto.viewers.band') !== now) {
@@ -364,6 +373,14 @@
       if (bridge && typeof bridge.connect === 'function') { try { bridge.connect(SERVER); } catch (e) {} }
       diag('connected', { page: 'home', state: 'ready' });
       render();
+      if (desktopChannel) {
+        var requestedChannel = desktopChannel;
+        desktopChannel = '';
+        for (var c = 0; c < data.channels.length; c++) {
+          if (data.channels[c].id === requestedChannel) { startChannel(data.channels[c]); return; }
+        }
+        window.parent.postMessage({ type: 'onto:desktop-home' }, '*');
+      }
     }).catch(function (error) {
       if (request !== homeRequest) return;
       mediaState = 'offline';
@@ -1054,6 +1071,7 @@
     var strip = $('jump-strip');
     if (strip) { strip.hidden = true; strip.innerHTML = ''; }
     if (play && play.item && play.airing !== 'ad' && !media.ended()) { watchEvent('stop'); saveProgress(false); }
+    if (desktopQuery) window.parent.postMessage({ type: 'onto:desktop-home' }, '*');
     play = null; mediaState = 'ready';
     media.stop();
     document.body.classList.remove('playing');
