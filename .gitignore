@@ -46,3 +46,4 @@ blackbox.jsonl*
 
 # Private TV audit bundles and evidence (synthetic fixtures are tracked separately)
 tv-audit-private/
+.claude/settings.local.json
