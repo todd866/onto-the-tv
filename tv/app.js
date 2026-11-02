@@ -97,8 +97,27 @@
   function status(text) { $('status').textContent = text || ''; }
 
   // ---------- home ----------
+  // Watershed: 20:00-05:00 defaults to the adults (M); 05:00 brings everyone back (G).
+  // A manual choice holds until the next switch.
+  var NIGHT_VIEWERS = 'mum,dad';
+  function band(d) { var h = (d || new Date()).getHours(); return (h >= 20 || h < 5) ? 'night' : 'day'; }
   function storedViewers() {
-    try { return localStorage.getItem('onto.viewers'); } catch (e) { return null; }
+    try {
+      var now = band();
+      if (localStorage.getItem('onto.viewers.band') !== now) {
+        localStorage.setItem('onto.viewers.band', now);
+        if (now === 'night') localStorage.setItem('onto.viewers', NIGHT_VIEWERS);
+        else localStorage.removeItem('onto.viewers');
+      }
+      return localStorage.getItem('onto.viewers');
+    } catch (e) { return null; }
+  }
+  var lastBand = band();
+  function watchBand() {
+    var now = band();
+    if (now === lastBand) return;
+    lastBand = now;
+    if ($('player').hidden) loadHome();
   }
   function homePath() {
     var stored = storedViewers();
@@ -134,7 +153,7 @@
     if (at >= 0) ids.splice(at, 1); else ids.push(id);
     var ordered = [], people = data.viewers || [];
     for (var i = 0; i < people.length; i++) if (ids.indexOf(people[i].id) >= 0) ordered.push(people[i].id);
-    try { localStorage.setItem('onto.viewers', ordered.join(',')); } catch (e) {}
+    try { localStorage.setItem('onto.viewers', ordered.join(',')); localStorage.setItem('onto.viewers.band', band()); } catch (e) {}
     var keep = { row: focus.row, col: focus.col };
     loadHome().then(function () { focus = keep; moveFocus(0, 0); });
   }
@@ -614,5 +633,6 @@
 
   paintClock();
   setInterval(paintClock, 1000);
+  setInterval(watchBand, 30000);
   loadHome();
 })();
