@@ -149,7 +149,7 @@
     var cards = (data.channels || []).slice();
     cards.push({ id: 'games', number: 6, name: 'Games', app: 'games' });
     cards.push({ id: 'uke', number: 7, name: 'Uke', app: 'uke' });
-    cards.push({ id: 'console', number: 19, name: 'Console', app: 'console' });
+    cards.push({ id: 'console', number: 20, name: 'Console', app: 'console' });
     cards.sort(function (a, b) { return a.number - b.number; });
     return cards;
   }

@@ -70,7 +70,10 @@ export const TV_CHANNELS = [
   { id: 'd90', number: 16, name: '1990s', ads: '90s' },
   { id: 'sports', number: 17, name: 'Sports', recordedAds: true },
   { id: 'hophop', number: 18, name: 'Hop Hop' },
+  { id: 'rides', number: 19, name: 'Rides & Adventures', rating: 'PG' },
 ];
+
+const RIDES_SHOWS = /\b(?:knight rider|the a[- ]team|the dukes of hazzard|airwolf|chips|baywatch|top gear)\b/i;
 
 export function inTvGenre(item, channelId) {
   if (!item || isAdSrc(item.src)) return false;
@@ -86,6 +89,8 @@ export function inTvGenre(item, channelId) {
   if (channelId === 'sports') return item.tier === 'sports';
   if (channelId === 'hophop') return ['preschool', 'shared'].includes(item.tier)
     && /hop[ ._-]?hop/i.test(String(item.channel || '') + ' ' + String(item.src || '').replace(/[._]/g, ' '));
+  if (channelId === 'rides') return RIDES_SHOWS.test(
+    (String(item.channel || '') + ' ' + String(item.src || '')).replace(/[._]/g, ' '));
   if (DECADES[channelId]) return item.tier === DECADES[channelId];
   return false;
 }
@@ -226,9 +231,10 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return { ceiling, blocked: false };
   }
 
-  function ratingAllowed(item, ceiling, blocked) {
+  function ratingAllowed(item, ceiling, blocked, channelId) {
     if (blocked) return false;
-    const rating = TIER_RATINGS[item.tier] || 'M';
+    const channel = TV_CHANNELS.find(entry => entry.id === channelId);
+    const rating = channel?.rating || TIER_RATINGS[item.tier] || 'M';
     return RATING_ORDER.indexOf(rating) <= RATING_ORDER.indexOf(ceiling);
   }
 
@@ -243,7 +249,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   function poolFor(channelId, ids) {
     const { ceiling, blocked } = audience(ids);
-    return videos.map((item, index) => (inGenre(item, channelId) && ratingAllowed(item, ceiling, blocked) ? index : -1))
+    return videos.map((item, index) => (inGenre(item, channelId) && ratingAllowed(item, ceiling, blocked, channelId) ? index : -1))
       .filter(index => index >= 0);
   }
 

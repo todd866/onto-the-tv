@@ -23,6 +23,12 @@ test('deduplicates session sequence and persists valid events', async () => {
   assert.equal(restarted.record(event({ sequence: 2, reason: 'pause', watchedSeconds: 15 })).outOfOrder, true);
 });
 
+test('accepts Rides & Adventures watch events', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'watch-rides-'));
+  const store = await createWatchEventStore({ file: join(dir, 'watch.jsonl'), knownSources: new Set(['Knight Rider/one.mp4']) });
+  assert.equal(store.record(event({ src: 'Knight Rider/one.mp4', channel: 'rides', audience: 'rides' })).accepted, true);
+});
+
 test('rejects unknown source, fake channel, backwards time and implausible interval', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'watch-validation-'));
   const store = await createWatchEventStore({ file: join(dir, 'watch.jsonl'), knownSources: new Set(['Bluey/a.mp4']) });

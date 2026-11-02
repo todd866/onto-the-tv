@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createFileStorage, createTvLibrary, createTvServer, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
+import { createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 
 const videos = [
@@ -122,6 +122,33 @@ test('adults use the existing taste keys and hidden genres stay hidden', async (
   assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.sboth'))['Films/d.mkv'] < 1);
   assert.equal(library.home('dad').channels.find(channel => channel.id === 'movies').now.show === 'Sci-Fi Show'
     || library.home('dad').channels.find(channel => channel.id === 'movies').now.show === 'Films', true);
+});
+
+test('Rides & Adventures matches its shows and applies a PG channel rating', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  const history = await loadPlaybackHistory(join(dir, 'history.json'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  const names = [
+    'Knight Rider (1982)', 'The A-Team (1983)', 'The Dukes of Hazzard (1979)',
+    'Airwolf (1984)', 'CHiPs (1977)', 'Baywatch (1989)', 'Top Gear',
+  ];
+  const rides = names.map((name, index) => ({
+    src: `${name.replaceAll(' ', '_')}/episode.${index}.mp4`, file: `/m/${name}/episode.${index}.mp4`,
+    title: name, channel: name, tier: 'grownup', duration: 1200,
+  }));
+  assert.ok(rides.every(item => inTvGenre(item, 'rides')));
+  assert.ok(names.every(name => inTvGenre({ channel: name.replaceAll(' ', '.'), src: 'episode.mp4' }, 'rides')));
+  assert.ok(rides.every(item => inTvGenre({ ...item, channel: '' }, 'rides')));
+  assert.equal(inTvGenre({ channel: 'Top Gearbox', src: 'other.mp4' }, 'rides'), false);
+  assert.equal(inTvGenre({ channel: 'Knight Rider', src: 'ads/80s/ad.mp4' }, 'rides'), false);
+  const library = createTvLibrary({ videos: rides, history, storage, random: () => 0 });
+  assert.equal(library.home('sam').channels.some(channel => channel.id === 'rides'), false);
+  assert.equal(library.home('jake').channels.find(channel => channel.id === 'rides').number, 19);
+  assert.equal(library.next('rides', { viewers: 'jake' }).show, names[0]);
+  assert.throws(() => library.next('rides', { viewers: 'sam' }), /empty/);
+  assert.throws(() => library.next('rides', { viewers: 'sam,jake' }), /empty/);
+  const misplaced = createTvLibrary({ videos: rides.map(item => ({ ...item, tier: 'shared' })), history, storage });
+  assert.equal(misplaced.home('sam').channels.some(channel => channel.id === 'rides'), false);
 });
 
 test('progress: surfing is not history, a real watch resumes', async () => {
