@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createTvServer } from '../src/tv-server.js';
-import { assertViewport } from '/Users/iantodd/Projects/.ux-authoring/viewport-fit.mjs';
+const { assertViewport } = await import(pathToFileURL(process.env.VIEWPORT_MODULE || '/Users/iantodd/Projects/.ux-authoring/viewport-fit.mjs'));
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE || '/Users/iantodd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs'));
 const out = '/private/tmp/onto-tv-games';
 await mkdir(out, { recursive: true });

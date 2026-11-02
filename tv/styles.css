@@ -23,9 +23,9 @@ button { font: inherit; color: inherit; background: transparent; border: 0; padd
 button::-moz-focus-inner { border: 0; }
 button:focus { outline: none; }
 
-#home { height: 100%; padding: 28px 44px 16px; overflow: hidden; }
+#home { height: 100%; padding: 28px 28px 16px; display: flex; flex-direction: column; }
 
-#top { display: flex; align-items: center; min-height: 108px; margin-bottom: 24px; }
+#top { flex: 0 0 auto; padding: 0 16px; display: flex; align-items: center; min-height: 108px; margin-bottom: 16px; }
 #viewers { display: flex; align-items: center; }
 .viewer {
   display: flex; align-items: center;
@@ -63,10 +63,10 @@ button:focus { outline: none; }
 .rating-m .antenna { color: #e5484d; }
 #clock { font-size: 44px; font-weight: 800; font-feature-settings: "tnum" 1; line-height: 1; }
 
-#channels { display: flex; flex-wrap: wrap; align-items: flex-start; }
+#channels { flex: 1 1 auto; min-height: 0; max-height: 796px; overflow-y: auto; display: flex; flex-wrap: wrap; align-content: flex-start; padding: 40px 16px 16px; }
 .channel {
   position: relative; flex: 0 0 auto;
-  width: 440px; height: 412px; margin: 0 24px 20px 0;
+  width: calc((100% - 72px) / 4); height: 330px; margin: 0 24px 40px 0;
   padding: 0; overflow: visible; background: transparent; color: #fff;
   transform-origin: center center;
   transition: transform 150ms ease-out;
@@ -75,7 +75,7 @@ button:focus { outline: none; }
 .channel:focus, .channel.focused { z-index: 3; transform: scale(1.06); }
 .bezel {
   position: absolute; left: 0; top: 0; right: 0; bottom: 0;
-  overflow: hidden; border-radius: 91px;
+  overflow: hidden; border-radius: 72px;
   border: 16px solid #14213d; background: #0b1428;
   transition: border-color 150ms ease-out;
 }
@@ -86,7 +86,7 @@ button:focus { outline: none; }
 }
 .channel-copy {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
-  padding: 72px 36px 22px;
+  padding: 64px 20px 22px;
   background: linear-gradient(to top, rgba(11, 20, 40, 0.94) 0%, rgba(11, 20, 40, 0.7) 46%, rgba(11, 20, 40, 0) 100%);
 }
 .channel-line { display: flex; align-items: baseline; }
@@ -96,12 +96,12 @@ button:focus { outline: none; }
 }
 .channel .name {
   flex: 1 1 auto; min-width: 0;
-  font-size: 32px; font-weight: 800; line-height: 1.1;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 40px; font-weight: 800; line-height: 1.1;
+  overflow-wrap: break-word;
 }
 .channel .now {
   display: flex; align-items: center; margin-top: 8px;
-  font-size: 26px; font-weight: 700; line-height: 1.2;
+  font-size: 28px; font-weight: 700; line-height: 1.2;
   white-space: nowrap; overflow: hidden;
 }
 .mini-play { flex: 0 0 auto; width: 26px; height: 26px; margin-right: 8px; color: #ffb547; }
@@ -129,12 +129,12 @@ button:focus { outline: none; }
   display: flex; align-items: center; justify-content: center;
   color: #ffb547;
 }
-.app-games .app-glyph svg { width: 250px; height: 138px; }
-.app-uke .app-glyph svg { width: 110px; height: 210px; }
+.app-games .app-glyph svg, .app-console .app-glyph svg { width: 250px; height: 138px; }
+.app-uke .app-glyph svg { width: 110px; height: 150px; }
 
 #status {
   position: fixed; left: 44px; right: 44px; bottom: 12px; margin: 0;
-  font-size: 26px; font-weight: 800; color: #ffb547;
+  font-size: 28px; font-weight: 800; color: #ffb547;
 }
 #status:empty { display: none; }
 
@@ -166,12 +166,12 @@ button:focus { outline: none; }
 #osd-chname { margin-left: 16px; }
 #osd-show {
   flex: 0 1 auto; margin-right: 22px;
-  font-size: 36px; font-weight: 800;
+  font-size: 40px; font-weight: 800; min-width: 0;
   overflow: hidden; text-overflow: ellipsis;
 }
 #osd-episode {
   flex: 1 1 auto; min-width: 0;
-  font-size: 26px; font-weight: 700; color: #f4f1ea;
+  font-size: 28px; font-weight: 700; color: #f4f1ea;
   overflow: hidden; text-overflow: ellipsis;
 }
 #osd-bar { display: flex; align-items: center; font-size: 32px; font-weight: 800; font-feature-settings: "tnum" 1; }
@@ -179,8 +179,10 @@ button:focus { outline: none; }
 #osd-duration { margin-left: 16px; }
 #osd-track { flex: 1; height: 16px; border-radius: 4px; background: rgba(244, 241, 234, 0.32); overflow: hidden; }
 #osd-fill { height: 100%; width: 0; background: #ffb547; }
-#osd-keys { display: flex; align-items: center; margin-top: 14px; color: #f4f1ea; font-size: 32px; }
-#osd-keys > span { display: block; margin-right: 36px; }
+#osd-keys { flex: 0 0 auto; display: flex; align-items: center; margin-top: 0; color: #f4f1ea; font-size: 32px; }
+#osd-keys > button { display: block; margin-right: 16px; flex: 0 0 auto; }
+#osd-keys button { padding: 8px; border: 3px solid transparent; border-radius: 12px; }
+#osd-keys button:hover, #osd-keys button:focus { border-color: #ffb547; }
 #osd-keys .icon { width: 40px; height: 40px; display: block; }
 #osd-play { color: #ffb547; }
 #osd-play .icon-play { display: none; }
@@ -266,7 +268,7 @@ video::cue {
   border: 6px solid transparent; border-radius: 18px;
   font-size: 34px; font-weight: 800; color: #f4f1ea;
 }
-.console-game::after { content: attr(data-system); font-size: 22px; font-weight: 800; color: #8fa3c8; }
+.console-game::after { content: attr(data-system); font-size: 28px; font-weight: 800; color: #8fa3c8; }
 .console-game.focused { border-color: #ffb547; color: #ffb547; }
 .console-game.focused::after { color: #ffb547; }
 
@@ -294,4 +296,49 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
   padding: 12px 18px; background: #14213d; color: #f4f1ea;
   border: 6px solid #ffb547; border-radius: 18px;
   font-size: 28px; font-weight: 800; overflow-wrap: break-word;
+}
+
+/* Keep the same instruments reachable on smaller companion screens. */
+@media (max-width: 1100px) {
+  #home { padding: 16px; }
+  #top { flex-wrap: wrap; }
+  #viewers { flex-wrap: wrap; }
+  .viewer { margin: 0 10px 12px 0; padding: 8px 12px; font-size: 28px; }
+  #top-meta { margin: 12px 0 0 auto; }
+  .channel { width: calc((100% - 24px) / 2); }
+  .channel:nth-child(2n) { margin-right: 0; }
+  #osd { left: 16px; right: 16px; padding: 12px; }
+  #osd-title { flex-wrap: wrap; white-space: normal; }
+  #osd-show { margin-top: 12px; }
+}
+@media (max-width: 600px) {
+  #home { padding: 8px; }
+  #top { min-height: 0; padding: 0; }
+  .viewer { min-height: 56px; border-width: 4px; }
+  .viewer .tick, .viewer .tick svg { width: 28px; height: 28px; }
+  #top-meta { margin-top: 0; }
+  .channel { width: 100%; margin-right: 0; }
+  #osd-chname { font-size: 28px; }
+  #osd-keys > button { margin-right: 6px; }
+  #osd-show { font-size: 40px; }
+  #osd-bar { flex-wrap: wrap; }
+  #osd-keys { width: 100%; margin-bottom: 12px; }
+  #options { left: 12px; right: 12px; width: auto; padding: 12px; }
+  .opt { padding: 0 8px; font-size: 28px; }
+}
+@media (max-height: 500px) {
+  #home { padding: 8px; }
+  #top { flex-wrap: nowrap; min-height: 72px; margin-bottom: 4px; padding: 0; }
+  #viewers { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; padding: 4px; }
+  .viewer { flex: 0 0 auto; min-height: 56px; margin-bottom: 0; padding: 6px 10px; border-width: 4px; font-size: 28px; }
+  .viewer .tick, .viewer .tick svg { width: 28px; height: 28px; }
+  #top-meta { flex: 0 0 auto; margin: 0 0 0 16px; }
+  .rating { min-height: 48px; min-width: 64px; font-size: 28px; margin-right: 16px; }
+  #clock { font-size: 32px; }
+  .channel { height: 180px; }
+  .bezel { border-width: 8px; border-radius: 40px; }
+  .channel-copy { padding: 32px 16px 12px; }
+  .app-glyph { top: 8px; bottom: 64px; }
+  .app-glyph svg { max-height: 64px; }
+  #options { bottom: 12px; max-height: calc(100% - 24px); overflow-y: auto; }
 }

@@ -167,15 +167,25 @@
     var keep = { row: focus.row, col: focus.col };
     loadHome().then(function () { focus = keep; moveFocus(0, 0); });
   }
+  // Prepared artwork lives only for this page and is bounded to the nearby grid.
+  var artCache = {}, artOrder = [];
   function loadArt(img, url) {
     if (!img || !url) return;
-    var image = new Image();
-    image.onload = function () {
-      var apply = function () { if (img.isConnected) img.src = url; };
-      if (image.decode) image.decode().then(apply, apply); else apply();
-    };
-    image.onerror = function () { img.style.visibility = 'hidden'; };
-    image.src = url;
+    if (!artCache[url]) {
+      artOrder.push(url);
+      if (artOrder.length > 32) delete artCache[artOrder.shift()];
+      artCache[url] = new Promise(function (resolve, reject) {
+        var image = new Image();
+        image.onload = function () {
+          if (image.decode) image.decode().then(resolve, resolve); else resolve();
+        };
+        image.onerror = function () { delete artCache[url]; reject(new Error('Artwork unavailable')); };
+        image.src = url;
+      });
+    }
+    artCache[url].then(function () {
+      if (document.documentElement.contains(img)) img.src = url;
+    }, function () { img.style.visibility = 'hidden'; });
   }
   function antennaEl() {
     var el = document.createElement('span');
@@ -208,6 +218,7 @@
     });
     return button;
   }
+  function columnCount() { return window.innerWidth <= 600 ? 1 : window.innerWidth <= 1100 ? 2 : 4; }
   function channelButton(item, index) {
     var button = document.createElement('button');
     button.type = 'button';
@@ -264,13 +275,14 @@
     bezel.appendChild(copy);
     button.appendChild(bezel);
     button.addEventListener('click', function () {
-      var row = Math.floor(index / 4) + (rows.length && rows[0].kind === 'viewers' ? 1 : 0);
-      focus = { row: row, col: index % 4 };
+      var row = Math.floor(index / columnCount()) + (rows.length && rows[0].kind === 'viewers' ? 1 : 0);
+      focus = { row: row, col: index % columnCount() };
       moveFocus(0, 0);
       activate(item);
     });
     return button;
   }
+  window.addEventListener('resize', function () { if (!$('home').hidden) render(); });
   function render() {
     var people = (data.viewers && data.viewers.length) ? data.viewers : FALLBACK_VIEWERS;
     data.viewers = people;
@@ -300,9 +312,9 @@
     for (var c = 0; c < cards.length; c++) holder.appendChild(channelButton(cards[c], c));
     rows = [];
     if (viewers.children.length) rows.push({ kind: 'viewers', els: viewers.children });
-    for (var start = 0; start < holder.children.length; start += 4) {
+    for (var start = 0; start < holder.children.length; start += columnCount()) {
       var slice = [];
-      for (var n = start; n < holder.children.length && n < start + 4; n++) slice.push(holder.children[n]);
+      for (var n = start; n < holder.children.length && n < start + columnCount(); n++) slice.push(holder.children[n]);
       rows.push({ kind: 'channels', els: slice });
     }
     if (!rows.length) return;
@@ -324,6 +336,15 @@
     if (!el) return;
     el.classList.add('focused');
     try { el.focus(); } catch (e) {}
+    if (row.kind === 'channels') {
+      var holder = $('channels');
+      var stride = el.offsetHeight + 40;
+      var visibleRows = Math.max(1, Math.floor((holder.clientHeight - 56) / stride));
+      var channelRow = focus.row - 1;
+      var totalRows = Math.ceil(holder.children.length / columnCount());
+      var firstRow = Math.min(Math.floor(channelRow / visibleRows) * visibleRows, Math.max(0, totalRows - visibleRows));
+      holder.scrollTop = firstRow * stride;
+    }
   }
   function activate(item) {
     if (!item) return;
@@ -504,7 +525,9 @@
     var channel = play.channel;
     paintChannel(channel);
     $('osd-show').textContent = play.item.show || '';
-    $('osd-episode').textContent = play.item.title && play.item.title !== play.item.show ? play.item.title : '';
+    $('osd-episode').textContent = '';
+    $('osd-show').title = play.item.title || play.item.show || '';
+    $('osd-play').setAttribute('aria-label', media.paused() ? 'Play' : 'Pause');
     $('osd-elapsed').textContent = clock(media.time());
     $('osd-duration').textContent = clock(duration);
     $('osd-fill').style.width = duration ? Math.min(100, 100 * media.time() / duration) + '%' : '0';
@@ -631,7 +654,7 @@
     for (i = 0; i < subs.length; i++) if (subs[i].id === choice) label = subs[i].label;
     $('opt-subs').textContent = label;
     var audio = audioChoices();
-    var audioLabel = audio.length ? audio[Math.max(0, play && play.audioIndex || 0) % audio.length].label : '';
+    var audioLabel = audio.length ? audio[Math.max(0, play && play.audioIndex || 0) % audio.length].label : 'Default';
     if (play && audio.length) play.audioIndex = Math.max(0, play.audioIndex || 0) % audio.length;
     $('opt-audio').textContent = audioLabel;
     $('opt-ads').textContent = adsMode() === 'skip' ? 'Skip' : 'Play';
@@ -1096,6 +1119,15 @@
   });
   media.on('pause', function () { mediaState = media.paused() ? 'paused' : 'loading'; if (media.paused()) { watchEvent('pause'); diag('pause', diagnosticSample()); } updateOsd(); showOsd(); });
   video.addEventListener('click', togglePause);
+  $('osd-play').addEventListener('click', togglePause);
+  function tapScene(key) {
+    var time = Date.now();
+    onNav({ type: 'down', key: key, time: time, ad: inAd() });
+    onNav({ type: 'up', key: key, time: time, ad: inAd() });
+  }
+  $('osd-prev-scene').addEventListener('click', function () { tapScene('left'); });
+  $('osd-next-scene').addEventListener('click', function () { tapScene('right'); });
+  $('osd-options').addEventListener('click', openOptions);
   $('osd-next').addEventListener('click', function () { next('skip'); });
   $('skip-intro').addEventListener('click', skipIntro);
   var optionButtons = document.querySelectorAll('#options .opt');
