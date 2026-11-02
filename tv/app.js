@@ -16,6 +16,7 @@
   var PLAY_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round" d="M11 6 L26 16 L11 26 Z"/></svg>';
   var GAME_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="20" width="172" height="74" rx="30"/><path d="M62 40v32M46 56h32"/><circle cx="138" cy="48" r="8" fill="currentColor" stroke="none"/><circle cx="160" cy="70" r="8" fill="currentColor" stroke="none"/></svg>';
   var UKE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 230"><rect x="32" y="4" width="56" height="28" rx="7" fill="currentColor"/><rect x="51" y="26" width="18" height="62" fill="currentColor"/><ellipse cx="60" cy="108" rx="30" ry="28" fill="currentColor"/><ellipse cx="60" cy="160" rx="44" ry="40" fill="currentColor"/><circle cx="46" cy="18" r="3.5" fill="#0b1428"/><circle cx="56" cy="18" r="3.5" fill="#0b1428"/><circle cx="66" cy="18" r="3.5" fill="#0b1428"/><circle cx="76" cy="18" r="3.5" fill="#0b1428"/><circle cx="60" cy="162" r="11" fill="#0b1428"/></svg>';
+  var CONSOLE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="26" width="180" height="66" rx="33"/><path d="M56 44v30M41 59h30"/><path d="M128 59h24M140 47v24"/></svg>';
   var SAVE_EVERY = 15000, OSD_MS = 4000;
   var FALLBACK_VIEWERS = [
     { id: 'sam', name: 'Sam', on: true }, { id: 'jake', name: 'Jake', on: true },
@@ -148,6 +149,7 @@
     var cards = (data.channels || []).slice();
     cards.push({ id: 'games', number: 6, name: 'Games', app: 'games' });
     cards.push({ id: 'uke', number: 7, name: 'Uke', app: 'uke' });
+    cards.push({ id: 'console', number: 19, name: 'Console', app: 'console' });
     cards.sort(function (a, b) { return a.number - b.number; });
     return cards;
   }
@@ -217,11 +219,11 @@
     button.appendChild(antennaEl());
     var bezel = document.createElement('span');
     bezel.className = 'bezel';
-    if (item.app === 'games' || item.app === 'uke') {
+    if (item.app === 'games' || item.app === 'uke' || item.app === 'console') {
       var glyph = document.createElement('span');
       glyph.className = 'app-glyph';
       glyph.setAttribute('aria-hidden', 'true');
-      glyph.innerHTML = item.app === 'games' ? GAME_SVG : UKE_SVG;
+      glyph.innerHTML = item.app === 'games' ? GAME_SVG : item.app === 'uke' ? UKE_SVG : CONSOLE_SVG;
       bezel.appendChild(glyph);
     }
     if (item.now && item.now.art) {
@@ -326,6 +328,7 @@
   function activate(item) {
     if (!item) return;
     if (item.app === 'games') return openGames();
+    if (item.app === 'console') return openConsole();
     if (item.app === 'uke') {
       tuneRequest++;
       if (play) { watchEvent('stop'); saveProgress(false); play = null; media.stop(); }
@@ -377,6 +380,62 @@
       diag('game_state', { page: 'games', game: state.game, state: state.state });
     });
     diag('game_open', { page: 'games', game: 'menu', state: 'ready' });
+  }
+
+  // ---------- console games (RetroArch on the Mac behind the TV) ----------
+  var consoleState = null;
+  function openConsole() {
+    if (play) { watchEvent('stop'); saveProgress(false); play = null; media.stop(); }
+    status('Loading console games…');
+    api('/api/console/games').then(function (result) {
+      var games = (result && result.games) || [];
+      if (!games.length) { status('No console games on the ROM drive yet.'); return; }
+      status('');
+      consoleState = { games: games, index: 0 };
+      paintConsole();
+      diag('console_open', { page: 'console', games: games.length });
+    }, function (error) { fail(error); });
+  }
+  function closeConsole() {
+    consoleState = null;
+    $('console').hidden = true;
+    $('home').hidden = false;
+    moveFocus(0, 0);
+    diag('console_close', { page: 'home', state: 'ready' });
+  }
+  function paintConsole() {
+    var state = consoleState;
+    if (!state) return;
+    var list = $('console-list');
+    list.textContent = '';
+    for (var i = 0; i < state.games.length; i++) {
+      var game = state.games[i];
+      var item = document.createElement('li');
+      item.className = 'console-game' + (i === state.index ? ' focused' : '');
+      item.textContent = game.name;
+      item.setAttribute('data-system', game.system);
+      list.appendChild(item);
+    }
+    var focused = list.children[state.index];
+    if (focused && focused.scrollIntoView) focused.scrollIntoView({ block: 'nearest' });
+  }
+  function launchConsole(game) {
+    if (!game) return;
+    post('/api/console/launch', { system: game.system, file: game.file })
+      .then(function () { diag('console_launch', { page: 'console', game: game.name, system: game.system }); },
+        function (error) { fail(error); });
+  }
+  function consoleKey(key) {
+    var state = consoleState;
+    if (!state) return false;
+    var columns = 1, count = state.games.length;
+    if (key === KEY.UP) state.index = (state.index - columns + count) % count;
+    else if (key === KEY.DOWN) state.index = (state.index + columns) % count;
+    else if (key === KEY.ENTER) { launchConsole(state.games[state.index]); return true; }
+    else if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) { closeConsole(); return true; }
+    else return false;
+    paintConsole();
+    return true;
   }
 
   // ---------- finding the Mac (packaged app only) ----------
@@ -1097,6 +1156,7 @@
       }
       return;
     }
+    if (consoleState) { if (consoleKey(key)) event.preventDefault(); return; }
     if (!$('setup').hidden) return;
     if (key >= 48 && key <= 57) {
       // Digits tune like a TV: wait briefly for a second digit when one could follow.
@@ -1139,6 +1199,7 @@
     if ($('player').hidden) return;
     if (window.ontoUke && window.ontoUke.isOpen()) return;
     if (window.ontoGames && window.ontoGames.isOpen()) return;
+    if (consoleState) return;
     var name = navKey(event.keyCode);
     if (!name) return;
     onNav({ type: 'up', key: name, time: Date.now(), ad: inAd() });

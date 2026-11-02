@@ -254,6 +254,22 @@ video::cue {
   text-shadow: -2px -2px 0 #14213d, 2px -2px 0 #14213d, -2px 2px 0 #14213d, 2px 2px 0 #14213d;
 }
 
+#console {
+  position: fixed; z-index: 9; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  background: #0b1428;
+}
+#console-list { list-style: none; margin: 0; padding: 0; width: 1080px; max-width: 90%; }
+.console-game {
+  min-height: 96px; padding: 8px 26px; margin-bottom: 8px;
+  display: flex; align-items: center; justify-content: space-between;
+  border: 6px solid transparent; border-radius: 18px;
+  font-size: 34px; font-weight: 800; color: #f4f1ea;
+}
+.console-game::after { content: attr(data-system); font-size: 22px; font-weight: 800; color: #8fa3c8; }
+.console-game.focused { border-color: #ffb547; color: #ffb547; }
+.console-game.focused::after { color: #ffb547; }
+
 #setup {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #0b1428;
   display: flex; flex-direction: column; justify-content: center; align-items: center;

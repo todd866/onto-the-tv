@@ -10,6 +10,7 @@ import { readCatalogue } from './shuffler.js';
 import { writeAtomically } from './atomic-write.js';
 import { createDiagnosticsStore } from './tv-diagnostics.js';
 import { createGameRelay } from './game-relay.js';
+import { createConsoleLauncher } from './console-launcher.js';
 import { createConfiguredUkeHandler } from './uke-handler.js';
 import { adDecade, buildPlayQueue, isAdSrc } from './ads.js';
 import { listSidecars, readSubtitle } from './subtitles.js';
@@ -459,7 +460,8 @@ async function streamFile(request, response, file, mediaCache) {
  * HTTP front end. `artwork` is optional (createArtworkCache); `uiRoot` holds the TV web UI;
  * `token` is the pairing secret the installed TV app sends.
  */
-export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), sceneStore = null, log = () => {} }) {
+export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), sceneStore = null,
+  consoleLauncher = createConsoleLauncher(), log = () => {} }) {
   const tvCommands = createTvCommands();
   let dirty = false;
   const save = () => {
@@ -508,6 +510,16 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
           body: request.method === 'POST' ? await readBody(request) : undefined,
           tvAuthorized: !!token && sameSecret(request.headers['x-onto-token'], token) });
         response.setHeader('Cache-Control', 'no-store');
+        return send(response, result.status, result.body);
+      }
+      if (path === '/api/console/games') {
+        if (request.method !== 'GET') return send(response, 405, { error: 'Method not allowed.' });
+        response.setHeader('Cache-Control', 'no-store');
+        return send(response, 200, { games: await consoleLauncher.games() });
+      }
+      if (path === '/api/console/launch') {
+        if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' });
+        const result = await consoleLauncher.launch(await readBody(request));
         return send(response, result.status, result.body);
       }
       if (path === '/api/watch') {
