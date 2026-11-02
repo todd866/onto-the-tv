@@ -11,8 +11,11 @@
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 10009, ESC: 27, BACKSPACE: 8,
     PLAYPAUSE: 10252, PLAY: 415, PAUSE: 19, STOP: 413, FF: 417, RW: 412, NEXT: 10233, PREV: 10232,
     CH_UP: 427, CH_DOWN: 428, SPACE: 32, SUBT: 0 };
-  var GAME_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 96" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path fill="currentColor" fill-opacity="0.16" d="M34 42c0-10 8-16 18-16h16c6 0 8 5 16 5s10-5 16-5h16c10 0 18 6 18 16v6c8 2 14 10 14 18 0 12-10 20-22 20-8 0-12-6-16-12H58c-4 6-8 12-16 12-12 0-22-8-22-20 0-8 6-16 14-18z"/><path d="M62 48v18M53 57h18"/><circle cx="112" cy="52" r="5" fill="currentColor" stroke="none"/><circle cx="128" cy="64" r="5" fill="currentColor" stroke="none"/></svg>';
-  var UKE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 180" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path fill="currentColor" fill-opacity="0.16" d="M50 86c-22 0-34 12-30 26 4 2 6 4 6 8s-2 6-6 8c-4 14 8 28 30 28s34-14 30-28c-4-2-6-4-6-8s2-6 6-8c4-14-8-26-30-26z"/><circle cx="50" cy="128" r="8"/><path d="M43 86V34h14v52"/><rect x="30" y="12" width="40" height="18" rx="3" fill="currentColor" fill-opacity="0.16"/><circle cx="38" cy="21" r="2.4" fill="currentColor" stroke="none"/><circle cx="46" cy="21" r="2.4" fill="currentColor" stroke="none"/><circle cx="54" cy="21" r="2.4" fill="currentColor" stroke="none"/><circle cx="62" cy="21" r="2.4" fill="currentColor" stroke="none"/><path d="M46 34v90M50 34v94M54 34v90"/></svg>';
+  var ANTENNA_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 28" focusable="false"><path d="M8 24 L40 4 L72 24" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var PERSON_SVG = '<svg class="person-off" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="18" r="10"/><path d="M12 54c2-16 10-22 20-22s18 6 20 22"/></svg><svg class="person-on" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor"><circle cx="32" cy="18" r="11"/><path d="M10 56c2-18 12-26 22-26s20 8 22 26z"/></svg>';
+  var PLAY_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round" d="M11 6 L26 16 L11 26 Z"/></svg>';
+  var GAME_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="20" width="172" height="74" rx="30"/><path d="M62 40v32M46 56h32"/><circle cx="138" cy="48" r="8" fill="currentColor" stroke="none"/><circle cx="160" cy="70" r="8" fill="currentColor" stroke="none"/></svg>';
+  var UKE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 230"><rect x="32" y="4" width="56" height="28" rx="7" fill="currentColor"/><rect x="51" y="26" width="18" height="62" fill="currentColor"/><ellipse cx="60" cy="108" rx="30" ry="28" fill="currentColor"/><ellipse cx="60" cy="160" rx="44" ry="40" fill="currentColor"/><circle cx="46" cy="18" r="3.5" fill="#0b1428"/><circle cx="56" cy="18" r="3.5" fill="#0b1428"/><circle cx="66" cy="18" r="3.5" fill="#0b1428"/><circle cx="76" cy="18" r="3.5" fill="#0b1428"/><circle cx="60" cy="162" r="11" fill="#0b1428"/></svg>';
   var SAVE_EVERY = 15000, OSD_MS = 4000;
   var FALLBACK_VIEWERS = [
     { id: 'sam', name: 'Sam', on: true }, { id: 'jake', name: 'Jake', on: true },
@@ -26,7 +29,7 @@
   var focus = { row: 0, col: 0 };
   var homeRequest = 0;
   var play = null;          // { mode: 'channel', channel, item, visitStart, lastSave }
-  var osdTimer = 0, gameState = null, tuneRequest = 0;
+  var osdTimer = 0, gameState = null, tuneRequest = 0, tuneMark = 0, tuneTimer = 0;
   var navState = window.ontoNav.initial();
   var navTimer = 0, stripTimer = 0, optionOpen = false, optionRow = 0;
   var sessionIntro = {}, showStack = [];
@@ -172,6 +175,13 @@
     image.onerror = function () { img.style.visibility = 'hidden'; };
     image.src = url;
   }
+  function antennaEl() {
+    var el = document.createElement('span');
+    el.className = 'antenna';
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = ANTENNA_SVG;
+    return el;
+  }
   function viewerButton(person, col) {
     var button = document.createElement('button');
     button.type = 'button';
@@ -183,7 +193,7 @@
     var tick = document.createElement('span');
     tick.className = 'tick';
     tick.setAttribute('aria-hidden', 'true');
-    tick.textContent = '✓';
+    tick.innerHTML = PERSON_SVG;
     var name = document.createElement('span');
     name.className = 'who';
     name.textContent = person.name;
@@ -199,24 +209,26 @@
   function channelButton(item, index) {
     var button = document.createElement('button');
     button.type = 'button';
-    button.className = 'channel';
+    button.className = 'channel' + (item.app ? ' app-' + item.app : '');
     button.tabIndex = -1;
     button._item = item;
     var show = item.now && item.now.show;
     button.setAttribute('aria-label', item.number + ' ' + item.name + (show ? ', ' + show : ''));
+    button.appendChild(antennaEl());
+    var bezel = document.createElement('span');
+    bezel.className = 'bezel';
     if (item.app === 'games' || item.app === 'uke') {
-      button.className = 'channel app-' + item.app;
       var glyph = document.createElement('span');
       glyph.className = 'app-glyph';
       glyph.setAttribute('aria-hidden', 'true');
       glyph.innerHTML = item.app === 'games' ? GAME_SVG : UKE_SVG;
-      button.appendChild(glyph);
+      bezel.appendChild(glyph);
     }
     if (item.now && item.now.art) {
       var img = document.createElement('img');
       img.className = 'art';
       img.alt = '';
-      button.appendChild(img);
+      bezel.appendChild(img);
       loadArt(img, artUrl(item.now.art));
     }
     var copy = document.createElement('span');
@@ -235,11 +247,20 @@
     if (show) {
       var now = document.createElement('span');
       now.className = 'now';
-      now.textContent = '▶ ' + show;
       now.title = show;
+      var mark = document.createElement('span');
+      mark.className = 'mini-play';
+      mark.setAttribute('aria-hidden', 'true');
+      mark.innerHTML = PLAY_SVG;
+      var title = document.createElement('span');
+      title.className = 'now-title';
+      title.textContent = show;
+      now.appendChild(mark);
+      now.appendChild(title);
       copy.appendChild(now);
     }
-    button.appendChild(copy);
+    bezel.appendChild(copy);
+    button.appendChild(bezel);
     button.addEventListener('click', function () {
       var row = Math.floor(index / 4) + (rows.length && rows[0].kind === 'viewers' ? 1 : 0);
       focus = { row: row, col: index % 4 };
@@ -257,9 +278,14 @@
     var badge = $('ceiling');
     if (data.ceiling) {
       badge.hidden = false;
-      badge.textContent = data.ceiling;
       badge.className = 'rating rating-' + String(data.ceiling).toLowerCase().replace('-', '');
       badge.title = 'Rating ' + data.ceiling;
+      badge.innerHTML = '';
+      badge.appendChild(antennaEl());
+      var letters = document.createElement('span');
+      letters.className = 'rating-letters';
+      letters.textContent = data.ceiling;
+      badge.appendChild(letters);
     } else {
       badge.hidden = true;
       badge.textContent = '';
@@ -394,7 +420,7 @@
     if (!/:\d+$/.test(value)) value += ':' + (CONFIG.port || 8686);
     $('setup-message').textContent = 'Trying ' + value + '…';
     probe(value).then(function (ok) {
-      if (!ok) { $('setup-message').textContent = '⚠ No answer from ' + value; return; }
+      if (!ok) { $('setup-message').textContent = 'No answer from ' + value; return; }
       SERVER = value;
       try { localStorage.setItem('onto.server', SERVER); } catch (e) {}
       $('setup').hidden = true;
@@ -402,7 +428,7 @@
       loadHome();
     });
   });
-  function fail(error) { status('⚠ ' + error.message); }
+  function fail(error) { status(error.message); }
 
   // ---------- playback ----------
   var media = window.ontoPlayer(video, $('av'));
@@ -417,14 +443,50 @@
     if (!play || !play.item) return;
     var duration = media.duration() || play.item.duration || 0;
     var channel = play.channel;
-    $('osd-channel').textContent = channel ? ((channel.number ? channel.number + ' ' : '') + (channel.name || channel.label || '')) : '';
+    paintChannel(channel);
     $('osd-show').textContent = play.item.show || '';
     $('osd-episode').textContent = play.item.title && play.item.title !== play.item.show ? play.item.title : '';
     $('osd-elapsed').textContent = clock(media.time());
     $('osd-duration').textContent = clock(duration);
     $('osd-fill').style.width = duration ? Math.min(100, 100 * media.time() / duration) + '%' : '0';
-    $('osd-play').textContent = media.paused() ? '▶' : '⏸';
+    if (media.paused()) $('osd-play').classList.add('is-paused');
+    else $('osd-play').classList.remove('is-paused');
     $('osd-next').hidden = play.mode === 'single';
+  }
+  function paintChannel(channel) {
+    var digits = $('osd-num-digits'), name = $('osd-chname');
+    if (!digits || !name) return;
+    var number = channel && channel.number != null && channel.number !== '' ? String(channel.number) : '';
+    var label = channel ? (channel.name || channel.label || '') : '';
+    digits.textContent = number;
+    name.textContent = (number ? ' ' : '') + label;
+  }
+  // Snow, then the corner number. A newer change cancels the previous number.
+  function showTuning(channel) {
+    var mark = ++tuneMark;
+    var flash = $('tune-flash'), bug = $('tune-num'), digits = $('tune-digits');
+    if (!flash || !bug || !digits) return;
+    digits.textContent = channel && channel.number != null && channel.number !== '' ? String(channel.number) : '';
+    bug.hidden = true;
+    flash.hidden = false;
+    clearTimeout(tuneTimer);
+    tuneTimer = setTimeout(function () {
+      if (mark !== tuneMark) return;
+      flash.hidden = true;
+      if (!digits.textContent) return;
+      bug.hidden = false;
+      tuneTimer = setTimeout(function () {
+        if (mark !== tuneMark) return;
+        bug.hidden = true;
+      }, 2000);
+    }, 200);
+  }
+  function hideTuning() {
+    tuneMark++;
+    clearTimeout(tuneTimer);
+    var flash = $('tune-flash'), bug = $('tune-num');
+    if (flash) flash.hidden = true;
+    if (bug) bug.hidden = true;
   }
 
   function subsUrl(src, name) {
@@ -454,9 +516,10 @@
     return play.item ? (play.item.resume || 0) : 0;
   }
   function showAdChip(n, total) {
-    var chip = $('ad-chip');
+    var chip = $('ad-chip'), label = $('ad-label');
     chip.hidden = false;
-    chip.textContent = 'Ad ' + n + '/' + total;
+    if (label) label.textContent = 'Ad ' + n + '/' + total;
+    else chip.textContent = 'Ad ' + n + '/' + total;
   }
   function hideAdChip() { var chip = $('ad-chip'); if (chip) chip.hidden = true; }
   function hideIntro() { var button = $('skip-intro'); if (button) button.hidden = true; }
@@ -876,9 +939,12 @@
 
   function startChannel(channel, fromItem, reason) {
     var request = ++tuneRequest;
+    var previousId = play && play.channel ? play.channel.id : '';
     if (play && play.item && (!fromItem || play.channel !== channel)) watchEvent('stop');
     if (play && play.item && play.channel && play.channel.id !== channel.id) rememberShow();
+    if (!previousId || previousId !== channel.id) showTuning(channel);
     play = play && play.channel === channel ? play : { mode: 'channel', channel: channel };
+    paintChannel(channel);
     var body = { channel: channel.id };
     var viewers = storedViewers();
     if (viewers !== null) body.viewers = viewers;
@@ -910,6 +976,7 @@
 
   function stopPlayback() {
     tuneRequest++;
+    hideTuning();
     clearTimeout(navTimer);
     clearTimeout(stripTimer);
     navState = window.ontoNav.initial();
@@ -963,7 +1030,7 @@
     if (play.airing === 'ad') return advanceAd();
     mediaState = 'error';
     diag('play_error', { page: 'player', engine: media.engine || 'video', state: 'error', errorCode: 'media' });
-    status('⚠ Could not play ' + (play.item ? play.item.title : 'that video'));
+    status('Could not play ' + (play.item ? play.item.title : 'that video'));
     watchEvent('error');
     // A file the TV cannot decode teaches nothing; channels move on, single files return home.
     if (play.mode === 'channel') startChannel(play.channel, null); else stopPlayback();

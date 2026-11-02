@@ -24,19 +24,21 @@
   <object id="av" type="application/avplayer" hidden></object>
   <video id="video" preload="auto"></video>
   <div id="osd">
-    <div id="osd-title"><span id="osd-channel"></span><span id="osd-show"></span><span id="osd-episode"></span></div>
+    <div id="osd-title"><span id="osd-channel"><span class="tv-chip" id="osd-num"><span class="antenna" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 28"><path d="M8 24 L40 4 L72 24" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span id="osd-num-digits"></span></span><span id="osd-chname"></span></span><span id="osd-show"></span><span id="osd-episode"></span></div>
     <div id="osd-bar"><span id="osd-elapsed">0:00</span><div id="osd-track"><div id="osd-fill"></div></div><span id="osd-duration">0:00</span></div>
-    <div id="osd-keys"><span id="osd-play" aria-label="Play or pause">⏸</span><span aria-label="Previous scene">◀</span><span aria-label="Next scene">▶</span><span id="osd-next" aria-label="Next episode">⏭</span></div>
+    <div id="osd-keys"><span id="osd-play" aria-label="Play or pause"><svg class="icon icon-play" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round" d="M14 8 L38 24 L14 40 Z"/></svg><svg class="icon icon-pause" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M12 8 h8 v32 h-8 z M28 8 h8 v32 h-8 z"/></svg></span><span aria-label="Previous scene"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round" d="M24 10 L6 24 L24 38 Z M42 10 L24 24 L42 38 Z"/></svg></span><span aria-label="Next scene"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round" d="M6 10 L24 24 L6 38 Z M24 10 L42 24 L24 38 Z"/></svg></span><span id="osd-next" aria-label="Next episode"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M8 8 L28 24 L8 40 Z M32 8 h8 v32 h-8 z"/></svg></span></div>
   </div>
-  <div id="ad-chip" hidden></div>
-  <button id="skip-intro" type="button" hidden>Skip intro</button>
+  <div id="ad-chip" hidden><span id="ad-label"></span><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 48"><path fill="currentColor" d="M2 6 L30 24 L2 42 Z M36 6 h10 v36 h-10 z"/></svg></span></div>
+  <button id="skip-intro" type="button" hidden><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 48"><path fill="currentColor" d="M2 6 L30 24 L2 42 Z M36 6 h10 v36 h-10 z"/></svg></span><span>Skip intro</span></button>
   <div id="jump-strip" hidden></div>
   <div id="options" hidden role="group" aria-label="Options">
-    <button type="button" class="opt" data-opt="subs"><span class="k">Subtitles</span><span class="v" id="opt-subs">Off</span></button>
-    <button type="button" class="opt" data-opt="audio"><span class="k">Audio</span><span class="v" id="opt-audio"></span></button>
-    <button type="button" class="opt" data-opt="ads"><span class="k">Ads</span><span class="v" id="opt-ads">Play</span></button>
+    <button type="button" class="opt" data-opt="subs"><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="56" height="36" rx="10"/><path d="M14 54h36"/></svg></span><span class="k">Subtitles</span><span class="v" id="opt-subs">Off</span></button>
+    <button type="button" class="opt" data-opt="audio"><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 64"><path fill="currentColor" d="M8 24h14l16-14v44L22 40H8z"/><path fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" d="M46 22c8 6 8 14 0 20"/></svg></span><span class="k">Audio</span><span class="v" id="opt-audio"></span></button>
+    <button type="button" class="opt" data-opt="ads"><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 8 L32 18 L42 8"/><rect x="10" y="18" width="44" height="34" rx="10"/></svg></span><span class="k">Ads</span><span class="v" id="opt-ads">Play</span></button>
   </div>
 </div>
+<div id="tune-flash" hidden aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" preserveAspectRatio="none"><filter id="tune-snow" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#tune-snow)"/></svg></div>
+<div id="tune-num" hidden aria-hidden="true"><span class="antenna" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 28"><path d="M8 24 L40 4 L72 24" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span id="tune-digits"></span></div>
 <div id="setup" hidden>
   <label for="setup-address">Mac address</label>
   <input id="setup-address" type="text" inputmode="url" autocomplete="off" spellcheck="false">
