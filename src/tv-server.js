@@ -512,12 +512,13 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         response.setHeader('Cache-Control', 'no-store');
         return send(response, result.status, result.body);
       }
-      if (path === '/api/console/games') {
-        if (request.method !== 'GET') return send(response, 405, { error: 'Method not allowed.' });
-        response.setHeader('Cache-Control', 'no-store');
-        return send(response, 200, { games: await consoleLauncher.games() });
-      }
-      if (path === '/api/console/launch') {
+      if (path === '/api/console/games' || path === '/api/console/launch') {
+        if (!token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
+        if (path === '/api/console/games') {
+          if (request.method !== 'GET') return send(response, 405, { error: 'Method not allowed.' });
+          response.setHeader('Cache-Control', 'no-store');
+          return send(response, 200, { games: await consoleLauncher.games() });
+        }
         if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' });
         const result = await consoleLauncher.launch(await readBody(request));
         return send(response, result.status, result.body);

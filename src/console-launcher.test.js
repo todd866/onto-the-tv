@@ -71,5 +71,9 @@ test('launch reports a run failure as 500', async () => {
   try {
     const launcher = createConsoleLauncher({ romRoot: root, run: async () => { throw new Error('boom'); } });
     assert.equal((await launcher.launch({ system: 'nes', file: 'Excitebike.nes' })).status, 500);
+    // The default runner routes the async spawn error event through the promise
+    // (a missing RetroArch binary must not crash the server).
+    const real = createConsoleLauncher({ romRoot: root, retroArch: '/nonexistent/retroarch' });
+    assert.equal((await real.launch({ system: 'nes', file: 'Excitebike.nes' })).status, 500);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

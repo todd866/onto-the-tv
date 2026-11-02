@@ -20,12 +20,15 @@ export function createConsoleLauncher({
   retroArch = '/Applications/RetroArch.app/Contents/MacOS/RetroArch',
   coresDir = join(homedir(), 'Library/Application Support/RetroArch/cores'),
   romRoot = '/Volumes/Stash/ROMs',
-  // Detached spawn so the server keeps serving while the game runs.
-  run = (command, args) => {
+  // Detached spawn so the server keeps serving while the game runs. The error
+  // event fires asynchronously (e.g. RetroArch missing), so it must route
+  // through the returned promise or it becomes an uncaught exception.
+  run = (command, args) => new Promise((resolve, reject) => {
     const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+    child.on('spawn', resolve); // fires only when the process actually started
+    child.on('error', reject);  // fires asynchronously (missing binary)
     child.unref();
-    return Promise.resolve();
-  },
+  }),
 } = {}) {
   const root = resolve(romRoot);
 
