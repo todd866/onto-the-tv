@@ -57,3 +57,15 @@ Jump by scene, not by time. The model to follow is Netflix; Amazon's slow scrubb
 ## Watershed (Ian, 2026-11-02)
 
 At 20:00 the who's-watching default becomes Mum and Dad (ceiling M); at 05:00 it returns to everyone (G). A manual change holds until the next switch. This is TV-local time, implemented in `tv/app.js` (`band()`, `storedViewers()`).
+
+## Design language (Ian, 2026-11-02): built from the app icon
+
+The approved icon (`tizen/icon.svg`, a navy retro TV with antenna on amber) sets the visual language for every TV surface: home, player overlay, options panel, ad and skip chips, setup, Games and Uke.
+
+- **Colour:** navy `#14213d` for surfaces and amber `#ffb547` for focus and action. The background is deep navy `#0b1428`, not grey-black. Text is white or `#f4f1ea`. Ratings keep their own colours (G green, PG yellow, M red), always with the letters.
+- **Shape:** chunky, flat, rounded. Corner radius is about 22% of the short side, as on the icon tile. Strokes are thick (6–8 px at 1080). No gradients except the dark scrim under card text. No drop shadows.
+- **The TV as the frame:** a channel card is a TV screen with a navy bezel and the now-on art as the picture. When focused, the bezel turns amber, the card grows about 6%, and a small antenna "V" appears above it. The rating badge is a small TV-shaped chip.
+- **Glyphs:** one flat line-icon set in the icon's stroke style, drawn in SVG (no emoji): game controller, ukulele, ▶ ⏸ ⏭ ⏮, subtitles, ads ⏭, people. The Games and Uke cards use these glyphs on navy.
+- **Type:** a heavy rounded sans bundled as WOFF (Nunito ExtraBold/Bold, OFL), because old Tizen has no system rounded face. Channel numbers are tabular, at least 44 px. Nothing smaller than 26 px.
+- **Motion:** 150 ms ease-out on focus. A channel change shows a quick "tuning" snow/static flash of about 200 ms, then the channel number big in the corner for 2 s, like an old set.
+- **Player overlay:** a navy bar with an amber progress line and the channel number in an amber TV chip, followed by the show name.
