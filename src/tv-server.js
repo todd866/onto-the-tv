@@ -234,6 +234,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   function ratingAllowed(item, ceiling, blocked, channelId) {
     if (blocked) return false;
     const channel = TV_CHANNELS.find(entry => entry.id === channelId);
+    // Channel ratings override the tier for curated genre channels (e.g. rides items
+    // are filed grownup on the Stash but are PG); the regexes are limited to named
+    // shows and exclude ad paths, so the override cannot re-badge arbitrary content.
     const rating = channel?.rating || TIER_RATINGS[item.tier] || 'M';
     return RATING_ORDER.indexOf(rating) <= RATING_ORDER.indexOf(ceiling);
   }
