@@ -53,3 +53,7 @@ Jump by scene, not by time. The model to follow is Netflix; Amazon's slow scrubb
 - **Ads: Play / Skip** is in the OK-hold options panel and is remembered per channel. With Skip set, both kinds of break are passed over automatically.
 - **Skip intro:** episodic shows get intro and credits detection by matching audio across episodes of the same show (the Plex/Jellyfin approach). The first intro of a session shows a "Skip intro" button where OK skips it. Later intros on the same channel skip automatically. At the credits, the next show (or the ad break) starts.
 - **Subtitles:** sidecar .srt/.vtt files plus embedded text tracks; new YouTube downloads also fetch subtitles. Turn them on from the OK-hold options panel or the remote's SUBT key. The choice is remembered per viewer set.
+
+## Watershed (Ian, 2026-11-02)
+
+At 20:00 the who's-watching default becomes Mum and Dad (ceiling M); at 05:00 it returns to everyone (G). A manual change holds until the next switch. This is TV-local time, implemented in `tv/app.js` (`band()`, `storedViewers()`).
