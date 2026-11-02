@@ -6,6 +6,37 @@ window.ontoPlayer = function (video, avObject) {
   var handlers = {};
   function on(name, fn) { (handlers[name] = handlers[name] || []).push(fn); }
   function emit(name) { (handlers[name] || []).forEach(function (fn) { fn(); }); }
+  function videoTracks() {
+    var audio = [], text = [], i, list, track;
+    list = video.audioTracks;
+    if (list) {
+      for (i = 0; i < list.length; i++) {
+        track = list[i];
+        audio.push({ index: i, label: track.label || track.language || String(i + 1) });
+      }
+    }
+    list = video.textTracks;
+    if (list) {
+      for (i = 0; i < list.length; i++) {
+        track = list[i];
+        if (track.kind !== 'subtitles' && track.kind !== 'captions') continue;
+        text.push({ index: i, label: track.label || track.language || String(i + 1), language: track.language || '' });
+      }
+    }
+    return { audio: audio, text: text };
+  }
+  function selectVideoAudio(index) {
+    var list = video.audioTracks, i;
+    if (!list) return;
+    for (i = 0; i < list.length; i++) {
+      try { list[i].enabled = i === index; } catch (e) {}
+    }
+  }
+  function selectVideoText(index) {
+    var list = video.textTracks, i;
+    if (!list) return;
+    for (i = 0; i < list.length; i++) list[i].mode = i === index ? 'showing' : 'disabled';
+  }
 
   if (!(window.webapis && webapis.avplay && avObject)) {
     video.addEventListener('timeupdate', function () { emit('time'); });
@@ -32,6 +63,9 @@ window.ontoPlayer = function (video, avObject) {
       seek: function (seconds) { video.currentTime = seconds; },
       ended: function () { return video.ended; },
       stop: function () { video.pause(); video.removeAttribute('src'); video.load(); },
+      tracks: videoTracks,
+      selectAudio: selectVideoAudio,
+      selectText: selectVideoText,
     };
   }
 
@@ -73,5 +107,34 @@ window.ontoPlayer = function (video, avObject) {
     },
     ended: function () { return state.ended; },
     stop: function () { close(); state.paused = true; },
+    tracks: function () {
+      var audio = [], text = [], info = [], i, item, label, extra;
+      try { info = av.getTotalTrackInfo() || []; } catch (e) { info = []; }
+      for (i = 0; i < info.length; i++) {
+        item = info[i] || {};
+        label = '';
+        extra = item.extra_info;
+        if (typeof extra === 'string' && extra.charAt(0) === '{') {
+          try {
+            var parsed = JSON.parse(extra);
+            label = parsed.language || parsed.track_lang || '';
+          } catch (e2) {}
+        } else if (typeof extra === 'string') label = extra;
+        if (!label) label = String((item.index || 0) + 1);
+        if (item.type === 'AUDIO') audio.push({ index: item.index, label: label });
+        if (item.type === 'TEXT') text.push({ index: item.index, label: label, language: label });
+      }
+      return { audio: audio, text: text };
+    },
+    selectAudio: function (index) { try { av.setSelectTrack('AUDIO', index); } catch (e) {} },
+    selectText: function (index) {
+      try {
+        if (index < 0 && av.setSilentSubtitle) av.setSilentSubtitle(true);
+        else {
+          if (av.setSilentSubtitle) av.setSilentSubtitle(false);
+          if (index >= 0) av.setSelectTrack('TEXT', index);
+        }
+      } catch (e) {}
+    },
   };
 };
