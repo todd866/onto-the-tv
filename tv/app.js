@@ -167,25 +167,15 @@
     var keep = { row: focus.row, col: focus.col };
     loadHome().then(function () { focus = keep; moveFocus(0, 0); });
   }
-  // Prepared artwork lives only for this page and is bounded to the nearby grid.
-  var artCache = {}, artOrder = [];
   function loadArt(img, url) {
     if (!img || !url) return;
-    if (!artCache[url]) {
-      artOrder.push(url);
-      if (artOrder.length > 32) delete artCache[artOrder.shift()];
-      artCache[url] = new Promise(function (resolve, reject) {
-        var image = new Image();
-        image.onload = function () {
-          if (image.decode) image.decode().then(resolve, resolve); else resolve();
-        };
-        image.onerror = function () { delete artCache[url]; reject(new Error('Artwork unavailable')); };
-        image.src = url;
-      });
-    }
-    artCache[url].then(function () {
-      if (document.documentElement.contains(img)) img.src = url;
-    }, function () { img.style.visibility = 'hidden'; });
+    var image = new Image();
+    image.onload = function () {
+      var apply = function () { if (document.documentElement.contains(img)) img.src = url; };
+      if (image.decode) image.decode().then(apply, apply); else apply();
+    };
+    image.onerror = function () { img.style.visibility = 'hidden'; };
+    image.src = url;
   }
   function antennaEl() {
     var el = document.createElement('span');
@@ -337,13 +327,9 @@
     el.classList.add('focused');
     try { el.focus(); } catch (e) {}
     if (row.kind === 'channels') {
-      var holder = $('channels');
-      var stride = el.offsetHeight + 40;
-      var visibleRows = Math.max(1, Math.floor((holder.clientHeight - 56) / stride));
-      var channelRow = focus.row - 1;
-      var totalRows = Math.ceil(holder.children.length / columnCount());
-      var firstRow = Math.min(Math.floor(channelRow / visibleRows) * visibleRows, Math.max(0, totalRows - visibleRows));
-      holder.scrollTop = firstRow * stride;
+      var holder = $('channels'), box = el.getBoundingClientRect(), area = holder.getBoundingClientRect();
+      if (box.top < area.top + 32) holder.scrollTop -= area.top + 32 - box.top;
+      if (box.bottom > area.bottom - 16) holder.scrollTop += box.bottom - area.bottom + 16;
     }
   }
   function activate(item) {
@@ -1120,13 +1106,8 @@
   media.on('pause', function () { mediaState = media.paused() ? 'paused' : 'loading'; if (media.paused()) { watchEvent('pause'); diag('pause', diagnosticSample()); } updateOsd(); showOsd(); });
   video.addEventListener('click', togglePause);
   $('osd-play').addEventListener('click', togglePause);
-  function tapScene(key) {
-    var time = Date.now();
-    onNav({ type: 'down', key: key, time: time, ad: inAd() });
-    onNav({ type: 'up', key: key, time: time, ad: inAd() });
-  }
-  $('osd-prev-scene').addEventListener('click', function () { tapScene('left'); });
-  $('osd-next-scene').addEventListener('click', function () { tapScene('right'); });
+  $('osd-prev-scene').addEventListener('click', function () { commitJump(-1); });
+  $('osd-next-scene').addEventListener('click', function () { commitJump(1); });
   $('osd-options').addEventListener('click', openOptions);
   $('osd-next').addEventListener('click', function () { next('skip'); });
   $('skip-intro').addEventListener('click', skipIntro);

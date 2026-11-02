@@ -63,10 +63,10 @@ button:focus { outline: none; }
 .rating-m .antenna { color: #e5484d; }
 #clock { font-size: 44px; font-weight: 800; font-feature-settings: "tnum" 1; line-height: 1; }
 
-#channels { flex: 1 1 auto; min-height: 0; max-height: 796px; overflow-y: auto; display: flex; flex-wrap: wrap; align-content: flex-start; padding: 40px 16px 16px; }
+#channels { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-wrap: wrap; align-content: flex-start; padding: 32px 16px 16px; }
 .channel {
   position: relative; flex: 0 0 auto;
-  width: calc((100% - 72px) / 4); height: 330px; margin: 0 24px 40px 0;
+  width: calc((100% - 72px) / 4); height: 330px; margin: 0 24px 20px 0;
   padding: 0; overflow: visible; background: transparent; color: #fff;
   transform-origin: center center;
   transition: transform 150ms ease-out;
@@ -325,20 +325,4 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
   #osd-keys { width: 100%; margin-bottom: 12px; }
   #options { left: 12px; right: 12px; width: auto; padding: 12px; }
   .opt { padding: 0 8px; font-size: 28px; }
-}
-@media (max-height: 500px) {
-  #home { padding: 8px; }
-  #top { flex-wrap: nowrap; min-height: 72px; margin-bottom: 4px; padding: 0; }
-  #viewers { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; padding: 4px; }
-  .viewer { flex: 0 0 auto; min-height: 56px; margin-bottom: 0; padding: 6px 10px; border-width: 4px; font-size: 28px; }
-  .viewer .tick, .viewer .tick svg { width: 28px; height: 28px; }
-  #top-meta { flex: 0 0 auto; margin: 0 0 0 16px; }
-  .rating { min-height: 48px; min-width: 64px; font-size: 28px; margin-right: 16px; }
-  #clock { font-size: 32px; }
-  .channel { height: 180px; }
-  .bezel { border-width: 8px; border-radius: 40px; }
-  .channel-copy { padding: 32px 16px 12px; }
-  .app-glyph { top: 8px; bottom: 64px; }
-  .app-glyph svg { max-height: 64px; }
-  #options { bottom: 12px; max-height: calc(100% - 24px); overflow-y: auto; }
 }
