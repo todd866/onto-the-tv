@@ -9,9 +9,9 @@
   const ADULT_KEY = "onto.adult.v1";
   // Stream id -> tiers, mirroring STREAMS in make_shuffler.py. No stream is a
   // superset of another by accident: widening one means naming a tier here.
-  const STREAMS = { 2:["preschool", "shared"], 6:["shared", "big"], grown:["grownup"], mum:["grownup"], dad:["grownup"], both:["couple"], sitcoms:["sitcom"], scifi:["scifi"], adultanim:["adultanim"], comedy:["comedy"], docs:["docs"], classic:["classic"], music:["music"], d50:["50s"], d60:["60s"], d70:["70s"], d80:["80s"], d90:["90s"],
-    all:["preschool", "shared", "big", "older", "grownup", "couple", "sitcom", "scifi", "adultanim", "comedy", "docs", "classic", "music", "50s", "60s", "70s", "80s", "90s"] };
-  const STREAM_LABELS = { 2:"Little Kids 2+", 6:"Big Kids 6+", grown:"Grown-ups", mum:"Mum", dad:"Dad", both:"Mum & Dad", sitcoms:"Sitcoms", scifi:"Sci-Fi", adultanim:"Adult Animation", comedy:"Comedy", docs:"Sport & Docs", classic:"Classic Movies", music:"Music", d50:"1950s", d60:"1960s", d70:"1970s", d80:"1980s", d90:"1990s", all:"Everything" };
+  const STREAMS = { 2:["preschool", "shared"], 6:["shared", "big"], grown:["grownup"], mum:["grownup"], dad:["grownup"], both:["couple"], sitcoms:["sitcom"], scifi:["scifi"], adultanim:["adultanim"], comedy:["comedy"], docs:["docs"], classic:["classic"], bbc:["bbc"], music:["music"], d50:["50s"], d60:["60s"], d70:["70s"], d80:["80s"], d90:["90s"],
+    all:["preschool", "shared", "big", "older", "grownup", "couple", "sitcom", "scifi", "adultanim", "comedy", "docs", "classic", "bbc", "music", "50s", "60s", "70s", "80s", "90s"] };
+  const STREAM_LABELS = { 2:"Little Kids 2+", 6:"Big Kids 6+", grown:"Grown-ups", mum:"Mum", dad:"Dad", both:"Mum & Dad", sitcoms:"Sitcoms", scifi:"Sci-Fi", adultanim:"Adult Animation", comedy:"Comedy", docs:"Sport & Docs", classic:"Classic Movies", bbc:"BBC", music:"Music", d50:"1950s", d60:"1960s", d70:"1970s", d80:"1980s", d90:"1990s", all:"Everything" };
   const audienceFor = stream => String(stream).split(".")[0];
   const keyFor = age => "kidshuffle.weights.v2.s" + audienceFor(age);
   const clamp = value => Math.max(FLOOR, Math.min(CAP, value));
