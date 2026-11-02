@@ -68,6 +68,7 @@ export const TV_CHANNELS = [
   { id: 'd80', number: 15, name: '1980s', ads: '80s' },
   { id: 'd90', number: 16, name: '1990s', ads: '90s' },
   { id: 'sports', number: 17, name: 'Sports', recordedAds: true },
+  { id: 'hophop', number: 18, name: 'Hop Hop' },
 ];
 
 export function inTvGenre(item, channelId) {
@@ -82,6 +83,8 @@ export function inTvGenre(item, channelId) {
   if (channelId === 'scifi') return item.tier === 'scifi';
   if (channelId === 'classic') return item.tier === 'classic';
   if (channelId === 'sports') return item.tier === 'sports';
+  if (channelId === 'hophop') return ['preschool', 'shared'].includes(item.tier)
+    && /hop[ ._-]?hop/i.test(String(item.channel || '') + ' ' + String(item.src || '').replace(/[._]/g, ' '));
   if (DECADES[channelId]) return item.tier === DECADES[channelId];
   return false;
 }

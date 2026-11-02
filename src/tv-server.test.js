@@ -96,13 +96,15 @@ test('adults use the existing taste keys and hidden genres stay hidden', async (
     { src: 'Sitcom/s.mp4', file: '/m/Sitcom/s.mp4', title: 'Sitcom', channel: 'The Sitcom', tier: 'sitcom', duration: 1300 },
     { src: 'Music/m.mp4', file: '/m/Music/m.mp4', title: 'Song', channel: 'Music', tier: 'music', duration: 200 },
     { src: 'Bluey/xmas.mp4', file: '/m/Bluey/xmas.mp4', title: 'Christmas Episode', channel: 'Bluey', tier: 'shared', duration: 420 },
+    { src: 'Hop Hop the Owl/h.mp4', file: '/m/Hop Hop the Owl/h.mp4', title: 'Hop Hop Episode', channel: 'Hop Hop the Owl', tier: 'preschool', duration: 300 },
     { src: 'Sci/s.mp4', file: '/m/Sci/s.mp4', title: 'Sci-Fi', channel: 'Sci-Fi Show', tier: 'scifi', duration: 2400 },
     { src: 'Anim/a.mp4', file: '/m/Anim/a.mp4', title: 'Adult Cartoon', channel: 'Adult Cartoon', tier: 'adultanim', duration: 1300 },
   ];
   const library = createTvLibrary({ videos: catalogue, history, storage, random: () => 0 });
   const sam = library.home('sam');
   assert.equal(sam.ceiling, 'G');
-  assert.deepEqual(sam.channels.map(channel => channel.id), ['cartoons', 'music', 'christmas']);
+  assert.deepEqual(sam.channels.map(channel => channel.id), ['cartoons', 'music', 'christmas', 'hophop']);
+  assert.deepEqual(library.next('hophop', { viewers: 'sam' }).show, 'Hop Hop the Owl');
   const jake = library.home('jake');
   assert.equal(jake.ceiling, 'PG');
   assert.ok(jake.channels.find(channel => channel.id === 'cartoons'));
