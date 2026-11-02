@@ -28,6 +28,8 @@ fi
 
 mkdir -p "$APP"
 cp "$ROOT"/tv/index.html "$ROOT"/tv/app.js "$ROOT"/tv/player.js "$ROOT"/tv/nav.js "$ROOT"/tv/watch-tracker.js "$ROOT"/tv/watch-delivery.js "$ROOT"/tv/diagnostics.js "$ROOT"/tv/gamepad.js "$ROOT"/tv/remote-games.js "$ROOT"/tv/game-bridge.js "$ROOT"/tv/couch.js "$ROOT"/tv/uke.js "$ROOT"/tv/number-rover.js "$ROOT"/tv/number-rover.css "$ROOT"/tv/remote-games.css "$ROOT"/tv/styles.css "$HERE"/config.xml "$HERE"/icon.png "$APP"/
+mkdir -p "$APP/fonts"
+cp "$ROOT"/tv/fonts/Nunito-Bold.woff "$ROOT"/tv/fonts/Nunito-ExtraBold.woff "$APP/fonts/"
 UKE_ROOT="${UKE_ROOT:-$ROOT/../uke}"
 node "$UKE_ROOT/tools/build-tv.mjs" "$APP/uke"
 cp "$ROOT/tv/uke-probe.js" "$APP/uke/probe.js"

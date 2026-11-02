@@ -94,7 +94,7 @@ const MIME = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktim
   '.webm': 'video/webm', '.avi': 'video/x-msvideo', '.ts': 'video/mp2t', '.m2ts': 'video/mp2t' };
 const STATIC = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json',
-  '.wasm': 'application/wasm' };
+  '.wasm': 'application/wasm', '.woff': 'font/woff' };
 const RECENT_LIMIT = 50;
 
 /** True for loopback, private, link-local, CGNAT/Tailscale and unique-local addresses. */

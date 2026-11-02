@@ -56,7 +56,8 @@ try {
       const n = +(url.searchParams.get('src') || '').replace('show', '') || 0;
       return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="${colors[n % colors.length]}"/><stop offset="1" stop-color="#080d18"/></linearGradient></defs><rect width="1280" height="720" fill="url(#g)"/><circle cx="900" cy="180" r="120" fill="white" opacity=".12"/></svg>` });
     }
-    try { return route.fulfill({ body: await readFile(path.join(root, url.pathname === '/' ? 'index.html' : url.pathname.slice(1))), contentType: url.pathname.endsWith('.js') ? 'text/javascript' : url.pathname.endsWith('.css') ? 'text/css' : 'text/html' }); }
+    const type = url.pathname.endsWith('.js') ? 'text/javascript' : url.pathname.endsWith('.css') ? 'text/css' : url.pathname.endsWith('.woff') ? 'font/woff' : url.pathname.endsWith('.svg') ? 'image/svg+xml' : 'text/html';
+    try { return route.fulfill({ body: await readFile(path.join(root, url.pathname === '/' ? 'index.html' : url.pathname.slice(1))), contentType: type }); }
     catch { return route.fulfill({ status: 404, body: '' }); }
   });
 
@@ -64,7 +65,10 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('http://tv.test/');
   await page.locator('.viewer.focused').waitFor();
+  await page.evaluate(async () => { if (document.fonts) await document.fonts.ready; });
+  assert.equal(await page.evaluate(() => document.fonts.check('700 44px Nunito') && document.fonts.check('800 44px Nunito')), true, 'Nunito woff did not load');
   await page.screenshot({ path: path.join(out, 'home-dark.png') });
+  await page.screenshot({ path: path.join(out, 'home-everyone-dark.png') });
   assert.equal(await page.locator('h1, h2').count(), 0);
   assert.equal(await page.getByText('Continue Watching').count(), 0);
   assert.equal(await page.getByText('Browse shows').count(), 0);
@@ -80,14 +84,19 @@ try {
   const card = await page.locator('.channel').first().boundingBox();
   assert.ok(Math.abs(card.width - 440) < 2 && Math.abs(card.height - 412) < 2, JSON.stringify(card));
   await assertViewport(page, { primary: [{ selector: '#home' }], controls: [{ selector: '.viewer.focused' }] });
+  await page.keyboard.press('ArrowDown');
+  await page.locator('.channel.focused').waitFor();
+  await page.screenshot({ path: path.join(out, 'home-focus-dark.png') });
 
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('http://tv.test/');
   await page.locator('.viewer.focused').waitFor();
   await page.screenshot({ path: path.join(out, 'home-light.png') });
+  await page.screenshot({ path: path.join(out, 'home-everyone-light.png') });
   await page.keyboard.press('ArrowDown');
   await page.locator('.channel.focused').waitFor();
   await page.screenshot({ path: path.join(out, 'home-light-focus.png') });
+  await page.screenshot({ path: path.join(out, 'home-focus-light.png') });
   await assertViewport(page, { primary: ['#home'], controls: [{ selector: '.channel.focused' }] });
 
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -100,6 +109,14 @@ try {
   assert.equal(await page.locator('#ceiling').textContent(), 'PG');
   assert.equal(await page.locator('.viewer').first().getAttribute('aria-pressed'), 'false');
   await page.screenshot({ path: path.join(out, 'home-dark-unticked.png') });
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await page.locator('#ceiling', { hasText: 'M' }).waitFor();
+  assert.equal(await page.locator('.viewer.on').count(), 2);
+  await page.screenshot({ path: path.join(out, 'home-adults-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(out, 'home-adults-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
 
   await page.route('http://tv.test/player.js', route => route.fulfill({ contentType: 'text/javascript', body: `
     window.ontoPlayer=function(){var h={},t=0,p=true; window.testMedia={finish:function(){(h.ended||function(){})();},tick:function(v){t=v;(h.time||function(){})();}};
@@ -117,10 +134,33 @@ try {
   assert.equal(await page.locator('#osd-episode').textContent(), 'Channel cartoons');
   const hint = await page.locator('#osd-keys').evaluate(el => parseFloat(getComputedStyle(el).fontSize));
   assert.ok(hint >= 28, 'key hints ' + hint);
+  await page.waitForFunction(() => document.getElementById('tune-flash').hidden && !document.getElementById('tune-num').hidden);
+  assert.equal(await page.locator('#tune-digits').textContent(), '1');
   await page.screenshot({ path: path.join(out, 'osd-dark.png') });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.screenshot({ path: path.join(out, 'osd-light.png') });
+  await page.evaluate(() => {
+    document.getElementById('ad-label').textContent = 'Ad 2/3';
+    document.getElementById('ad-chip').hidden = false;
+    document.getElementById('skip-intro').hidden = false;
+  });
+  await page.screenshot({ path: path.join(out, 'chips-light.png') });
   await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: path.join(out, 'chips-dark.png') });
+  await page.evaluate(() => {
+    document.getElementById('ad-chip').hidden = true;
+    document.getElementById('skip-intro').hidden = true;
+  });
+  await page.keyboard.down('Enter');
+  await page.waitForTimeout(750);
+  await page.keyboard.up('Enter');
+  await page.locator('#options:visible').waitFor();
+  await page.screenshot({ path: path.join(out, 'options-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(out, 'options-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.getElementById('options').hidden);
   await page.waitForTimeout(1300); // the player ignores time updates for 1.2 s after a load or seek
   await page.evaluate(() => window.testMedia.tick(120));
   await page.waitForTimeout(50);
@@ -157,9 +197,23 @@ try {
   await page.keyboard.press('2');
   await page.waitForTimeout(100);
   assert.equal(await page.locator('#osd-episode').textContent(), 'Channel movies');
+  assert.equal(await page.locator('#tune-digits').textContent(), '2');
   releaseFirst();
   await page.waitForTimeout(100);
   assert.equal(await page.locator('#osd-episode').textContent(), 'Channel movies');
+  await page.evaluate(() => {
+    document.getElementById('player').hidden = true;
+    document.getElementById('tune-num').hidden = true;
+    document.getElementById('tune-flash').hidden = true;
+    const setup = document.getElementById('setup');
+    setup.hidden = false;
+    document.getElementById('setup-address').value = '192.168.1.30:8686';
+    document.getElementById('setup-message').textContent = 'No answer from http://192.168.1.30:8686';
+  });
+  await page.screenshot({ path: path.join(out, 'setup-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(out, 'setup-light.png') });
+  await page.evaluate(() => { document.getElementById('setup').hidden = true; });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, screenshots: out, homeQueries: homeQueries.length }));
+  console.log(JSON.stringify({ passed: true, screenshots: out, homeQueries: homeQueries.length, shots: ['home-everyone-dark.png', 'home-everyone-light.png', 'home-adults-dark.png', 'home-adults-light.png', 'home-focus-dark.png', 'home-focus-light.png', 'osd-dark.png', 'osd-light.png', 'options-dark.png', 'options-light.png', 'chips-dark.png', 'chips-light.png', 'setup-dark.png', 'setup-light.png'] }));
 } finally { await browser.close(); }
