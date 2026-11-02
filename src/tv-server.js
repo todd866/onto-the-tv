@@ -11,6 +11,8 @@ import { writeAtomically } from './atomic-write.js';
 import { createDiagnosticsStore } from './tv-diagnostics.js';
 import { createGameRelay } from './game-relay.js';
 import { createConfiguredUkeHandler } from './uke-handler.js';
+import { adDecade, buildPlayQueue, isAdSrc } from './ads.js';
+import { listSidecars, readSubtitle } from './subtitles.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
 // episode with the same picker and learning rules as the app's player, and streams
@@ -35,8 +37,9 @@ export const TIER_RATINGS = {
   big: 'PG',
   older: 'PG-13',
   grownup: 'M', couple: 'M', adultanim: 'M', sitcom: 'M', scifi: 'M',
-  comedy: 'M', docs: 'PG', classic: 'M',
+  comedy: 'M', docs: 'PG', classic: 'M', sports: 'PG',
   '50s': 'M', '60s': 'M', '70s': 'M', '80s': 'M', '90s': 'M',
+  sports: 'M',
 };
 
 // Genre channels. Numbers stay put when a channel is hidden, so key 1 is always
@@ -46,7 +49,9 @@ export const TIER_RATINGS = {
 // keep the folders and the seasonal filter they already had.
 const CARTOON_TIERS = new Set(['preschool', 'shared', 'big', 'older', 'adultanim']);
 const MOVIE_TIERS = new Set(['grownup', 'couple']);
-const RETRO_TIERS = new Set(['50s', '60s', '70s', '80s', '90s']);
+const DECADES = { d50: '50s', d60: '60s', d70: '70s', d80: '80s', d90: '90s' };
+// Numbers 6 and 7 are Games and Uke on the TV. Decade channels carry period ads.
+// Sports is the taped-broadcast channel: its files are scanned for ad breaks.
 export const TV_CHANNELS = [
   { id: 'cartoons', number: 1, name: 'Cartoons' },
   { id: 'movies', number: 2, name: 'Movies' },
@@ -57,8 +62,33 @@ export const TV_CHANNELS = [
   { id: 'docs', number: 9, name: 'Sport & Docs' },
   { id: 'scifi', number: 10, name: 'Sci-Fi' },
   { id: 'classic', number: 11, name: 'Classics' },
-  { id: 'retro', number: 12, name: 'Retro TV' },
+  { id: 'd50', number: 12, name: '1950s', ads: '50s' },
+  { id: 'd60', number: 13, name: '1960s', ads: '60s' },
+  { id: 'd70', number: 14, name: '1970s', ads: '70s' },
+  { id: 'd80', number: 15, name: '1980s', ads: '80s' },
+  { id: 'd90', number: 16, name: '1990s', ads: '90s' },
+  { id: 'sports', number: 17, name: 'Sports', recordedAds: true },
 ];
+
+export function inTvGenre(item, channelId) {
+  if (!item || isAdSrc(item.src)) return false;
+  if (channelId === 'christmas') return player.inStream(item, 'christmas');
+  if (channelId === 'music') return item.tier === 'music';
+  if (channelId === 'sitcoms') return item.tier === 'sitcom';
+  if (channelId === 'movies') return player.inStream(item, 'movies') || MOVIE_TIERS.has(item.tier);
+  if (channelId === 'cartoons') return CARTOON_TIERS.has(item.tier) && !player.inStream(item, 'movies');
+  if (channelId === 'comedy') return item.tier === 'comedy';
+  if (channelId === 'docs') return item.tier === 'docs';
+  if (channelId === 'scifi') return item.tier === 'scifi';
+  if (channelId === 'classic') return item.tier === 'classic';
+  if (channelId === 'sports') return item.tier === 'sports';
+  if (DECADES[channelId]) return item.tier === DECADES[channelId];
+  return false;
+}
+
+export function fileWantsRecordedAds(item) {
+  return TV_CHANNELS.some(channel => channel.recordedAds && inTvGenre(item, channel.id));
+}
 
 const MIME = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.mkv': 'video/x-matroska',
   '.webm': 'video/webm', '.avi': 'video/x-msvideo', '.ts': 'video/mp2t', '.m2ts': 'video/mp2t' };
@@ -153,7 +183,7 @@ export function parseRange(header, size) {
  * The TV-facing model. `videos` comes from readCatalogue; `history` is a
  * loadPlaybackHistory store; `storage` a createFileStorage store.
  */
-export function createTvLibrary({ videos, history, storage, random = Math.random }) {
+export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, now = () => Date.now() }) {
   const bySrc = new Map(videos.map((video, index) => [video.src, index]));
   // Per-channel memory of recently played indices, as the player keeps per tab.
   const recent = new Map();
@@ -199,17 +229,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   }
 
   function inGenre(item, channelId) {
-    if (channelId === 'christmas') return player.inStream(item, 'christmas');
-    if (channelId === 'music') return item.tier === 'music';
-    if (channelId === 'sitcoms') return item.tier === 'sitcom';
-    if (channelId === 'movies') return player.inStream(item, 'movies') || MOVIE_TIERS.has(item.tier);
-    if (channelId === 'comedy') return item.tier === 'comedy';
-    if (channelId === 'docs') return item.tier === 'docs';
-    if (channelId === 'scifi') return item.tier === 'scifi';
-    if (channelId === 'classic') return item.tier === 'classic';
-    if (channelId === 'retro') return RETRO_TIERS.has(item.tier);
-    if (channelId === 'cartoons') return CARTOON_TIERS.has(item.tier) && !player.inStream(item, 'movies');
-    return false;
+    return inTvGenre(item, channelId);
   }
 
   // Which genre channels a video belongs to, before the audience ceiling.
@@ -338,6 +358,36 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     recent.set(channelId, played.slice(-RECENT_LIMIT));
   }
 
+  function queueFor(channel, show, ids) {
+    if (!channel?.ads) return [{ kind: 'show', src: show.src, breaks: [] }];
+    const { ceiling, blocked } = audience(ids);
+    const pool = [];
+    for (const item of videos) {
+      if (adDecade(item.src) !== channel.ads) continue;
+      pool.push({ src: item.src, title: item.title || item.src, duration: item.duration || 0 });
+    }
+    let blacks = [];
+    try {
+      const scene = scenes(show.src);
+      if (scene && Array.isArray(scene.blacks)) blacks = scene.blacks;
+    } catch { blacks = []; }
+    let stored = null;
+    try { stored = JSON.parse(storage.getItem('onto.ads.played.v1') || ''); }
+    catch { stored = null; }
+    const built = buildPlayQueue({
+      show: { src: show.src, duration: show.duration || 0 },
+      ads: pool, blacks, played: stored, now: now(), ceiling, blocked, tiers: showTiers,
+    });
+    storage.setItem('onto.ads.played.v1', JSON.stringify(built.played));
+    return built.queue;
+  }
+
+  function finish(index, channelId, ids) {
+    const described = describe(videos[index]);
+    const channel = TV_CHANNELS.find(entry => entry.id === channelId);
+    return { ...described, queue: queueFor(channel, described, ids) };
+  }
+
   function next(channelId, options = {}) {
     const ids = viewerIds(options.viewers);
     const key = stageKey(channelId, ids);
@@ -345,12 +395,12 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       const index = staged.get(key);
       staged.delete(key);
       remember(channelId, index);
-      return describe(videos[index]);
+      return finish(index, channelId, ids);
     }
     const index = chooseIndex(channelId, ids, options);
     staged.delete(key);
     remember(channelId, index);
-    return describe(videos[index]);
+    return finish(index, channelId, ids);
   }
 
   function progress({ src, positionSeconds, durationSeconds, completed }) {
@@ -406,7 +456,7 @@ async function streamFile(request, response, file, mediaCache) {
  * HTTP front end. `artwork` is optional (createArtworkCache); `uiRoot` holds the TV web UI;
  * `token` is the pairing secret the installed TV app sends.
  */
-export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), log = () => {} }) {
+export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), sceneStore = null, log = () => {} }) {
   const tvCommands = createTvCommands();
   let dirty = false;
   const save = () => {
@@ -434,7 +484,8 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
           return response.end();
         }
         // <video> and <img> cannot send headers, so only /media and /art take the token in the URL.
-        const offered = request.headers['x-onto-token'] || (path === '/media' || path === '/art' || path.startsWith('/uke/audio/') ? url.searchParams.get('t') : '');
+        const fileToken = path === '/media' || path === '/art' || path === '/subs' || path === '/scene-thumb' || path.startsWith('/uke/audio/');
+        const offered = request.headers['x-onto-token'] || (fileToken ? url.searchParams.get('t') : '');
         if (!sameSecret(offered, token)) {
           return send(response, 403, { error: 'Pair this TV first.' });
         }
@@ -487,6 +538,30 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
           return send(response,200,{ok:true,diagnostic,command:tvCommands.next(diagnostic.session)});
         }
         return send(response, 405, { error: 'Method not allowed.' });
+      }
+      if (path === '/api/scenes') {
+        const src = url.searchParams.get('src') || '';
+        const file = library.file(src);
+        if (!sceneStore) return send(response, 200, { cuts: [], thumbs: [], chapters: false, segments: [], blacks: [] });
+        return send(response, 200, sceneStore.api(file, src));
+      }
+      if (path === '/scene-thumb') {
+        const src = url.searchParams.get('src') || '';
+        const index = Number(url.searchParams.get('i'));
+        const file = library.file(src);
+        const thumb = sceneStore ? sceneStore.thumbFile(file, index) : '';
+        if (!thumb) return send(response, 404, { error: 'No thumbnail.' });
+        response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=86400' });
+        return createReadStream(thumb).pipe(response);
+      }
+      if (path === '/api/subs') {
+        const tracks = await listSidecars(library.file(url.searchParams.get('src') || ''));
+        return send(response, 200, { tracks });
+      }
+      if (path === '/subs') {
+        const vtt = await readSubtitle(library.file(url.searchParams.get('src') || ''), url.searchParams.get('name') || '');
+        response.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' });
+        return response.end(vtt);
       }
       if (path === '/api/home') return send(response, 200, library.home(url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined));
       if (path === '/api/show') return send(response, 200, library.show(url.searchParams.get('name') || ''));

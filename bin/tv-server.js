@@ -13,6 +13,7 @@ import { buildPlayer } from '../src/shuffler.js';
 import { loadPlaybackHistory } from '../src/playback-history.js';
 import { createArtworkCache } from '../src/library-artwork.js';
 import { createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue } from '../src/tv-server.js';
+import { createSceneStore } from '../src/scenes.js';
 import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
 
@@ -92,8 +93,18 @@ const tokenFile = join(data, 'pairing-token');
 let token = (await readFile(tokenFile, 'utf8').catch(() => '')).trim();
 if (!token) { token = randomBytes(24).toString('hex'); await writeFile(tokenFile, token + '\n', { mode: 0o600 }); }
 
+let showTiers = null;
+try {
+  if (settings.tiersPath) showTiers = JSON.parse(await readFile(settings.tiersPath, 'utf8'));
+} catch (error) { log(`tiers unread: ${error.message}`); }
+const sceneStore = createSceneStore(join(appData, 'scenes'));
 let libraryVideos = await loadCatalogue(catalogue);
-let library = createTvLibrary({ videos: libraryVideos, history, storage });
+const catalogueHolder = { videos: libraryVideos };
+const sceneLookup = src => {
+  const video = catalogueHolder.videos.find(item => item.src === src);
+  return video ? sceneStore.load(video.file) : null;
+};
+let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers });
 const current = { home: viewers => library.home(viewers), show: name => library.show(name), next: (id, input) => library.next(id, input),
   progress: input => library.progress(input), file: src => library.file(src), video: src => library.video(src) };
 let mediaCache = null;
@@ -120,7 +131,7 @@ async function warmLibrary(videos) {
     }
   } finally { warming = false; }
 }
-const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, log });
+const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore, log });
 server.listen(port, host, () => log(`serving ${library.home().channels.length} channels on http://${host}:${port}/`));
 
 void warmLibrary(libraryVideos);
@@ -136,7 +147,8 @@ setInterval(async () => {
     if (await rebuild(await readSettings(join(appData, 'settings.json')), false)) {
       const refreshedVideos = await loadCatalogue(catalogue);
       void warmLibrary(refreshedVideos);
-      library = createTvLibrary({ videos: refreshedVideos, history, storage });
+      catalogueHolder.videos = refreshedVideos;
+      library = createTvLibrary({ videos: refreshedVideos, history, storage, scenes: sceneLookup, showTiers });
       knownSources.clear();
       for (const video of refreshedVideos) knownSources.add(video.src);
       log(`catalogue reloaded: ${library.home().channels.length} channels`);

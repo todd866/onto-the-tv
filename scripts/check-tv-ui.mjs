@@ -121,6 +121,7 @@ try {
   await page.emulateMedia({ colorScheme: 'light' });
   await page.screenshot({ path: path.join(out, 'osd-light.png') });
   await page.emulateMedia({ colorScheme: 'dark' });
+  await page.waitForTimeout(1300); // the player ignores time updates for 1.2 s after a load or seek
   await page.evaluate(() => window.testMedia.tick(120));
   await page.waitForTimeout(50);
   assert.ok(!diagnostics.some(event => event.event === 'playing'));

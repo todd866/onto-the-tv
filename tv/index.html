@@ -26,7 +26,15 @@
   <div id="osd">
     <div id="osd-title"><span id="osd-channel"></span><span id="osd-show"></span><span id="osd-episode"></span></div>
     <div id="osd-bar"><span id="osd-elapsed">0:00</span><div id="osd-track"><div id="osd-fill"></div></div><span id="osd-duration">0:00</span></div>
-    <div id="osd-keys"><span id="osd-play" aria-label="Play or pause">⏸</span><span aria-label="Back 30 seconds">◀ 30s</span><span aria-label="Forward 30 seconds">30s ▶</span><span id="osd-next" aria-label="Next episode">⏭ next</span></div>
+    <div id="osd-keys"><span id="osd-play" aria-label="Play or pause">⏸</span><span aria-label="Previous scene">◀</span><span aria-label="Next scene">▶</span><span id="osd-next" aria-label="Next episode">⏭</span></div>
+  </div>
+  <div id="ad-chip" hidden></div>
+  <button id="skip-intro" type="button" hidden>Skip intro</button>
+  <div id="jump-strip" hidden></div>
+  <div id="options" hidden role="group" aria-label="Options">
+    <button type="button" class="opt" data-opt="subs"><span class="k">Subtitles</span><span class="v" id="opt-subs">Off</span></button>
+    <button type="button" class="opt" data-opt="audio"><span class="k">Audio</span><span class="v" id="opt-audio"></span></button>
+    <button type="button" class="opt" data-opt="ads"><span class="k">Ads</span><span class="v" id="opt-ads">Play</span></button>
   </div>
 </div>
 <div id="setup" hidden>
@@ -37,6 +45,7 @@
 <script src="config.js"></script>
 <script src="diagnostics.js"></script>
 <script src="player.js"></script>
+<script src="nav.js"></script>
 <script src="couch.js"></script>
 <script src="uke.js"></script>
 <script src="number-rover.js"></script>
