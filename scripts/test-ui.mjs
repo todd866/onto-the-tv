@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || pathToFileURL(resolve(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')).href);
-const { assertViewport } = await import(process.env.VIEWPORT_CHECK_MODULE || pathToFileURL(resolve('../.ux-authoring/viewport-fit.mjs')).href);
+const { assertViewport } = await import(process.env.VIEWPORT_CHECK_MODULE || new URL('./lib/viewport-fit.mjs', import.meta.url).href);
 await mkdir('audit', { recursive: true });
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 try {

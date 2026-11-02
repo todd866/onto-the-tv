@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import { createAmbientSources, DEFAULT_AMBIENT_OPTIONS } from '../src/ambient-sources.js';
 import { readIsobarProgramme } from '../src/weather-channel.js';
 const { chromium } = await import(pathToFileURL(resolve(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')).href);
-const { assertViewport } = await import(pathToFileURL(resolve('../.ux-authoring/viewport-fit.mjs')).href);
+const { assertViewport } = await import(new URL('./lib/viewport-fit.mjs', import.meta.url).href);
 const source = await createAmbientSources().snapshot();
 // Live weather maps may be stale on this machine; test the screen without them.
 const programme = await readIsobarProgramme().catch(() => null);

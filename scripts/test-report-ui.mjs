@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || pathToFileURL(resolve(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')).href);
-const { assertViewport } = await import(process.env.VIEWPORT_CHECK_MODULE || '/Users/iantodd/Projects/.ux-authoring/viewport-fit.mjs');
+const { assertViewport } = await import(process.env.VIEWPORT_CHECK_MODULE || new URL('./lib/viewport-fit.mjs', import.meta.url).href);
 await mkdir('audit', { recursive: true });
 const [template, player] = await Promise.all([readFile('shuffler/player.html', 'utf8'), readFile('shuffler/player.js', 'utf8')]);
 const videos = [
@@ -65,7 +65,9 @@ try {
       await frame.locator('#reportNote').press('Space');
       await frame.locator('#reportNote').press('ArrowLeft');
       assert.deepEqual(await frame.locator('#vid').evaluate(video => ({time:video.currentTime, paused:video.paused, src:video.src})), before);
+      const notesBefore = await page.evaluate(()=>window.notes.length);
       await frame.locator('#reportNote').press('Enter');
+      await page.waitForFunction(count=>window.notes.length > count, notesBefore);
       assert.equal(await frame.locator('#reportSaved').isHidden(),true);
       assert.equal(await page.evaluate(()=>window.notes.at(-1)), 'stutter ');
     }

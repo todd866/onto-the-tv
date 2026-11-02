@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || pathToFileURL(resolve(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')).href);
-const { assertViewport } = await import(pathToFileURL(resolve('../.ux-authoring/viewport-fit.mjs')).href);
+const { assertViewport } = await import(new URL('./lib/viewport-fit.mjs', import.meta.url).href);
 const fixture = process.env.LIBRARY_FIXTURE ? JSON.parse(await readFile(process.env.LIBRARY_FIXTURE, 'utf8')) : {
   items: Array.from({length:20}, (_, i) => ({path:`/film-${i}.mp4`,title:`Film ${i + 1}`,kind:'film',positionSeconds:i === 0 ? 240 : 0,durationSeconds:1800,completed:false})), artwork:{}
 };

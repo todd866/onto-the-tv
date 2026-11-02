@@ -1,34 +1,67 @@
 # Native app ↔ TV web parity
 
-Owner direction (AGENTS.md): reconcile the native Mac app and the TV web surface as
-ordinary development. This file records deliberate differences and remaining gaps.
-
 ## Surfaces
 
-- **TV web UI** (`tv/`): big-screen 10-foot UI served by tv-server on port 8686 —
-  who's-watching, channel grid (navy/amber TV-bezel cards, Nunito), rating
-  ceilings, watershed, player OSD with scene seeking.
-- **Native Mac app** (Electron, `src/main.js` → `ui/`): desktop control surface
-  with Channels / Library / Screensaver / TV / History modes, own styling
-  (`ui/styles.css`), own channel-player iframe. Shares the backend (src/
-  library, tv-server data) but none of the TV UX.
+- **TV web UI** (`tv/`): big-screen UI served by tv-server on port 8686,
+  with viewer ceilings, watershed defaults and scene navigation.
+- **Native Mac app** (`src/main.js` → `ui/`): compact desktop control surface
+  with Channels / Library / Screensaver / TV / History modes.
+
+## Shared channel behaviour
+
+Channels reads `http://localhost:8686/api/home` through a narrowly scoped Electron
+IPC handler. Channel numbers, names, now-playing picks and the rating ceiling come
+from the server. Empty or disallowed channels stay hidden; numbers are never
+renumbered. This uses the running TV server's catalogue, independently of whether
+the native app has a generated local shuffler file.
+
+The viewer checkboxes send the same `viewers` selection as the TV: Sam limits the
+lineup to G, Jake to PG, and adults allow the whole catalogue (displayed as M by
+the server). An empty selection yields no channels. Changing viewers immediately
+clears the previous lineup and stops playback. Late responses cannot restore an
+older audience's channels. Failures show a warning symbol with details in its
+tooltip and a Refresh control.
+
+A channel card opens the existing TV player in the native window with an explicit,
+session-only viewer selection. Its next-show and channel-change requests retain
+that selection. Back, leaving Channels, or changing viewers closes the player.
+This replaces the separate generated shuffler iframe in Channels. Library and TV
+mode retain their existing local-file casting controls.
+
+Both surfaces use bundled Nunito, navy/amber colours and TV-bezel cards. The native
+surface supports light and dark appearance with compact desktop controls; its
+embedded player's controls use desktop sizing.
 
 ## Deliberate differences
 
-- The native app is a manager/control surface, not a 10-foot UI; it does not need
-  who's-watching or the watershed band.
+- Native viewer selections last for the window session, start with everyone, and
+  do not follow the TV's watershed or modify its saved defaults.
+- Viewer gating applies to Channels and its player. Library and TV mode remain
+  adult management surfaces for local files, not a parental access-control boundary.
+- Games (6), Uke (7) and Console (20) are TV-only app launchers. They are added by
+  the TV page, not returned as media channels by `/api/home`.
+- The TV server must already be running on localhost:8686. Native Channels does
+  not start it or silently substitute a different catalogue when it is unavailable.
 
-## Gaps (recorded 2026-11-02)
+## Verification
 
-- `ui/` does not render the TV channel lineup (numbers 1–20, genre channels,
-  rating gating); its Channels mode is a separate local player.
-- `ui/` styling predates the navy/amber TV design language.
-- New library content added via Stash roots reaches the native app only through the
-  shared catalogue; channel-aware browsing (e.g. Rides & Adventures) is absent.
-- Rating ceilings are enforced per-viewer on the TV; the native app has no
-  viewer/ceiling concept.
+`npm test` includes the TV rating model tests and the native home-client contract
+checks. `node scripts/check-native-parity.mjs` runs the affected headless checks
+sequentially, including `check-native-channels.mjs` with the real TV model and a
+synthetic catalogue. It covers viewport fit, both themes, audience changes, delayed
+responses, offline retry, prepared artwork reuse and the TV player handoff.
+Screenshots are written under `audit/`, which is excluded from Git.
 
-## Reconciliation in flight
+The headless scripts accept `PLAYWRIGHT_MODULE`; the native channel check also
+accepts `CHROMIUM_EXECUTABLE`. On this Mac, installed Chrome dropped pointer events
+in the cross-origin playback iframe, while the installed headless Chromium binary
+passed the same real-pointer check. The verified native invocation is:
 
-- Codex native-parity job (2026-11-02, running): bring `ui/` onto the tv/
-  design language and TV channel lineup with rating gating.
+```sh
+CHROMIUM_EXECUTABLE="$HOME/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell" node scripts/check-native-channels.mjs
+```
+
+Pass that environment variable to `check-native-parity.mjs` to use the same browser
+for its native-channel step. The viewport helper is bundled in `scripts/lib/` so
+worker runs do not depend on a sibling checkout. The TV check also covers the
+short landscape companion layout; its cards now fit the available scrolling area.

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
-const { assertViewport } = await import(pathToFileURL(process.env.VIEWPORT_MODULE || '/Users/iantodd/Projects/.ux-authoring/viewport-fit.mjs'));
+const { assertViewport } = await import(process.env.VIEWPORT_MODULE || new URL('./lib/viewport-fit.mjs', import.meta.url).href);
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE || '/Users/iantodd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs'));
 const root = fileURLToPath(new URL('../tv/', import.meta.url));
 const out = process.env.TV_UI_OUTPUT || '/private/tmp/onto-tv-ui';
