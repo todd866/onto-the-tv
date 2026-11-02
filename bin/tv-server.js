@@ -108,7 +108,7 @@ let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes:
 const current = { home: viewers => library.home(viewers), show: name => library.show(name), next: (id, input) => library.next(id, input),
   progress: input => library.progress(input), file: src => library.file(src), video: src => library.video(src) };
 let mediaCache = null;
-try { mediaCache = await createMediaCache({ directory: join(homedir(), 'Library/Caches/Onto the TV/media'),
+try { mediaCache = await createMediaCache({ directory: join(homedir(), 'Library/Caches/Onto the TV/media'), maxBytes: 40 * 1024 ** 3,
   log: entry => log('media cache: ' + JSON.stringify(entry)) }); }
 catch (error) { log('media cache unavailable; direct streaming retained: ' + (error.code || error.message)); }
 // Warm external titles sequentially; serving always takes priority over this queue.
