@@ -181,3 +181,52 @@ python3 -m unittest test_sync_phone -v
 The tests use synthetic fixtures and a simulated phone. FFmpeg-dependent tests
 create short silent clips in temporary folders and skip if FFmpeg is absent.
 They neither inspect a personal library nor connect to real hardware.
+
+
+## Earlier desktop player reference
+
+The following describes the generated offline player used by earlier desktop
+versions. Current native Channels uses the shared TV server/player; these settings
+do not configure that channel lineup. This reference preserves the older setup,
+storage format and controls for existing offline installations.
+
+By default the app also offers Grown-ups and Big Kids. To split the
+adults into separate viewers, put this in `audiences.json` in the app's user-data
+directory, which on macOS is `~/Library/Application Support/Onto the TV`:
+
+```json
+{"enabled": true, "names": {"mum": "Mum", "dad": "Dad", "both": "Both"}}
+```
+
+`names` is optional; use whatever your household calls each other. Any existing
+Grown-ups preferences stay separate and are not assigned to either person.
+
+Adult channels add a timeline, ten-second jumps, and **Later**, which saves your
+place and moves on. Left and right move between episodes, Shift with them seeks,
+and L saves for later. Episodes opens a sorted list with direct Play/Resume buttons and a next-episode shortcut.
+Double-click the video or press F to toggle fullscreen; Escape exits. The cursor
+hides after three idle seconds in fullscreen and returns on movement or pause.
+The controls fade during playback. Later is neutral: it
+teaches nothing either way.
+
+Numbered series (titles with `S01E05`) play in order: opening an adult channel
+resumes what that person was watching, the shuffle picks the show and the story
+picks the episode, and the last two minutes count as finished. When an episode
+ends, on the laptop or the TV, **Next episode** counts down from ten beside
+**Something else** (shown on the laptop). A click on
+the picture pauses.
+
+Each adult has independent episode weights and bookmarks. Both uses the harmonic
+mean of the two, multiplied by its own learned weight, bounded between 0.15 and
+4. Unknown preferences start at 1, which is a default rather than evidence of
+shared enthusiasm. Watching together updates only Both. This is a small local
+weighting scheme, not a trained model.
+
+The app writes a private `taste.json` and a `library.json` catalogue beside its
+settings. An agent can join `profiles.<id>.weights` and `bookmarks` to the
+catalogue's `src` identifiers, titles and show names. Bookmark times are seconds
+and `updated` is Unix milliseconds. Weights are per episode; aggregate them by
+show if you like, but distinguish real observations from the neutral default.
+These files, and the audience settings, are git-ignored: keep them out of public
+issues and commits.
+
