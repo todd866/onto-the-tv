@@ -4,8 +4,8 @@
 
 **A few channels, fed by the videos you already have.**
 
-Open the app and the family-friendly channel starts. Changing who is watching
-takes a further tap; grown-ups then pick a channel. Each channel draws its next
+Open the app, choose who is watching, and pick a channel from the same numbered
+lineup used on the TV. The desktop starts with everyone selected (G). Each channel draws its next
 episode from your own library, learns from skips and completions, and avoids
 recent repeats. Playback happens inside the app. **Onto the TV** hands that
 channel to a Samsung on the same network. The app prepares one next episode for
@@ -144,49 +144,26 @@ playlists. Phone playback does not run the learner.
 
 ## Who is watching
 
-The app boots into Little Kids when that library has anything to play. **Channels**
-returns to **Who’s watching?**; a child’s face starts their channel in one tap,
-and Music lives on the player rather than as a menu in front of a show.
+Channels uses the running local TV server on port 8686. Start it with
+`scripts/install_tv_server.sh` if needed. Sam limits the lineup to G, Jake to PG,
+and adults allow the full catalogue. These are household preferences, not a
+parental lock. Changing viewers clears the old lineup immediately; selecting no
+one leaves no media channels available.
 
-By default the app also offers Grown-ups and Big Kids. To split the
-adults into separate viewers, put this in `audiences.json` in the app's user-data
-directory, which on macOS is `~/Library/Application Support/Onto the TV`:
+Desktop selections last for the window session and do not change the TV's saved
+viewers or its evening defaults. Channel numbers, names, picks and the player come
+from the TV server. Both surfaces use the same artwork cards and viewer symbols;
+the desktop keeps its Library, Screensaver, TV and History tools alongside them.
 
-```json
-{"enabled": true, "names": {"mum": "Mum", "dad": "Dad", "both": "Both"}}
-```
+Use the arrow keys to move through desktop channel cards, Home/End for the first
+or last card, and Enter to play. Back returns to the channel you picked. Long
+channel and programme names wrap, and unavailable channels have a Retry control.
+Library and TV remain separate local-file management surfaces.
 
-`names` is optional; use whatever your household calls each other. Any existing
-Grown-ups preferences stay separate and are not assigned to either person.
-
-Adult channels add a timeline, ten-second jumps, and **Later**, which saves your
-place and moves on. Left and right move between episodes, Shift with them seeks,
-and L saves for later. Episodes opens a sorted list with direct Play/Resume buttons and a next-episode shortcut.
-Double-click the video or press F to toggle fullscreen; Escape exits. The cursor
-hides after three idle seconds in fullscreen and returns on movement or pause.
-The controls fade during playback. Later is neutral: it
-teaches nothing either way.
-
-Numbered series (titles with `S01E05`) play in order: opening an adult channel
-resumes what that person was watching, the shuffle picks the show and the story
-picks the episode, and the last two minutes count as finished. When an episode
-ends, on the laptop or the TV, **Next episode** counts down from ten beside
-**Something else** (shown on the laptop). A click on
-the picture pauses.
-
-Each adult has independent episode weights and bookmarks. Both uses the harmonic
-mean of the two, multiplied by its own learned weight, bounded between 0.15 and
-4. Unknown preferences start at 1, which is a default rather than evidence of
-shared enthusiasm. Watching together updates only Both. This is a small local
-weighting scheme, not a trained model.
-
-The app writes a private `taste.json` and a `library.json` catalogue beside its
-settings. An agent can join `profiles.<id>.weights` and `bookmarks` to the
-catalogue's `src` identifiers, titles and show names. Bookmark times are seconds
-and `updated` is Unix milliseconds. Weights are per episode; aggregate them by
-show if you like, but distinguish real observations from the neutral default.
-These files, and the audience settings, are git-ignored: keep them out of public
-issues and commits.
+The older generated offline shuffler and its import/preferences format are
+covered in the [shuffler guide](shuffler/README.md). Native Channels now uses the
+TV player instead. See [native/TV parity](docs/native-parity.md) for intentional
+differences and verification.
 
 ## Set up a TV
 

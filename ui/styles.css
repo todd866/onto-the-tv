@@ -26,12 +26,29 @@ h1 { margin:0; color:var(--amber); font-size:21px; font-weight:800; letter-spaci
 .channel-tools label { display:inline-flex; flex-direction:row; align-items:center; gap:5px; margin:0; font-size:12px; } .channel-tools input[type="checkbox"] { width:15px; height:15px; margin:0; accent-color:var(--amber); }
 #channel-ceiling { min-width:30px; padding:3px 7px; border:2px solid var(--amber); border-radius:6px; color:var(--amber); font-variant-numeric:tabular-nums; text-align:center; }
 #channel-refresh { margin-left:auto; padding:5px 9px; } #channel-state { min-width:1.2em; color:var(--amber); font-size:16px; text-align:center; }
-#channel-list { flex:1; min-height:0; overflow:auto; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-content:start; gap:12px; margin:0; padding:0 2px 10px; list-style:none; }
-.channel-card { min-width:0; overflow:hidden; display:flex; flex-direction:column; padding:0; text-align:left; background:#14213d; color:#f4f1ea; border:5px solid #14213d; border-radius:16px; }
-.channel-card:hover,.channel-card:focus-visible { border-color:var(--amber); } .channel-picture { display:block; width:100%; aspect-ratio:16/9; background:var(--panel-2); overflow:hidden; }
-.channel-picture img { display:block; width:100%; height:100%; object-fit:cover; } .channel-readout { display:grid; grid-template-columns:28px minmax(0,1fr) minmax(0,1.15fr); column-gap:8px; align-items:baseline; padding:7px 9px 8px; }
-.channel-number { text-align:right; color:var(--amber); font-size:23px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; } .channel-name,.channel-now { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.channel-name { font-size:14px; font-weight:800; } .channel-now { color:#b9c9e3; font-size:12px; }
+#channel-list { flex:1; min-height:0; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,22em),1fr)); align-content:start; gap:12px; margin:0; padding:4px 4px 10px; list-style:none; }
+/* Match the TV's image-backed bezel without squeezing three labels into one line. */
+.channel-card { position:relative; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; min-height:210px; padding:0; text-align:left; background:#14213d; color:#f4f1ea; border:7px solid #14213d; border-radius:30px; isolation:isolate; }
+.channel-card:hover,.channel-card:focus-visible { border-color:var(--amber); }
+.channel-card:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
+.channel-picture { position:absolute; inset:0; z-index:-1; display:block; border-radius:22px; background:#1b2c4d; overflow:hidden; }
+.channel-picture img { display:block; width:100%; height:100%; object-fit:cover; }
+.channel-readout { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:9px; align-items:baseline; padding:48px 14px 14px; border-radius:22px; background:linear-gradient(transparent,#0b1428e8 45%,#0b1428); }
+.channel-number { text-align:right; color:var(--amber); font-size:27px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; }
+.channel-name { font-size:20px; font-weight:800; line-height:1.2; overflow-wrap:anywhere; }
+.channel-now { grid-column:2; margin-top:5px; font-size:14px; color:#d5dfef; line-height:1.35; overflow-wrap:anywhere; }
+.channel-feedback { align-self:center; margin:auto; max-width:100%; overflow-wrap:anywhere; }
+.channel-feedback[disabled] { opacity:1; cursor:default; border:0; background:transparent; color:var(--muted); }
+#channel-home:has(.channel-feedback:not([hidden])) #channel-list:empty { flex:0; }
+.channel-tools { border:0; border-radius:0; padding:10px 16px; }
+.channel-tools label { position:relative; padding:7px 10px; border:2px solid var(--line); border-radius:10px; cursor:pointer; font-size:14px; min-height:38px; }
+.channel-tools label:has(input:checked) { background:var(--amber); border-color:var(--amber); color:#14213d; }
+.channel-tools label:has(input:focus-visible) { outline:2px solid var(--text); outline-offset:2px; }
+.channel-tools input[type="checkbox"] { position:absolute; width:1px; height:1px; opacity:0; }
+.viewer-icon { width:20px; height:20px; }
+.viewer-icon svg { display:block; width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:7; stroke-linecap:round; }
+.channel-tools label:has(input:checked) svg { fill:currentColor; }
+
 
 #library-view { width:min(920px,100%); align-self:center; flex:1; min-height:0; padding:18px 22px; overflow:auto; } .library-toolbar { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:12px; } .library-toolbar p { margin:0; } #library-search { width:min(320px,50%); }
 .library-filters { display:flex; gap:6px; overflow:auto; padding-bottom:10px; border-bottom:2px solid var(--line); } .library-filters button { white-space:nowrap; font-size:12px; padding:6px 10px; } .library-filters button.selected { background:var(--amber); color:#14213d; }
@@ -63,7 +80,7 @@ label { display:flex; flex-direction:column; gap:6px; margin-top:13px; font-size
 .ambient-option strong,.ambient-option small { display:block; } .ambient-option small { margin-top:2px; color:var(--muted); font-size:11px; }
 .ambient-settings { display:grid; grid-template-columns:1fr 1fr; gap:8px; } .ambient-settings label { margin:0; } .ambient-more { border-top:2px solid var(--line); padding-top:5px; } .ambient-more #ambient-photos { margin-top:9px; font-size:12px; }
 .ambient-actions { display:flex; flex-wrap:wrap; gap:7px; } .ambient-actions button { flex:1; min-width:120px; font-size:12px; }
-@media (max-width:900px) { #channel-list { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
 @media (max-width:760px) { .ambient-layout { grid-template-columns:1fr; } }
 @media (max-width:620px) { .toolbar { padding:30px 12px 8px; flex-wrap:wrap; gap:7px; } .brand { min-width:0; } .brand img { display:none; } .modes { order:3; width:100%; } .modes button { flex:1; padding:6px 4px; } #channel-home { padding:9px 10px 12px; } #channel-list { grid-template-columns:1fr; gap:9px; } .channel-tools { gap:7px 9px; } #channel-refresh { margin-left:0; } #library-view,#history-view,#tv-view,#ambient-view { padding:14px 12px; } .library-toolbar { align-items:stretch; flex-direction:column; gap:8px; } #library-search { width:100%; } #library-list { grid-template-columns:1fr; } .browse { display:none; } .ambient-settings { grid-template-columns:1fr; } }
 @media (max-height:500px) and (min-width:621px) { .toolbar { min-height:50px; padding-top:5px; padding-bottom:5px; } #channel-home { padding-top:7px; } #tv-view { display:block; } }
@@ -105,3 +122,5 @@ label { display:flex; flex-direction:column; gap:6px; margin-top:13px; font-size
   .ambient-option small { display:none; }
   .ambient-actions { margin:0; }
 }
+
+@media (max-height:500px) { .channel-card { min-height:170px; } }

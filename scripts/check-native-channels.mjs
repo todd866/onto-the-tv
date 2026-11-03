@@ -96,8 +96,16 @@ try {
   await page.locator('#channel-ceiling[data-rating="G"]').waitFor();await page.waitForTimeout(300);
   assert.equal(await page.locator('#channel-ceiling').textContent(),'G');
   assert.equal(await page.locator('.channel-name').getByText('Rides & Adventures',{exact:true}).count(),0);
+  // Card arrows follow the actual grid, and Back returns to the tuned card.
+  await page.locator('.channel-card').first().focus();
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.locator('.channel-card').nth(1).evaluate(el=>el===document.activeElement),true);
+  await page.keyboard.press('End');
+  assert.equal(await page.locator('.channel-card').last().evaluate(el=>el===document.activeElement),true);
+  await page.keyboard.press('Home');
+  assert.equal(await page.locator('.channel-card').first().evaluate(el=>el===document.activeElement),true);
   // Real TV app receives the audience, and its /api/next request retains it.
-  await page.locator('.channel-card').first().click();
+  await page.locator('.channel-card').nth(1).click();
   await page.waitForFunction(()=>!document.querySelector('#channel-player').hidden);
   for (let i=0;i<50 && !next.length;i++) await page.waitForTimeout(100);
   assert.ok(next.length,'embedded TV player must request an episode');
@@ -123,6 +131,7 @@ try {
   await page.setViewportSize({width:980,height:720});
   await page.locator('#channel-back').click();
   assert.equal(await page.locator('#channel-player').getAttribute('src'),'about:blank');
+  assert.equal(await page.locator('.channel-card').nth(1).evaluate(el=>el===document.activeElement),true);
   // Empty audience fails closed, and an offline viewer change clears earlier cards.
   for(const name of ['Sam','Mum','Dad']) await page.getByRole('checkbox',{name,exact:true}).uncheck();
   await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='∅');
@@ -130,7 +139,18 @@ try {
   offline=true;await page.getByRole('checkbox',{name:'Jake',exact:true}).check();
   await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='⚠');
   assert.equal(await page.locator('.channel-card').count(),0);
-  offline=false;await page.locator('#channel-refresh').click();await page.locator('#channel-ceiling[data-rating="PG"]').waitFor();
+  assert.equal(await page.locator('#channel-feedback').isVisible(),true);
+  offline=false;await page.locator('#channel-feedback').click();await page.locator('#channel-ceiling[data-rating="PG"]').waitFor();
+  // Full long titles wrap instead of being lost in an ellipsis.
+  await page.locator('.channel-name').first().evaluate(el=>el.textContent='Rides & Adventures around the world');
+  await page.locator('.channel-now').first().evaluate(el=>el.textContent='▶ The extraordinary adventures of a family travelling across Australia');
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:resolve(out,'long-titles-phone.png')});
+  for(const selector of ['.channel-name','.channel-now']) {
+    const bounds = await page.locator(selector).first().evaluate(el=>({width:el.clientWidth,height:el.clientHeight,scrollWidth:el.scrollWidth,scrollHeight:el.scrollHeight}));
+    assert.ok(bounds.scrollWidth<=bounds.width+1 && bounds.scrollHeight<=bounds.height+1, JSON.stringify({selector,...bounds}));
+  }
+  await page.setViewportSize({width:980,height:720});
   await page.locator('#library-toggle').click();
   await assertViewport(page,{primary:['#library-settings'],controls:['#library-close']});
   await page.keyboard.press('Escape');

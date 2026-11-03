@@ -44,7 +44,7 @@ def production_files(root: Path) -> list[Path]:
     """An allowlist, never a recursive copy of a developer's checkout."""
     required = [
         Path("package.json"), Path("src/main.js"), Path("src/preload.cjs"),
-        Path("ui/index.html"), Path("ui/app.js"), Path("ui/styles.css"),
+        Path("ui/index.html"), Path("ui/app.js"), Path("ui/channels.js"), Path("ui/styles.css"),
         Path("ui/ambient.js"), Path("ui/ambient-slide.js"), Path("ui/report.js"),
         Path("ui/ambient.css"), Path("ui/ambient-render.html"), Path("ui/ambient-render.js"),
         Path("brand/onto-the-tv-icon.png"), Path("brand/AppIcon.icns"),
@@ -53,7 +53,8 @@ def production_files(root: Path) -> list[Path]:
     ]
     files = set(required)
     for directory, pattern in (("src", "*.js"), ("casting/src", "*.js"),
-                               ("brand", "*.png"), ("brand", "*.icns")):
+                               ("brand", "*.png"), ("brand", "*.icns"),
+                               ("tv/fonts", "*.woff"), ("tv/fonts", "OFL.txt")):
         files.update(path.relative_to(root) for path in (root / directory).glob(pattern)
                      if not path.name.endswith(".test.js") and not path.name.startswith("."))
     if (root / "LICENSE").is_file():

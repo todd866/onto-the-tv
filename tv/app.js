@@ -168,11 +168,25 @@
     return ids;
   }
   function toggleViewer(id) {
+    // The embedded desktop player receives its audience explicitly from the
+    // parent. Its viewer row is informational, so do not replace that
+    // session-only selection with the TV's local preference.
+    if (desktopQuery || !$('player').hidden) return;
     var ids = selectedIds(), at = ids.indexOf(id);
     if (at >= 0) ids.splice(at, 1); else ids.push(id);
     var ordered = [], people = data.viewers || [];
     for (var i = 0; i < people.length; i++) if (ids.indexOf(people[i].id) >= 0) ordered.push(people[i].id);
     try { localStorage.setItem('onto.viewers', ordered.join(',')); localStorage.setItem('onto.viewers.band', band()); } catch (e) {}
+    // Clear the old lineup before asking the server for the new ceiling. This
+    // closes the race where a restrictive selection could still activate an
+    // adult card while its response was in flight. Keep all four viewer rows so
+    // an empty selection remains visible and fails closed.
+    data.viewers = people.map(function (person) {
+      return { id: person.id, name: person.name, on: ids.indexOf(person.id) >= 0 };
+    });
+    data.channels = [];
+    data.ceiling = null;
+    render();
     var keep = { row: focus.row, col: focus.col };
     loadHome().then(function () { focus = keep; moveFocus(0, 0); });
   }

@@ -35,6 +35,7 @@ function homeFor(viewers) {
 }
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 let homeQueries = [], diagnostics = [], nextRequests = [], artRequests = 0, artUnavailable = false;
+let homeDelay = 0, failHome = false;
 try {
   const page = await browser.newPage();
   await page.addInitScript(() => {
@@ -58,8 +59,11 @@ try {
     if (url.pathname === '/api/scenes') return route.fulfill({ json: { cuts: [0, 60, 180, 300], thumbs: [0,1,2,3].map(n => '/art?src=show' + n), segments: [] } });
     if (url.pathname === '/api/progress') return route.fulfill({ json: { ok: true } });
     if (url.pathname === '/api/home') {
-      homeQueries.push(url.searchParams.get('viewers'));
-      return route.fulfill({ json: homeFor(url.searchParams.has('viewers') ? url.searchParams.get('viewers') : null) });
+      const viewers = url.searchParams.get('viewers');
+      homeQueries.push(viewers);
+      if (homeDelay) await new Promise(resolve => setTimeout(resolve, homeDelay));
+      if (failHome) return route.fulfill({ status: 503, json: { error: 'fixture offline' } });
+      return route.fulfill({ json: homeFor(url.searchParams.has('viewers') ? viewers : null) });
     }
     if (url.pathname === '/art') {
       artRequests++;
@@ -142,6 +146,29 @@ try {
   await page.emulateMedia({ colorScheme: 'light' });
   await page.screenshot({ path: path.join(out, 'home-adults-light.png') });
   await page.waitForFunction(() => [...document.querySelectorAll('.art')].every(img => img.complete && img.naturalWidth));
+
+  // Restrict an adult lineup while the old response is delayed. A second
+  // change must build from the requested viewers, and stale replies cannot win.
+  homeDelay = 350;
+  await page.locator('.viewer').first().click(); // Sam on: G
+  assert.equal(await page.locator('.channel:not([class*="app-"])').count(), 0);
+  assert.equal(await page.locator('#ceiling').getAttribute('hidden'), '');
+  homeDelay = 0;
+  await page.locator('.viewer').nth(1).click(); // Jake on too
+  await page.locator('#ceiling', { hasText: 'G' }).waitFor();
+  assert.equal(homeQueries.at(-1), 'sam,jake,mum,dad');
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator('.viewer.on').count(), 4);
+  assert.equal(await page.locator('#ceiling').textContent(), 'G');
+  failHome = true;
+  await page.locator('.viewer').first().click();
+  await page.locator('#status', { hasText: 'fixture offline' }).waitFor();
+  assert.equal(await page.locator('.channel:not([class*="app-"])').count(), 0);
+  failHome = false;
+  await page.locator('.viewer').nth(1).click();
+  await page.locator('#ceiling', { hasText: 'M' }).waitFor();
+  await page.waitForFunction(() => [...document.querySelectorAll('.art')].every(img => img.complete && img.naturalWidth));
+
   const preparedRequests = artRequests;
   artUnavailable = true;
   for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');

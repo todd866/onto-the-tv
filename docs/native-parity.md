@@ -15,7 +15,7 @@ from the server. Empty or disallowed channels stay hidden; numbers are never
 renumbered. This uses the running TV server's catalogue, independently of whether
 the native app has a generated local shuffler file.
 
-The viewer checkboxes send the same `viewers` selection as the TV: Sam limits the
+The viewer toggles send the same `viewers` selection as the TV: Sam limits the
 lineup to G, Jake to PG, and adults allow the whole catalogue (displayed as M by
 the server). An empty selection yields no channels. Changing viewers immediately
 clears the previous lineup and stops playback. Late responses cannot restore an
@@ -28,9 +28,19 @@ that selection. Back, leaving Channels, or changing viewers closes the player.
 This replaces the separate generated shuffler iframe in Channels. Library and TV
 mode retain their existing local-file casting controls.
 
-Both surfaces use bundled Nunito, navy/amber colours and TV-bezel cards. The native
-surface supports light and dark appearance with compact desktop controls; its
-embedded player's controls use desktop sizing.
+Both surfaces use bundled Nunito, navy/amber colours, image-backed rounded bezel
+cards and amber person toggles. Desktop keeps two compact control rows above the
+scrolling grid. Channel names and programme titles wrap fully, and the grid reduces
+its column count as text grows. Arrow keys follow the current grid; Home/End reach
+the first/last channel. Returning from playback restores the tuned card's focus.
+Empty and failed lineups have visible feedback, with an explicit Retry action.
+The native surface supports light and dark appearance; its embedded player's
+controls use desktop sizing.
+
+TV viewer changes now clear the previous lineup immediately, retain rapid local
+selections and ignore stale responses. Failed changes leave no old media channels
+actionable. TV viewer controls are only active on Home; native viewer controls
+remain available during playback and stop it before changing the audience.
 
 ## Deliberate differences
 
@@ -65,3 +75,10 @@ Pass that environment variable to `check-native-parity.mjs` to use the same brow
 for its native-channel step. The viewport helper is bundled in `scripts/lib/` so
 worker runs do not depend on a sibling checkout. The TV check also covers the
 short landscape companion layout; its cards now fit the available scrolling area.
+
+## Delivery checks
+
+The macOS production allowlist includes `ui/channels.js`, both bundled Nunito
+weights and their license. Packaging tests guard these resources. Source parity
+alone does not prove an installed app or an already-running server is current:
+check bundle resources and the live `/api/home` contract after updating each.

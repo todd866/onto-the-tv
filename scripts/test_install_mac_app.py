@@ -62,5 +62,24 @@ class PruneBackups(unittest.TestCase):
             self.assertEqual(len(list(Path(tmp).glob(".Onto the TV.backup-*.app"))), 2)
 
 
+class ProductionFiles(unittest.TestCase):
+    def test_native_ui_allowlist_contains_all_index_resources(self):
+        root = Path(__file__).resolve().parents[1]
+        files = set(installer.production_files(root))
+        expected = {
+            Path("ui/index.html"), Path("ui/app.js"), Path("ui/channels.js"),
+            Path("ui/styles.css"), Path("ui/ambient.js"), Path("ui/ambient-slide.js"),
+            Path("ui/report.js"), Path("tv/fonts/Nunito-Bold.woff"),
+            Path("tv/fonts/Nunito-ExtraBold.woff"), Path("tv/fonts/OFL.txt"),
+        }
+        self.assertTrue(expected <= files)
+
+    def test_production_allowlist_does_not_sweep_tests_or_private_catalogues(self):
+        root = Path(__file__).resolve().parents[1]
+        files = installer.production_files(root)
+        self.assertFalse(any(path.name.endswith(".test.js") for path in files))
+        self.assertFalse(any(path.name in {"tiers.json", "sources.json", "library.json"} for path in files))
+
+
 if __name__ == "__main__":
     unittest.main()
