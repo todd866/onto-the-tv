@@ -44,11 +44,16 @@ export const TIER_RATINGS = {
 
 // Genre channels. Numbers stay put when a channel is hidden, so key 1 is always
 // Cartoons. Games (6) and Uke (7) are added by the TV page, not the library.
-// Cartoons: kids' shows plus adult animation. Movies: family films plus the
-// grown-up, couple, sci-fi and decade folders. Sitcoms, music and Christmas
-// keep the folders and the seasonal filter they already had.
+// Cartoons: kids' shows plus adult animation. Movies: films only (Films and
+// Family Films). Mum & Dad (21): grown-up and couple TV, in episode order.
+// Sitcoms, music and Christmas keep the folders and the seasonal filter they
+// already had.
 const CARTOON_TIERS = new Set(['preschool', 'shared', 'big', 'older', 'adultanim']);
-const MOVIE_TIERS = new Set(['grownup', 'couple']);
+const GROWNUP_TV_TIERS = new Set(['grownup', 'couple']);
+// A film is anything in a film folder, whatever its tier; the rating ceiling
+// still decides who sees it. (player.inStream('movies') only admits family tiers.)
+const FILM_FOLDERS = new Set(['Films', 'Family Films']);
+const isFilm = item => FILM_FOLDERS.has(item.channel);
 const DECADES = { d50: '50s', d60: '60s', d70: '70s', d80: '80s', d90: '90s' };
 // Numbers 6 and 7 are Games and Uke on the TV. Decade channels carry period ads.
 // Sports is the taped-broadcast channel: its files are scanned for ad breaks.
@@ -70,6 +75,7 @@ export const TV_CHANNELS = [
   { id: 'sports', number: 17, name: 'Sports', recordedAds: true },
   { id: 'hophop', number: 18, name: 'Hop Hop' },
   { id: 'rides', number: 19, name: 'Rides & Adventures', rating: 'PG' },
+  { id: 'grownups', number: 21, name: 'Mum & Dad' },
 ];
 
 const RIDES_SHOWS = /\b(?:knight rider|the a[- ]team|the dukes of hazzard|airwolf|chips|baywatch|top gear)\b/i;
@@ -79,8 +85,9 @@ export function inTvGenre(item, channelId) {
   if (channelId === 'christmas') return player.inStream(item, 'christmas');
   if (channelId === 'music') return item.tier === 'music';
   if (channelId === 'sitcoms') return item.tier === 'sitcom';
-  if (channelId === 'movies') return player.inStream(item, 'movies') || MOVIE_TIERS.has(item.tier);
-  if (channelId === 'cartoons') return CARTOON_TIERS.has(item.tier) && !player.inStream(item, 'movies');
+  if (channelId === 'movies') return isFilm(item);
+  if (channelId === 'grownups') return GROWNUP_TV_TIERS.has(item.tier) && !isFilm(item);
+  if (channelId === 'cartoons') return CARTOON_TIERS.has(item.tier) && !isFilm(item);
   if (channelId === 'comedy') return item.tier === 'comedy';
   if (channelId === 'docs') return item.tier === 'docs';
   if (channelId === 'scifi') return item.tier === 'scifi';
@@ -364,7 +371,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     }
     const weights = weightsFor(key);
     // Episodic films and sitcoms play in order; cartoons stay shuffled.
-    const serial = channelId === 'movies' || channelId === 'sitcoms';
+    const serial = channelId === 'movies' || channelId === 'sitcoms' || channelId === 'grownups';
     const ending = options.reason === 'ended';
     const showOf = index => videos[index].channel || 'Other';
     let index = -1;

@@ -2,7 +2,7 @@ import { appendFile, readFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 const REASONS = new Set(['start', 'progress', 'pause', 'resume', 'skip', 'ended', 'stop', 'error']);
-const CHANNELS = new Set(['2', '6', 'christmas', 'movies', 'grown', 'music', 'all', 'cartoons', 'sitcoms', 'comedy', 'docs', 'scifi', 'classic', 'bbc', 'standup', 'hophop', 'rides', 'd50', 'd60', 'd70', 'd80', 'd90', 'sports']);
+const CHANNELS = new Set(['2', '6', 'christmas', 'movies', 'grown', 'music', 'all', 'cartoons', 'sitcoms', 'comedy', 'docs', 'scifi', 'classic', 'bbc', 'standup', 'hophop', 'rides', 'grownups', 'd50', 'd60', 'd70', 'd80', 'd90', 'sports']);
 
 function finite(value, name, max = 86400) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > max) throw new Error(`Invalid ${name}.`);

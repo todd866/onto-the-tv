@@ -276,12 +276,12 @@ test('grown-up serials play in order on the TV', async () => {
   // A middling random draw would shuffle to a later episode.
   const library = createTvLibrary({ videos: serial, history, storage, random: () => 0.6 });
   // Nothing watched yet: the first episode on disk.
-  assert.equal(library.next('movies', { viewers: 'dad' }).title, 'MobLand S01E05');
+  assert.equal(library.next('grownups', { viewers: 'dad' }).title, 'MobLand S01E05');
   // Part-way through E05: the shuffle still lands on it.
   history.set(serial[0].file, { title: 'E05', positionSeconds: 600, durationSeconds: 3000 });
-  assert.equal(library.next('movies', { viewers: 'dad' }).title, 'MobLand S01E05');
+  assert.equal(library.next('grownups', { viewers: 'dad' }).title, 'MobLand S01E05');
   // Finishing E05 plays E06, not the shuffle's choice.
-  assert.equal(library.next('movies', { viewers: 'dad', current: serial[0].src, reason: 'ended', time: 3000, watched: 2400, duration: 3000 }).title,
+  assert.equal(library.next('grownups', { viewers: 'dad', current: serial[0].src, reason: 'ended', time: 3000, watched: 2400, duration: 3000 }).title,
     'MobLand S01E06');
 });
 
@@ -300,13 +300,13 @@ test('the TV picks up where the Mac app stopped, and the newer place wins', asyn
   app.set(serial[1].file, { title: 'E06', positionSeconds: 2440, durationSeconds: 2500 });
   app.set(serial[2].file, { title: 'E07', positionSeconds: 2444, durationSeconds: 2500 });
   app.set(serial[3].file, { title: 'E08', positionSeconds: 900, durationSeconds: 2500 });
-  const next = library.next('movies', { viewers: 'dad' });
+  const next = library.next('grownups', { viewers: 'dad' });
   assert.equal(next.title, 'MobLand S01E08');
   assert.equal(next.resume, 900);
   // Then watched further on the TV: its newer place wins; the app's file is untouched.
   await new Promise(resolve => setTimeout(resolve, 5));
   library.progress({ src: serial[3].src, positionSeconds: 1500, durationSeconds: 2500, completed: false });
-  assert.equal(library.next('movies', { viewers: 'dad' }).resume, 1500);
+  assert.equal(library.next('grownups', { viewers: 'dad' }).resume, 1500);
   assert.equal(app.get(serial[3].file), 900);
 });
 
@@ -329,4 +329,20 @@ test('a Bluey seed continues across the kids channel without selecting adult con
 test('taped sport is rated PG so the kids can watch it', async () => {
   const { TIER_RATINGS } = await import('./tv-server.js');
   assert.equal(TIER_RATINGS.sports, 'PG');
+});
+
+test('Movies is films only; grown-up TV has its own Mum & Dad channel', () => {
+  const cdwm = { src: 'Come Dine With Me/e1.mp4', channel: 'Come Dine With Me', tier: 'grownup' };
+  const couple = { src: 'Couples Come Dine With Me/e1.mp4', channel: 'Couples Come Dine With Me', tier: 'couple' };
+  const bruges = { src: 'Films/In Bruges.mkv', channel: 'Films', tier: 'grownup' };
+  const nemo = { src: 'Family Films/Finding Nemo.mkv', channel: 'Family Films', tier: 'shared' };
+  for (const show of [cdwm, couple]) {
+    assert.equal(inTvGenre(show, 'movies'), false, show.src);
+    assert.equal(inTvGenre(show, 'grownups'), true, show.src);
+  }
+  for (const film of [bruges, nemo]) {
+    assert.equal(inTvGenre(film, 'movies'), true, film.src);
+    assert.equal(inTvGenre(film, 'grownups'), false, film.src);
+    assert.equal(inTvGenre(film, 'cartoons'), false, film.src);
+  }
 });
