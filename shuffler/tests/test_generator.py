@@ -185,6 +185,17 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(roots[1]['path'], Path(directory) / 'home/Music/Videos')
             self.assertEqual(picks[0]['path'], Path(directory).resolve() / 'one.mp4')
 
+    def test_sports_is_a_valid_source_tier(self):
+        self.assertIn('sports', generator.SOURCE_TIERS)
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'sources.json'
+            config.write_text(json.dumps({'roots': [
+                {'label': 'sport', 'path': '~/Sports', 'tier': 'sports'}]}))
+            roots, picks = generator.load_sources(config, home=Path(directory) / 'home')
+            self.assertEqual(roots[0]['tier'], 'sports')
+            self.assertEqual(roots[0]['path'], Path(directory) / 'home/Sports')
+            self.assertEqual(picks, [])
+
     def test_sources_reject_invalid_shape_tier_and_explicit_missing_file(self):
         invalid = [[], {'root': []}, {'roots': {}}, {'picks': [3]},
                    {'roots': [{'path': 42}]},

@@ -33,6 +33,8 @@ test('refreshLibrary rebuilds the player and prepares channels end to end', asyn
     const result = await refreshLibrary(root, settings, userData, { runner: fakeRunner(videos) });
     assert.equal(result.prepared, true);
     assert.match(result.buildMessage, /2 videos/);
+    assert.match(result.buildMessage, /^\s+1\s+Cartoons\s+2 videos\s+THIN$/m);
+    assert.match(result.buildMessage, /^\s+17\s+Sports\s+0 videos\s+EMPTY$/m);
     assert.equal(result.count, 2);
     const channels = await readFile(join(userData, 'channels.html'), 'utf8');
     assert.ok(channels.includes('Peppa/one.mp4'));

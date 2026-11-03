@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
+import { countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 
 const videos = [
@@ -122,6 +122,17 @@ test('adults use the existing taste keys and hidden genres stay hidden', async (
   assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.sboth'))['Films/d.mkv'] < 1);
   assert.equal(library.home('dad').channels.find(channel => channel.id === 'movies').now.show === 'Sci-Fi Show'
     || library.home('dad').channels.find(channel => channel.id === 'movies').now.show === 'Films', true);
+});
+
+test('countTvChannelVideos uses inTvGenre and ignores ads', () => {
+  const library = [
+    { src: 'Bluey/a.mp4', tier: 'shared', channel: 'Bluey' },
+    { src: 'Match/a.mp4', tier: 'sports', channel: 'Match' },
+    { src: 'ads/80s/ad.mp4', tier: 'sports', channel: 'Match' },
+  ];
+  assert.equal(countTvChannelVideos(library, 'cartoons'), 1);
+  assert.equal(countTvChannelVideos(library, 'sports'), 1);
+  assert.equal(countTvChannelVideos(library, 'music'), 0);
 });
 
 test('Rides & Adventures matches its shows and applies a PG channel rating', async () => {
@@ -313,4 +324,9 @@ test('a Bluey seed continues across the kids channel without selecting adult con
     current = next;
   }
   assert.ok(shows.has('Bing'), 'continues beyond the selected show');
+});
+
+test('taped sport is rated PG so the kids can watch it', async () => {
+  const { TIER_RATINGS } = await import('./tv-server.js');
+  assert.equal(TIER_RATINGS.sports, 'PG');
 });

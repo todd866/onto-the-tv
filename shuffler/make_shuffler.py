@@ -27,7 +27,7 @@ TIER_CONFIG = HERE / "tiers.json"
 
 # Tiers that come from a whole source directory rather than a show name.
 SOURCE_TIERS = ("grownup", "music", "couple", "sitcom", "scifi", "adultanim",
-                "comedy", "docs", "classic", "bbc", "standup",
+                "comedy", "docs", "classic", "bbc", "standup", "sports",
                 "50s", "60s", "70s", "80s", "90s")
 
 # Stream id -> tiers it draws from. No stream is a superset of another by accident;

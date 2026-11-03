@@ -40,7 +40,6 @@ export const TIER_RATINGS = {
   grownup: 'M', couple: 'M', adultanim: 'M', sitcom: 'M', scifi: 'M',
   comedy: 'M', docs: 'PG', classic: 'M', sports: 'PG',
   '50s': 'M', '60s': 'M', '70s': 'M', '80s': 'M', '90s': 'M',
-  sports: 'M',
 };
 
 // Genre channels. Numbers stay put when a channel is hidden, so key 1 is always
@@ -93,6 +92,24 @@ export function inTvGenre(item, channelId) {
     (String(item.channel || '') + ' ' + String(item.src || '')).replace(/[._]/g, ' '));
   if (DECADES[channelId]) return item.tier === DECADES[channelId];
   return false;
+}
+
+export function countTvChannelVideos(videos, channelId) {
+  if (!Array.isArray(videos)) return 0;
+  let count = 0;
+  for (const item of videos) if (inTvGenre(item, channelId)) count += 1;
+  return count;
+}
+
+export function formatTvChannelPoolReport(videos) {
+  const lines = [];
+  for (const channel of TV_CHANNELS) {
+    const count = countTvChannelVideos(videos, channel.id);
+    const flag = count === 0 ? 'EMPTY' : count < 5 ? 'THIN' : '';
+    const suffix = flag ? `  ${flag}` : '';
+    lines.push(`  ${String(channel.number).padStart(2)}  ${channel.name.padEnd(20)} ${String(count).padStart(4)} videos${suffix}`);
+  }
+  return lines.join('\n');
 }
 
 export function fileWantsRecordedAds(item) {
