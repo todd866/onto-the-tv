@@ -78,7 +78,11 @@ class GeneratorTests(unittest.TestCase):
 class TierTests(unittest.TestCase):
     def test_streams_remain_explicit_and_unknown_shows_never_reach_kid_streams(self):
         self.assertEqual(generator.duplicate_tiers(), [])
-        self.assertEqual(set(generator.STREAMS), {2, 6, 'grown', 'music', 'all'})
+        adult_streams = {'grown', 'both', 'sitcoms', 'scifi', 'adultanim', 'comedy',
+                         'docs', 'classic', 'bbc', 'standup', 'd50', 'd60', 'd70', 'd80', 'd90'}
+        self.assertEqual(set(generator.STREAMS), {2, 6, 'music', 'all'} | adult_streams)
+        for stream in adult_streams:
+            self.assertTrue(set(generator.STREAMS[stream]).isdisjoint({'preschool', 'shared', 'big'}))
         self.assertEqual(set(generator.STREAMS) - set(generator.STREAM_NAMES), set())
         self.assertEqual(generator.STREAMS[2], ('preschool', 'shared'))
         self.assertEqual(generator.STREAMS[6], ('shared', 'big'))
