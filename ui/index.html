@@ -25,12 +25,14 @@
     <section id="local-view" aria-label="Channels">
       <div class="channel-tools">
         <button id="channel-back" aria-label="Back to channels" title="Back to channels" hidden>←</button>
-        <div id="channel-viewers" class="seg-group" role="group" aria-label="Youngest watching"></div>
+        <button id="channel-profile" class="profile-chip" aria-haspopup="dialog" title="Who's watching"><span class="avatar" id="channel-avatar"></span><span id="channel-who"></span></button>
         <div id="channel-rating" class="seg-group" role="group" aria-label="Rating"></div>
+        <div id="channel-layout" class="seg-group" role="group" aria-label="Layout"></div>
         <span id="channel-state" role="status" aria-live="polite"></span>
         <button id="channel-refresh" title="Refresh channels" aria-label="Refresh channels">↻</button>
       </div>
-      <div id="channel-home"><button id="channel-feedback" class="channel-feedback" hidden></button><div id="channel-list" aria-label="TV channels"></div></div>
+      <div id="channel-home"><section id="channel-hero" aria-live="polite" hidden></section><button id="channel-feedback" class="channel-feedback" hidden></button><div id="channel-list" aria-label="TV channels"></div></div>
+      <div id="channel-picker" role="dialog" aria-modal="true" aria-labelledby="channel-picker-title" hidden><h2 id="channel-picker-title">Who's watching?</h2><div id="channel-picker-people"></div></div>
       <iframe id="channel-player" title="Channel playback" sandbox="allow-scripts allow-same-origin" allow="autoplay *; fullscreen *" allowfullscreen hidden></iframe>
     </section>
     <section id="library-view" hidden aria-label="Video library">

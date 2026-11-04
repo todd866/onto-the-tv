@@ -59,15 +59,16 @@ try {
   });
   await page.goto(pathToFileURL(resolve('ui/index.html')).href);
   const rated = value => page.locator(`#channel-rating [data-rating="${value}"][aria-pressed="true"]`).waitFor();
-  const pick = name => page.getByRole('button',{name:new RegExp('^Youngest watching: '+name)}).click();
+  const pick = async name => { await page.locator('#channel-profile').click(); await page.locator(`.picker-person[data-profile="${name.toLowerCase()}"]`).click(); };
   const ratingButton = value => page.getByRole('button',{name:new RegExp('^Rated '+value+'( |$)')});
-  // This Mac opens on the grown-ups: who is Mum & Dad, the rating M is their default.
+  // This Mac opens on Ian's profile: rating M is his default.
   await rated('M');
-  assert.deepEqual(calls.at(-1),[['mum','dad'],null]);
+  assert.deepEqual(calls.at(-1),[['dad'],null]);
+  assert.equal(await page.locator('#channel-who').textContent(),'Ian');
   await page.evaluate(()=>document.fonts.ready);
   assert.equal(await page.evaluate(()=>document.fonts.check('700 14px Nunito')),true);
   await page.waitForFunction(()=>[...document.querySelectorAll('.channel-card')].every(el=>el.querySelector('img')?.naturalWidth));
-  assert.deepEqual(await page.locator('.channel-number').allTextContents(),library.home('mum,dad').channels.map(c=>String(c.number)));
+  assert.deepEqual(await page.locator('.channel-number').allTextContents(),library.home('dad').channels.map(c=>String(c.number)));
   assert.equal(await page.locator('#channel-rating .default').textContent(),'M');
   const screenshots=[];
   for (const theme of ['dark','light']) {
@@ -75,7 +76,7 @@ try {
     for (const [name,size] of Object.entries({app:{width:980,height:720},laptop:{width:1280,height:720},small:{width:520,height:560},phone:{width:390,height:844},landscape:{width:844,height:390}})) {
       await page.setViewportSize(size);
       const shot=resolve(out,`${name}-${theme}.png`);
-      await assertViewport(page,{primary:['#channel-home'],controls:['#channel-viewers','#channel-refresh','#mode-local'],screenshotPath:shot});
+      await assertViewport(page,{primary:['#channel-home'],controls:['#channel-profile','#channel-refresh','#mode-local'],screenshotPath:shot});
       screenshots.push(shot);
     }
   }
@@ -84,7 +85,7 @@ try {
   const before=[calls.length,artRequests];offline=true;
   await page.locator('#mode-tv').click();await page.locator('#mode-local').click();
   assert.deepEqual([calls.length,artRequests],before);
-  assert.equal(await page.locator('.channel-picture img').count(),library.home('mum,dad').channels.length);
+  assert.equal(await page.locator('.channel-picture img').count(),library.home('dad').channels.length);
   offline=false;
   for (const theme of ['dark','light']) {
     await page.emulateMedia({colorScheme:theme});
@@ -94,12 +95,12 @@ try {
   await pick('Jake');
   await rated('PG');
   assert.deepEqual(calls.at(-1),[['jake','mum','dad'],null]);
-  assert.equal(await page.locator('.channel-name').getByText('Rides & Adventures',{exact:true}).count(),1);
+  assert.equal(await page.locator('.channel-card[data-channel="rides"]').count(),1);
   // The rating switch overrides it either way; picking the default clears the override.
   await ratingButton('G').click();
   await rated('G');
   assert.deepEqual(calls.at(-1),[['jake','mum','dad'],'G']);
-  assert.equal(await page.locator('.channel-name').getByText('Rides & Adventures',{exact:true}).count(),0);
+  assert.equal(await page.locator('.channel-card[data-channel="rides"]').count(),0);
   await ratingButton('PG').click();
   await rated('PG');
   assert.deepEqual(calls.at(-1),[['jake','mum','dad'],null]);
@@ -118,7 +119,7 @@ try {
   await pick('Sam');
   await rated('G');await page.waitForTimeout(300);
   assert.equal(await page.locator('#channel-rating [aria-pressed="true"]').textContent(),'G');
-  assert.equal(await page.locator('.channel-name').getByText('Rides & Adventures',{exact:true}).count(),0);
+  assert.equal(await page.locator('.channel-card[data-channel="rides"]').count(),0);
   // Card arrows follow the actual grid, and Back returns to the tuned card.
   await page.locator('.channel-card').first().focus();
   await page.keyboard.press('ArrowRight');
@@ -132,12 +133,12 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#channel-player').hidden);
   for (let i=0;i<50 && !next.length;i++) await page.waitForTimeout(100);
   assert.ok(next.length,'embedded TV player must request an episode');
-  assert.equal(next.at(-1).viewers,'sam,jake,mum,dad');
+  assert.equal(next.at(-1).viewers,'sam,mum,dad');
   const frame = page.frames().find(f=>f.url().startsWith('http://localhost:8686/'));
   await frame.locator('#player:visible').waitFor();
   for (const theme of ['dark','light']) {
     await page.emulateMedia({colorScheme:theme});
-    await assertViewport(page,{primary:['#channel-player'],controls:['#channel-back','#channel-viewers']});
+    await assertViewport(page,{primary:['#channel-player'],controls:['#channel-back','#channel-profile']});
     await assertViewport(frame,{primary:['#osd'],controls:['#osd-play','#osd-options','#osd-next']});
     await page.screenshot({path:resolve(out,`player-${theme}.png`)});
   }
@@ -178,7 +179,7 @@ try {
     const els=[...document.querySelectorAll('body *')],sizes=els.map(el=>parseFloat(getComputedStyle(el).fontSize));
     els.forEach((el,i)=>el.style.fontSize=`${sizes[i]*2}px`);
   });
-  await assertViewport(page,{primary:['#channel-home'],controls:['#channel-viewers','#channel-refresh','#mode-local'],screenshotPath:resolve(out,'large-text.png')});
+  await assertViewport(page,{primary:['#channel-home'],controls:['#channel-profile','#channel-refresh','#mode-local'],screenshotPath:resolve(out,'large-text.png')});
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({passed:true,screenshots,out}));
 } finally {await browser.close();}

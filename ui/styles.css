@@ -123,3 +123,66 @@ label { display:flex; flex-direction:column; gap:6px; margin-top:13px; font-size
 }
 
 @media (max-height:500px) { .channel-card { min-height:0; } }
+
+/* Profiles: each person's Channels tab has their own colours (Ian navy/amber, Fran plum/rose,
+   Jake deep blue/lime, Sam sunny yellow/coral, Everyone teal/gold). */
+#local-view[data-profile] { background:var(--bg); color:var(--text); }
+#local-view[data-profile="ian"] { --bg:#0b1428; --panel:#14213d; --panel-2:#1c2c4f; --text:#f4f1ea; --muted:#9aaaca; --amber:#ffb547; --line:#3a4d72; --ink:#14213d; color-scheme:dark; }
+#local-view[data-profile="fran"] { --bg:#1a0f22; --panel:#2a1834; --panel-2:#3a2246; --text:#fbeef3; --muted:#c9a9bd; --amber:#f4a7b9; --line:#5a3d68; --ink:#2a1834; color-scheme:dark; }
+#local-view[data-profile="jake"] { --bg:#06213a; --panel:#0c3355; --panel-2:#124470; --text:#eaf6ff; --muted:#9cc3e0; --amber:#7ee081; --line:#2a5a84; --ink:#06213a; color-scheme:dark; }
+#local-view[data-profile="sam"] { --bg:#ffe7a3; --panel:#fff6dc; --panel-2:#ffffff; --text:#1f2a44; --muted:#6b5a2a; --amber:#ff6b4a; --line:#e8c56a; --ink:#ffffff; color-scheme:light; }
+#local-view[data-profile="all"] { --bg:#0f2b28; --panel:#17403b; --panel-2:#1f544d; --text:#effaf6; --muted:#a6cfc6; --amber:#ffd166; --line:#2f6a62; --ink:#0f2b28; color-scheme:dark; }
+#local-view[data-profile] .channel-tools { background:var(--panel); color:var(--text); }
+#local-view[data-profile] .channel-tools button { color:var(--text); }
+.profile-chip { display:inline-flex; align-items:center; gap:9px; padding:3px 14px 3px 3px; border:2px solid var(--line); border-radius:24px; background:var(--panel-2); font-size:15px; font-weight:800; }
+.avatar { display:inline-grid; place-items:center; width:32px; height:32px; border-radius:50%; background:var(--amber); color:var(--ink); font-weight:800; font-size:16px; }
+#channel-layout button { min-width:38px; justify-content:center; font-size:16px; }
+#local-view[data-profile] .seg-group button[aria-pressed="true"]:not([data-rating]) { background:var(--amber); color:var(--ink); }
+/* The "now on" panel: the focused or hovered channel, large. */
+#channel-hero { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:20px; align-items:center; min-height:0; }
+#channel-hero[hidden] { display:none; }
+.hero-picture { display:block; aspect-ratio:16/9; border-radius:20px; overflow:hidden; background:var(--panel); }
+.hero-picture img { display:block; width:100%; height:100%; object-fit:cover; }
+.hero-copy { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.hero-channel { color:var(--amber); font-size:15px; font-weight:800; }
+.hero-show { font-size:34px; font-weight:800; line-height:1.05; overflow-wrap:anywhere; }
+.hero-title { font-size:17px; overflow-wrap:anywhere; }
+.hero-length { font-size:15px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.hero-next { font-size:14px; color:var(--muted); overflow-wrap:anywhere; }
+/* Guide: one row per channel — channel, now, next. */
+#channel-list.layout-guide { grid-template-columns:1fr; gap:6px; }
+.channel-card.layout-guide { aspect-ratio:auto; display:grid; grid-template-columns:minmax(10em,1fr) minmax(0,1.6fr) minmax(0,1.4fr); align-items:center; gap:12px; min-height:58px; padding:6px 14px; border-width:2px; border-radius:14px; background:var(--panel); color:var(--text); border-color:var(--panel); }
+.channel-card.layout-guide .channel-picture { display:none; }
+.guide-channel { display:flex; align-items:baseline; gap:9px; min-width:0; }
+.guide-channel .channel-name { font-size:15px; }
+.guide-now { display:flex; flex-direction:column; min-width:0; }
+.guide-show { font-size:15px; font-weight:800; overflow-wrap:anywhere; }
+.guide-title { font-size:12.5px; color:var(--muted); overflow-wrap:anywhere; }
+.guide-next { font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
+.channel-card.layout-guide:hover,.channel-card.layout-guide:focus-visible { border-color:var(--amber); background:var(--panel-2); }
+/* Pictures: big character tiles, one short word each (Sam is two and can't read). */
+#channel-list.layout-pictures { grid-template-columns:repeat(auto-fill,minmax(min(100%,15em),1fr)); gap:16px; }
+.channel-card.layout-pictures { aspect-ratio:4/3; border-radius:26px; border-width:6px; border-color:var(--panel-2); background:var(--panel); justify-content:flex-end; }
+.channel-card.layout-pictures .channel-picture { border-radius:20px; }
+.picture-label { align-self:center; margin:0 0 8px; padding:3px 14px; border-radius:14px; background:var(--panel-2); color:var(--text); font-size:17px; font-weight:800; }
+/* Who's watching? */
+#channel-picker { position:absolute; inset:0; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:34px; background:var(--bg); }
+#channel-picker[hidden] { display:none; }
+#channel-picker h2 { margin:0; font-size:32px; }
+#channel-picker-people { display:flex; flex-wrap:wrap; justify-content:center; gap:28px; }
+.picker-person { display:flex; flex-direction:column; align-items:center; gap:10px; padding:10px; border:0; background:transparent; color:var(--text); }
+.picker-person .avatar { width:104px; height:104px; font-size:46px; box-shadow:0 0 0 5px var(--bg), 0 0 0 9px transparent; }
+.picker-person:focus-visible .avatar,.picker-person:hover .avatar { box-shadow:0 0 0 5px var(--bg), 0 0 0 9px var(--text); }
+.picker-person[data-profile="ian"] .avatar { background:#ffb547; color:#14213d; }
+.picker-person[data-profile="fran"] .avatar { background:#f4a7b9; color:#2a1834; }
+.picker-person[data-profile="jake"] .avatar { background:#7ee081; color:#06213a; }
+.picker-person[data-profile="sam"] .avatar { background:#ff6b4a; color:#fff; }
+.picker-person[data-profile="all"] .avatar { background:#ffd166; color:#0f2b28; }
+.picker-name { font-size:19px; font-weight:800; }
+#local-view { position:relative; }
+/* The panel and the lineup scroll together, so the grid is never squeezed under the panel. */
+#channel-home { overflow:auto; }
+#channel-home > #channel-list { flex:none; overflow:visible; }
+#channel-hero { grid-template-columns:auto minmax(0,1fr); }
+.hero-picture { height:min(34vh,20em); width:auto; }
+#channel-home > #channel-hero { flex:none; }

@@ -4,27 +4,32 @@
   const ORIGINS = ['https://iantodds-macbook-air.tail8cd07b.ts.net:8443', 'http://localhost:8686'];
   let origin = ORIGINS[0];
   const $ = id => document.getElementById(id);
-  // Who's watching: the youngest in the room sets the default rating; the rating
-  // switch overrides it either way until the audience changes. This Mac is a
-  // grown-up's screen, so it opens on Mum & Dad and remembers the last choice.
-  const WHO = [
-    { id: 'sam', name: 'Sam', viewers: ['sam', 'jake', 'mum', 'dad'], rating: 'G' },
-    { id: 'jake', name: 'Jake', viewers: ['jake', 'mum', 'dad'], rating: 'PG' },
-    { id: 'adults', name: 'Mum & Dad', viewers: ['mum', 'dad'], rating: 'M' },
+  // Who's watching is a profile: a person (or Everyone) with their own colours, rating,
+  // channels and layout. The youngest in the audience sets the default rating; the switch
+  // overrides it either way until the profile changes. This Mac opens on Ian.
+  const PROFILES = [
+    { id: 'ian', name: 'Ian', mark: 'I', viewers: ['dad'], layout: 'now' },
+    { id: 'fran', name: 'Fran', mark: 'F', viewers: ['mum'], layout: 'guide' },
+    { id: 'jake', name: 'Jake', mark: 'J', viewers: ['jake', 'mum', 'dad'], layout: 'pictures' },
+    { id: 'sam', name: 'Sam', mark: 'S', viewers: ['sam', 'mum', 'dad'], layout: 'pictures' },
+    { id: 'all', name: 'Everyone', mark: '★', viewers: ['sam', 'jake', 'mum', 'dad'], layout: 'now' },
   ];
   const RATINGS = ['G', 'PG', 'M'];
-  const AUDIENCE_KEY = 'onto.desktop.audience';
-  let who = 'adults', rating = null;
-  try {
-    const saved = JSON.parse(localStorage.getItem(AUDIENCE_KEY) || 'null');
-    if (WHO.some(entry => entry.id === saved?.who)) { who = saved.who; rating = RATINGS.includes(saved.rating) ? saved.rating : null; }
-  } catch { /* keep the default */ }
-  let viewers = WHO.find(entry => entry.id === who).viewers;
-  let defaultCeiling = null;
+  const LAYOUTS = [['now', '▣', 'Now on'], ['guide', '☰', 'Guide'], ['pictures', '▦', 'Pictures']];
+  const KEY = 'onto.desktop.profile';
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { saved = {}; }
+  let profile = PROFILES.find(p => p.id === saved.profile) || PROFILES[0];
+  let rating = RATINGS.includes(saved.rating) ? saved.rating : null;
+  const layouts = saved.layouts && typeof saved.layouts === 'object' ? saved.layouts : {};
+  let viewers = profile.viewers;
+  let defaultCeiling = null, lineup = [];
   let generation = 0, loaded = false, loading = false;
   const art = new Map();
   let selectedChannel;
-  const personIcon = '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="18" r="10"/><path d="M12 54c2-16 10-22 20-22s18 6 20 22"/></svg>';
+  const layoutOf = () => (LAYOUTS.some(([id]) => id === layouts[profile.id]) ? layouts[profile.id] : profile.layout);
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ profile: profile.id, rating, layouts })); } catch { /* session only */ } };
+
   function returnFocus() {
     const cards = [...$('channel-list').querySelectorAll('button')];
     (cards.find(el => el.dataset.channel === selectedChannel) || cards[0])?.focus();
@@ -69,69 +74,118 @@
     }
     return art.get(path);
   }
+  function span(className, text) { const el = document.createElement('span'); el.className = className; el.textContent = text; return el; }
+  function withArt(holder, path) {
+    const ready = picture(path);
+    if (ready) void ready.then(img => { if (img && holder.isConnected) holder.replaceChildren(img.cloneNode()); });
+  }
+  const minutes = now => (now?.minutes ? `${now.minutes} min` : '');
+  const nextLine = now => (now?.next ? `Next · ${now.next.show}${now.next.title ? ' · ' + now.next.title : ''}` : '');
+
+  // The "now on" panel: the focused or hovered channel, large.
+  function hero(channel) {
+    const panel = $('channel-hero');
+    if (!channel || layoutOf() === 'pictures') { panel.hidden = true; return; }
+    panel.hidden = false;
+    const image = span('hero-picture', '');
+    const copy = span('hero-copy', '');
+    copy.append(span('hero-channel', `${channel.number} · ${channel.name}`), span('hero-show', channel.now?.show || '—'));
+    if (channel.now?.title) copy.append(span('hero-title', channel.now.title));
+    if (channel.now?.minutes) copy.append(span('hero-length', minutes(channel.now)));
+    if (channel.now?.next) copy.append(span('hero-next', nextLine(channel.now)));
+    panel.replaceChildren(image, copy);
+    withArt(image, channel.now?.art);
+  }
   function card(channel) {
-    const button = document.createElement('button'); button.type = 'button'; button.className = 'channel-card';
+    const layout = layoutOf();
+    const button = document.createElement('button'); button.type = 'button'; button.className = `channel-card layout-${layout}`;
     button.dataset.channel = channel.id;
     const show = channel.now?.show || '—';
-    button.title = `${channel.number} · ${channel.name} · ${show}`;
-    button.setAttribute('aria-label', `Play channel ${channel.number}, ${channel.name}: ${show}`);
-    const image = document.createElement('span'); image.className = 'channel-picture';
-    const row = document.createElement('span'); row.className = 'channel-readout';
-    for (const [name, value] of [['number', channel.number], ['name', channel.name], ['now', `▶ ${show}`]]) {
-      const span = document.createElement('span'); span.className = `channel-${name}`; span.textContent = value; row.append(span);
+    button.title = [`${channel.number} · ${channel.name}`, show, channel.now?.title, minutes(channel.now), nextLine(channel.now)].filter(Boolean).join('\n');
+    button.setAttribute('aria-label', `Play channel ${channel.number}, ${channel.name}: ${show}${channel.now?.title ? ', ' + channel.now.title : ''}`);
+    const image = span('channel-picture', '');
+    if (layout === 'guide') {
+      const name = span('guide-channel', ''); name.append(span('channel-number', channel.number), span('channel-name', channel.name));
+      const now = span('guide-now', ''); now.append(span('guide-show', show), span('guide-title', [channel.now?.title, minutes(channel.now)].filter(Boolean).join(' · ')));
+      const next = span('guide-next', channel.now?.next ? `${channel.now.next.show}${channel.now.next.title ? ' · ' + channel.now.next.title : ''}` : '');
+      button.append(image, name, now, next);
+    } else if (layout === 'pictures') {
+      button.append(image, span('picture-label', channel.name));
+    } else {
+      const row = span('channel-readout', '');
+      row.append(span('channel-number', channel.number), span('channel-name', channel.name), span('channel-now', `▶ ${show}`));
+      button.append(image, row);
     }
-    button.append(image, row);
     button.onclick = () => tune(channel);
-    // Small, bounded lineup: prepare all card art once, reuse on return to Channels.
-    const ready = picture(channel.now?.art);
-    if (ready) void ready.then(img => { if (img && button.isConnected) image.append(img.cloneNode()); });
+    button.addEventListener('focus', () => hero(channel));
+    button.addEventListener('mouseenter', () => hero(channel));
+    withArt(image, channel.now?.art);
     return button;
-  }
-  function choose(nextWho, nextRating) {
-    who = nextWho; rating = nextRating;
-    viewers = WHO.find(entry => entry.id === who).viewers;
-    try { localStorage.setItem(AUDIENCE_KEY, JSON.stringify({ who, rating })); } catch { /* session only */ }
-    stop(); art.clear(); void refresh(true);
   }
   function segment(group, value, label, title, onClick) {
     const button = document.createElement('button'); button.type = 'button'; button.dataset.value = value;
     button.title = title; button.setAttribute('aria-label', title);
-    button.innerHTML = label; button.onclick = onClick;
+    button.textContent = label; button.onclick = onClick;
     $(group).append(button);
+    return button;
+  }
+  function paintProfile() {
+    $('local-view').dataset.profile = profile.id;
+    $('channel-avatar').textContent = profile.mark;
+    $('channel-who').textContent = profile.name;
+    $('channel-profile').setAttribute('aria-label', `Who's watching: ${profile.name}. Change`);
+    for (const button of $('channel-layout').children) button.setAttribute('aria-pressed', String(button.dataset.value === layoutOf()));
+    $('channel-list').className = `layout-${layoutOf()}`;
   }
   function controls(home) {
-    if (!$('channel-viewers').children.length) {
-      for (const entry of WHO) {
-        segment('channel-viewers', entry.id, `<span class="viewer-icon">${personIcon}</span><span></span>`, `Youngest watching: ${entry.name} · ${entry.rating}`,
-          () => choose(entry.id, null));
-        $('channel-viewers').lastChild.lastChild.textContent = entry.name;
-      }
+    if (!$('channel-rating').children.length) {
       for (const value of RATINGS) {
         segment('channel-rating', value, value, `Rated ${value}`,
-          // Picking the people's own rating clears the override.
-          () => { if (who) choose(who, value === defaultCeiling ? null : value); });
-        $('channel-rating').lastChild.dataset.rating = value;
+          // Picking the profile's own rating clears the override.
+          () => { rating = value === defaultCeiling ? null : value; save(); stop(); void refresh(true); }).dataset.rating = value;
+      }
+      for (const [id, glyph, name] of LAYOUTS) {
+        segment('channel-layout', id, glyph, name, () => { layouts[profile.id] = id; save(); paintProfile(); render(); });
       }
     }
     defaultCeiling = home ? home.defaultCeiling ?? null : null;
     const ceiling = home ? home.ceiling : null;
-    for (const button of $('channel-viewers').children) button.setAttribute('aria-pressed', String(button.dataset.value === who));
     for (const button of $('channel-rating').children) {
       button.setAttribute('aria-pressed', String(button.dataset.value === ceiling));
       button.classList.toggle('default', button.dataset.value === defaultCeiling);
-      button.title = `Rated ${button.dataset.value}${button.dataset.value === defaultCeiling ? ' (default for who is watching)' : ''}`;
+      button.title = `Rated ${button.dataset.value}${button.dataset.value === defaultCeiling ? ` (${profile.name}'s rating)` : ''}`;
     }
+    paintProfile();
+  }
+  function choose(next) {
+    profile = next; viewers = profile.viewers; rating = null; save();
+    $('channel-picker').hidden = true;
+    stop(); art.clear(); void refresh(true);
+    $('channel-profile').focus();
+  }
+  function picker() {
+    const people = $('channel-picker-people');
+    if (!people.children.length) {
+      for (const person of PROFILES) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'picker-person'; button.dataset.profile = person.id;
+        button.append(span('avatar', person.mark), span('picker-name', person.name));
+        button.onclick = () => choose(person);
+        people.append(button);
+      }
+    }
+    $('channel-picker').hidden = false;
+    people.querySelector(`[data-profile="${profile.id}"]`)?.focus();
+  }
+  function render() {
+    $('channel-list').replaceChildren(...lineup.map(card));
+    hero(lineup[0]);
   }
   async function refresh(changed = false) {
     if (!window.tv?.getTvHome) return;
     const request = ++generation;
     loading = true; state('↻', 'Loading channels');
     // A previous audience's picks must never remain actionable while changing viewers.
-    if (changed) {
-      loaded = false; $('channel-list').replaceChildren();
-      controls(null);
-      for (const button of $('channel-viewers').children) button.setAttribute('aria-pressed', String(button.dataset.value === who));
-    }
+    if (changed) { loaded = false; lineup = []; $('channel-list').replaceChildren(); $('channel-hero').hidden = true; controls(null); }
     try {
       const home = await window.tv.getTvHome(viewers, rating);
       if (request !== generation) return;
@@ -141,14 +195,24 @@
       // Keep the artwork cache bounded to the current lineup.
       const paths = new Set(home.channels.map(channel => channel.now?.art));
       for (const path of art.keys()) if (!paths.has(path)) art.delete(path);
-      $('channel-list').replaceChildren(...home.channels.map(card));
+      lineup = home.channels;
+      render();
       loaded = true;
-      state(home.channels.length ? '' : '∅', home.channels.length ? '' : viewers.length ? 'No channels for these viewers' : 'Choose who is watching');
+      state(home.channels.length ? '' : '∅', home.channels.length ? '' : 'No channels for this rating');
     } catch (error) {
       if (request !== generation) return;
       state('⚠', `Channels unavailable: ${error.message}. Use Refresh channels to retry.`);
     } finally { if (request === generation) loading = false; }
   }
+  $('channel-profile').onclick = picker;
+  $('channel-picker').addEventListener('keydown', event => {
+    if (event.key === 'Escape') { $('channel-picker').hidden = true; $('channel-profile').focus(); return; }
+    const people = [...$('channel-picker-people').children], at = people.indexOf(document.activeElement);
+    if (at < 0) return;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      event.preventDefault(); people[(at + (event.key === 'ArrowRight' ? 1 : people.length - 1)) % people.length].focus();
+    }
+  });
   $('channel-refresh').onclick = () => { stop(); void refresh(); };
   $('channel-back').onclick = () => { stop(); returnFocus(); };
   $('channel-feedback').onclick = () => { stop(); void refresh(); };
@@ -168,5 +232,6 @@
   window.addEventListener('message', event => {
     if (event.origin === origin && event.source === $('channel-player').contentWindow && event.data?.type === 'onto:desktop-home') { stop(); returnFocus(); }
   });
+  paintProfile();
   window.channelView = { refresh, stop, enter() { if (!loaded && !loading) void refresh(); } };
 })();
