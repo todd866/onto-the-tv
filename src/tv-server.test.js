@@ -52,6 +52,7 @@ test('home is channel-first and the youngest viewer sets the ceiling', async () 
   ]);
   assert.deepEqual(home.channels.map(channel => [channel.number, channel.id, channel.name]), [[1, 'cartoons', 'Cartoons']]);
   assert.equal(home.channels[0].now.show, 'Bluey');
+  assert.equal(home.channels[0].count, 3, 'channels report their pool size at this ceiling');
   assert.equal(home.channels[0].now.art, '/art?src=Bluey%2Fa.mp4');
   assert.equal(home.shows, undefined);
   assert.equal(home.continueWatching, undefined);

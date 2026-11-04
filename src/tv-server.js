@@ -321,10 +321,12 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const { ceiling, blocked } = audience(ids);
     const channels = [];
     for (const channel of TV_CHANNELS) {
-      if (!poolFor(channel.id, ids).length) continue;
+      const count = poolFor(channel.id, ids).length;
+      if (!count) continue;
       const key = stageKey(channel.id, ids);
       if (!staged.has(key)) staged.set(key, chooseIndex(channel.id, ids, {}));
-      channels.push({ id: channel.id, number: channel.number, name: channel.name, now: nowPlaying(videos[staged.get(key)]) });
+      // count: videos on this channel at this audience's ceiling (the morning acceptance gate reads it).
+      channels.push({ id: channel.id, number: channel.number, name: channel.name, count, now: nowPlaying(videos[staged.get(key)]) });
     }
     return {
       ceiling: blocked ? null : ceiling,
