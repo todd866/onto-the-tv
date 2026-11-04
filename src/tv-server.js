@@ -114,13 +114,13 @@ export const TV_CHANNELS = [
   { id: 'formum', number: 34, name: 'For Mum', person: 'mum', audience: 'adult' },
 ];
 // Fran's own mix, from Ian (4 Nov 2026): her top three are Come Dine With Me, Friends and The
-// Big Bang Theory, and she is a big fan of British reality TV. No animation, no violence.
+// Big Bang Theory, and she is a big fan of British reality TV; she likes Kath & Kim too. No animation, no violence.
 const MUM_TIERS = new Set(['grownup', 'couple', 'sitcom', 'comedy', 'bbc', 'standup', 'docs']);
 const MUM_SKIPS = /^(?:mobland|snatch|lock stock|the gentlemen|in bruges)\b/i;
 // Familiar shows draw people in (Ian): her favourites lead the channel, everything else on it
 // is a low-weight discovery. Per show: 4 against 0.3, so favourites win about three picks in four.
 const FAVOURITE_WEIGHT = 4, DISCOVERY_WEIGHT = 0.3;
-const FRAN_SHOWS = /^(?:(?:couples )?come dine with me|friends\b|the big bang theory|big bang theory|gogglebox|first dates|four in a bed|the great british bake off|great british bake off|bake off|escape to the country|a place in the sun|location,? location|the hotel inspector|24 hours in a&e|married at first sight uk|love island|the apprentice|dragons.? den|grand designs|bargain hunt|homes under the hammer|the traitors|race across the world|the repair shop)/i;
+const FRAN_SHOWS = /^(?:(?:couples )?come dine with me|friends\b|kath (?:&|and) kim|the big bang theory|big bang theory|gogglebox|first dates|four in a bed|the great british bake off|great british bake off|bake off|escape to the country|a place in the sun|location,? location|the hotel inspector|24 hours in a&e|married at first sight uk|love island|the apprentice|dragons.? den|grand designs|bargain hunt|homes under the hammer|the traitors|race across the world|the repair shop)/i;
 const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]));
 
 const RIDES_SHOWS = /\b(?:knight rider|the a[- ]team|the dukes of hazzard|airwolf|chips|baywatch|top gear)\b/i;
