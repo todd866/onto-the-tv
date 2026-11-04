@@ -116,6 +116,10 @@ export const TV_CHANNELS = [
 // Fran's own mix, from Ian (4 Nov 2026): her top three are Come Dine With Me, Friends and The
 // Big Bang Theory, and she is a big fan of British reality TV. No animation, no violence.
 const MUM_TIERS = new Set(['grownup', 'couple', 'sitcom', 'comedy', 'bbc', 'standup', 'docs']);
+const MUM_SKIPS = /^(?:mobland|snatch|lock stock|the gentlemen|in bruges)\b/i;
+// Familiar shows draw people in (Ian): her favourites lead the channel, everything else on it
+// is a low-weight discovery. Per show: 4 against 0.3, so favourites win about three picks in four.
+const FAVOURITE_WEIGHT = 4, DISCOVERY_WEIGHT = 0.3;
 const FRAN_SHOWS = /^(?:(?:couples )?come dine with me|friends\b|the big bang theory|big bang theory|gogglebox|first dates|four in a bed|the great british bake off|great british bake off|bake off|escape to the country|a place in the sun|location,? location|the hotel inspector|24 hours in a&e|married at first sight uk|love island|the apprentice|dragons.? den|grand designs|bargain hunt|homes under the hammer|the traitors|race across the world|the repair shop)/i;
 const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]));
 
@@ -131,7 +135,7 @@ export function inTvGenre(item, channelId) {
     if (!defined.kids && KID_TIERS.has(item.tier)) return false;
     return !isFilm(item) && defined.shows.test(String(item.channel || '').replace(/^[^\w]+/, ''));
   }
-  if (defined?.person === 'mum') return MUM_TIERS.has(item.tier) && !isFilm(item) && FRAN_SHOWS.test(String(item.channel || ''));
+  if (defined?.person === 'mum') return MUM_TIERS.has(item.tier) && !isFilm(item) && !MUM_SKIPS.test(String(item.channel || ''));
   if (defined?.person) return PERSONAL_TIERS.has(item.tier) && !isFilm(item);
   if (channelId === 'sitcoms') return item.tier === 'sitcom' || item.tier === 'bbc';
   if (channelId === 'adultanim') return item.tier === 'adultanim' && !isFilm(item);
@@ -464,7 +468,15 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
           watched: Math.round(Number(options.watched) || 0), dur: Math.round(Number(options.duration) || item.duration || 0), via: 'tv' });
       }
     }
-    const weights = weightsFor(key);
+    let weights = weightsFor(key);
+    if (CHANNEL_BY_ID.get(channelId)?.person === 'mum') {
+      const learned = weights;
+      weights = Object.create(null);
+      for (const index of pool) {
+        const item = videos[index];
+        weights[item.src] = player.weightFor(learned, item.src) * (FRAN_SHOWS.test(String(item.channel || '')) ? FAVOURITE_WEIGHT : DISCOVERY_WEIGHT);
+      }
+    }
     // Episodic films and sitcoms play in order; cartoons stay shuffled.
     const serial = ['movies', 'sitcoms', 'grownups', 'friends', 'seinfeld', 'crime'].includes(channelId);
     const ending = options.reason === 'ended';

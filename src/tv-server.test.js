@@ -410,7 +410,19 @@ test('the lineup splits shows into their own channels and each adult gets a pers
   assert.equal(of('fordad').includes('Bluey'), false);
   assert.equal(of('formum').includes('Futurama (1999)'), false, 'no animation on Fran\'s channel');
   assert.ok(of('formum').includes('Come Dine With Me') && of('formum').includes('Friends (1994)'));
-  assert.equal(of('formum').includes("Miss Fisher's Murder Mysteries"), false, "Fran's own picks only");
+  assert.ok(of('formum').includes("Miss Fisher's Murder Mysteries"), 'other grown-up shows stay on as discoveries');
+  assert.equal(of('formum').includes('Futurama (1999)'), false);
+  // Her favourites lead: over many picks, Come Dine With Me and Friends dominate.
+  const seq = [0.02, 0.31, 0.57, 0.83, 0.11, 0.66, 0.44, 0.95, 0.27, 0.73];
+  let n = 0;
+  const many = [];
+  for (const [show, tier] of [['Come Dine With Me', 'grownup'], ['Friends (1994)', 'sitcom'], ["Miss Fisher's Murder Mysteries", 'couple'],
+    ['Shetland', 'couple'], ['48 Hours', 'grownup'], ['Kath & Kim', 'sitcom']]) for (let e = 1; e <= 8; e++) many.push(v(show, tier, `S01E0${e}`));
+  const favourites = createTvLibrary({ videos: many, history, storage, random: () => seq[n++ % seq.length] });
+  const shown = [];
+  for (let i = 0; i < 40; i++) shown.push(favourites.next('formum', { viewers: 'mum' }).show);
+  const share = shown.filter(show => /Come Dine|Friends/.test(show)).length / shown.length;
+  assert.ok(share >= 0.6, `favourites share ${share}`);
 
   const ids = viewers => library.home(viewers).channels.map(channel => channel.id);
   assert.ok(ids('dad').includes('fordad'));
