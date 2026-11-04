@@ -408,6 +408,8 @@ test('the lineup splits shows into their own channels and each adult gets a pers
   assert.deepEqual(of('reality'), ['Come Dine With Me']);
   assert.equal(of('fordad').includes('In Bruges (2008)'), false, 'films stay on Movies');
   assert.equal(of('fordad').includes('Bluey'), false);
+  assert.equal(of('formum').includes('Futurama (1999)'), false, 'no animation on Fran\'s channel');
+  assert.ok(of('formum').includes('Come Dine With Me') && of('formum').includes("Miss Fisher's Murder Mysteries"));
 
   const ids = viewers => library.home(viewers).channels.map(channel => channel.id);
   assert.ok(ids('dad').includes('fordad'));
