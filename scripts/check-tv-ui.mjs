@@ -14,15 +14,20 @@ function homeFor(viewers, rating = null) {
   const on = id => ids.includes(id);
   const defaultCeiling = on('sam') ? 'G' : on('jake') ? 'PG' : ids.length ? 'M' : null;
   const ceiling = defaultCeiling && rating ? rating : defaultCeiling;
+  const pick = (show, i, extra = {}) => ({
+    show, title: extra.title || show + ' episode', minutes: extra.minutes ?? 18,
+    art: '/art?src=show' + i,
+    next: extra.next || { show: 'Up next', title: 'Part two' },
+  });
   const channels = [
-    { id: 'cartoons', number: 1, name: 'Cartoons', now: { show: longShow, art: '/art?src=show0' } },
-    { id: 'movies', number: 2, name: 'Movies', now: { show: 'The Great Adventure', art: '/art?src=show1' } },
-    { id: 'music', number: 4, name: 'Music', now: { show: 'The Workshop', art: '/art?src=show3' } },
-    { id: 'christmas', number: 5, name: 'Christmas', now: { show: 'Wild Australia', art: '/art?src=show4' } },
+    { id: 'cartoons', number: 1, name: 'Cartoons', now: pick(longShow, 0, { minutes: 12 }) },
+    { id: 'movies', number: 2, name: 'Movies', now: pick('The Great Adventure', 1) },
+    { id: 'music', number: 4, name: 'Music', now: pick('The Workshop', 3) },
+    { id: 'christmas', number: 5, name: 'Christmas', now: pick('Wild Australia', 4) },
   ];
-  if (ceiling === 'M') channels.splice(2, 0, { id: 'sitcoms', number: 3, name: 'Sitcoms', now: { show: 'Our Solar System', art: '/art?src=show2' } });
-  if (ceiling && ceiling !== 'G') channels.push({ id: 'rides', number: 19, name: 'Rides & Adventures', now: { show: 'Knight Rider (1982)', art: '/art?src=show5' } });
-  if (ceiling === 'M') channels.push(...['Comedy', 'Sport & Docs', 'Sci-Fi', 'Classics', '1950s', '1960s', '1970s', '1980s', '1990s', 'Sports', 'Hop Hop'].map((name, i) => ({ id: 'extra' + i, number: i + 8, name, now: { show: ['The A-Team', 'Wild Australia', 'Airwolf'][i % 3], art: '/art?src=show' + i } })));
+  if (ceiling === 'M') channels.splice(2, 0, { id: 'sitcoms', number: 3, name: 'Sitcoms', now: pick('Our Solar System', 2) });
+  if (ceiling && ceiling !== 'G') channels.push({ id: 'rides', number: 19, name: 'Rides & Adventures', now: pick('Knight Rider (1982)', 5) });
+  if (ceiling === 'M') channels.push(...['Comedy', 'Sport & Docs', 'Sci-Fi', 'Classics', '1950s', '1960s', '1970s', '1980s', '1990s', 'Sports', 'Hop Hop'].map((name, i) => ({ id: 'extra' + i, number: i + 8, name, now: pick(['The A-Team', 'Wild Australia', 'Airwolf'][i % 3], i) })));
   return {
     ceiling, defaultCeiling, rating: rating || null,
     viewers: [
@@ -43,7 +48,14 @@ try {
     const h = new Date().getHours();
     localStorage.setItem('onto.viewers.band', h >= 20 || h < 5 ? 'night' : 'day');
     if (!localStorage.getItem('onto.viewers')) localStorage.setItem('onto.viewers', 'sam,jake,mum,dad');
+    if (!localStorage.getItem('onto.profile')) localStorage.setItem('onto.profile', 'all');
   });
+  async function pickProfile(page, id) {
+    await page.locator('.profile-chip').click();
+    await page.locator('#picker:visible').waitFor();
+    await page.locator('#picker-people [data-profile="' + id + '"]').click();
+    await page.waitForFunction(() => document.getElementById('picker').hidden);
+  }
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.route('http://tv.test/**', async route => {
@@ -93,19 +105,31 @@ try {
   assert.equal(await page.getByText('Continue Watching').count(), 0);
   assert.equal(await page.getByText('Browse shows').count(), 0);
   assert.equal(await page.getByText('Games', { exact: true }).count(), 1);
-  // Who's watching: three segments (the youngest sets the default rating) and a G/PG/M switch.
-  const segments = () => page.evaluate(() => [...document.querySelectorAll('#viewers .seg')].map(el =>
-    (el.getAttribute('data-who') || el.getAttribute('data-rating')) + (el.classList.contains('on') ? '*' : '') + (el.classList.contains('default') ? '^' : '')));
-  assert.deepEqual(await segments(), ['sam*', 'jake', 'adults', 'G*^', 'PG', 'M']);
+  const homeControls = () => page.evaluate(() => ({
+    profile: document.querySelector('.profile-name')?.textContent,
+    ratings: [...document.querySelectorAll('#viewers .seg-rating')].map(el =>
+      el.getAttribute('data-rating') + (el.classList.contains('on') ? '*' : '') + (el.classList.contains('default') ? '^' : '')),
+    layouts: [...document.querySelectorAll('#viewers .seg-layout')].map(el =>
+      el.getAttribute('data-layout') + (el.classList.contains('on') ? '*' : '')),
+    channelsClass: document.getElementById('channels').className,
+  }));
+  assert.deepEqual((await homeControls()).profile, 'Everyone');
+  assert.deepEqual((await homeControls()).ratings, ['G*^', 'PG', 'M']);
+  assert.deepEqual((await homeControls()).layouts, ['now*', 'guide', 'pictures']);
+  assert.match((await homeControls()).channelsClass, /layout-now/);
+  await page.locator('.seg[data-layout="guide"]').click();
+  assert.match((await homeControls()).channelsClass, /layout-guide/);
+  await page.locator('.seg[data-layout="now"]').click();
+  assert.match((await homeControls()).channelsClass, /layout-now/);
   assert.equal(await page.locator('.channel .now').first().getAttribute('title'), longShow);
   const tooSmall = await page.evaluate(() => {
-    const nodes = [...document.querySelectorAll('#home button, #home .num, #home .name, #home .now, #home .who, #clock')];
+    const nodes = [...document.querySelectorAll('#home button, #home .num, #home .name, #home .now, #home .profile-name, #home .hero-show, #home .hero-channel, #home .hero-length, #clock')];
     return nodes.filter(el => el.textContent.trim() && parseFloat(getComputedStyle(el).fontSize) < 28).map(el => el.className + ' ' + getComputedStyle(el).fontSize);
   });
   assert.deepEqual(tooSmall, []);
   const card = await page.locator('.channel').first().boundingBox();
   assert.ok(card.width > 280 && card.width < 300 && Math.abs(card.height - 212) < 2, 'six tiles a row at 1920: ' + JSON.stringify(card));
-  const clipped = await page.evaluate(() => [...document.querySelectorAll('.channel .name, .channel .now-title, #viewers .seg')]
+  const clipped = await page.evaluate(() => [...document.querySelectorAll('.channel .name, .channel .now-title, .profile-name, .hero-show')]
     .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent));
   assert.deepEqual(clipped, [], 'no clipped channel or control text');
   await assertViewport(page, { primary: [{ selector: '#home' }], controls: [{ selector: '.viewer.focused' }] });
@@ -124,28 +148,28 @@ try {
   await page.screenshot({ path: path.join(out, 'home-focus-light.png') });
   await assertViewport(page, { primary: ['#home'], controls: [{ selector: '.channel.focused' }] });
 
-  // One press picks Jake: PG, and the people's rating is the switch's default.
+  // Profile picker: Jake sets PG as the default rating.
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('http://tv.test/');
-  await page.locator('.viewer.focused').waitFor();
+  await page.locator('.profile-chip.focused').waitFor();
   homeQueries = []; homeRatings = [];
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('Enter');
+  await pickProfile(page, 'jake');
   await page.locator('.seg.rate-pg.on').waitFor();
   assert.equal(homeQueries.at(-1), 'jake,mum,dad');
   assert.equal(homeRatings.at(-1), null);
-  assert.deepEqual(await segments(), ['sam', 'jake*', 'adults', 'G', 'PG*^', 'M']);
+  assert.deepEqual((await homeControls()).profile, 'Jake');
+  assert.deepEqual((await homeControls()).ratings, ['G', 'PG*^', 'M']);
+  assert.match((await homeControls()).channelsClass, /layout-pictures/);
   await page.screenshot({ path: path.join(out, 'home-dark-unticked.png') });
   assert.equal(await page.getByRole('button', { name: /19 Rides/ }).count(), 1);
 
   // The rating switch overrides the people's default, up or down, without a password.
   await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   await page.locator('.seg.rate-m.on').waitFor();
   assert.equal(homeQueries.at(-1), 'jake,mum,dad');
   assert.equal(homeRatings.at(-1), 'M');
-  assert.deepEqual(await segments(), ['sam', 'jake*', 'adults', 'G', 'PG^', 'M*']);
+  assert.deepEqual((await homeControls()).ratings, ['G', 'PG^', 'M*']);
   await page.screenshot({ path: path.join(out, 'home-override-dark.png') });
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('Enter');
@@ -161,16 +185,16 @@ try {
 
   // A rating pressed before the new audience's lineup arrives is still an override.
   homeDelay = 350;
-  await page.locator('.seg[data-who="sam"]').click();
+  await pickProfile(page, 'sam');
   await page.locator('.seg[data-rating="M"]').click();
   homeDelay = 0;
   await page.locator('.seg.rate-m.on').waitFor();
   assert.equal(homeQueries.at(-1), 'sam,jake,mum,dad');
   assert.equal(homeRatings.at(-1), 'M');
   // Picking who's watching resets the rating to theirs.
-  await page.locator('.seg[data-who="adults"]').click();
+  await pickProfile(page, 'ian');
   await page.locator('.seg.rate-m.on.default').waitFor();
-  assert.equal(homeQueries.at(-1), 'mum,dad');
+  assert.equal(homeQueries.at(-1), 'dad');
   assert.equal(homeRatings.at(-1), null);
   await page.screenshot({ path: path.join(out, 'home-adults-dark.png') });
   await page.emulateMedia({ colorScheme: 'light' });
@@ -180,20 +204,20 @@ try {
   // Restrict an adult lineup while the old response is delayed. A second
   // change must build from the requested viewers, and stale replies cannot win.
   homeDelay = 350;
-  await page.locator('.seg[data-who="sam"]').click();
+  await pickProfile(page, 'sam');
   assert.equal(await page.locator('.channel:not([class*="app-"])').count(), 0);
   homeDelay = 0;
-  await page.locator('.seg[data-who="jake"]').click();
+  await pickProfile(page, 'jake');
   await page.locator('.seg.rate-pg.on').waitFor();
   assert.equal(homeQueries.at(-1), 'jake,mum,dad');
   await page.waitForTimeout(400);
-  assert.deepEqual(await segments(), ['sam', 'jake*', 'adults', 'G', 'PG*^', 'M']);
+  assert.deepEqual((await homeControls()).profile, 'Jake');
   failHome = true;
-  await page.locator('.seg[data-who="sam"]').click();
+  await pickProfile(page, 'sam');
   await page.locator('#status', { hasText: 'fixture offline' }).waitFor();
   assert.equal(await page.locator('.channel:not([class*="app-"])').count(), 0);
   failHome = false;
-  await page.locator('.seg[data-who="adults"]').click();
+  await pickProfile(page, 'ian');
   await page.locator('.seg.rate-m.on').waitFor();
   await page.waitForFunction(() => [...document.querySelectorAll('.art')].every(img => img.complete && img.naturalWidth));
 
@@ -322,6 +346,14 @@ try {
   await page.keyboard.press('Escape');
   await page.goto('http://tv.test/');
   await page.locator('.viewer.focused').waitFor();
+  await page.evaluate(() => {
+    localStorage.setItem('onto.profile', 'all');
+    localStorage.setItem('onto.viewers', 'sam,jake,mum,dad');
+    localStorage.removeItem('onto.rating');
+    localStorage.setItem('onto.layouts', JSON.stringify({ all: 'now' }));
+  });
+  await page.goto('http://tv.test/');
+  await page.locator('.profile-chip.focused').waitFor();
   for (const [width, height] of [[1280,720], [960,540], [390,844], [844,390]]) {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(200);

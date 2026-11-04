@@ -136,14 +136,75 @@
       return localStorage.getItem('onto.viewers');
     } catch (e) { return null; }
   }
-  // Who's watching: the youngest in the room sets the default rating. The rating
-  // switch beside it overrides that either way until the next change of audience.
-  var WHO = [
-    { id: 'sam', name: 'Sam', viewers: 'sam,jake,mum,dad', rating: 'G' },
-    { id: 'jake', name: 'Jake', viewers: 'jake,mum,dad', rating: 'PG' },
-    { id: 'adults', name: 'Mum & Dad', viewers: 'mum,dad', rating: 'M' }
+  // Profiles replace the old who's-watching segments: colours, layout and lineup audience.
+  var PROFILES = [
+    { id: 'ian', name: 'Ian', mark: 'I', viewers: 'dad', layout: 'now' },
+    { id: 'fran', name: 'Fran', mark: 'F', viewers: 'mum', layout: 'guide' },
+    { id: 'jake', name: 'Jake', mark: 'J', viewers: 'jake,mum,dad', layout: 'pictures' },
+    { id: 'sam', name: 'Sam', mark: 'S', viewers: 'sam,jake,mum,dad', layout: 'pictures' },
+    { id: 'all', name: 'Everyone', mark: '\u2605', viewers: 'sam,jake,mum,dad', layout: 'now' }
+  ];
+  var LAYOUTS = [
+    { id: 'now', glyph: '\u25A3', title: 'Now on' },
+    { id: 'guide', glyph: '\u2630', title: 'Guide' },
+    { id: 'pictures', glyph: '\u25A6', title: 'Pictures' }
   ];
   var RATINGS = ['G', 'PG', 'M'];
+  var profileId = 'all';
+  var layoutStore = {};
+  var pickerOpen = false;
+  function profileById(id) {
+    for (var p = 0; p < PROFILES.length; p++) if (PROFILES[p].id === id) return PROFILES[p];
+    return PROFILES[0];
+  }
+  function profileFromViewers(viewers) {
+    if (!viewers) return 'all';
+    var ids = String(viewers).split(','), i;
+    for (i = 0; i < ids.length; i++) if (!ids[i]) ids.splice(i--, 1);
+    if (ids.length === 1 && ids[0] === 'dad') return 'ian';
+    if (ids.length === 1 && ids[0] === 'mum') return 'fran';
+    for (i = 0; i < ids.length; i++) if (ids[i] === 'sam') return ids.indexOf('jake') >= 0 ? 'all' : 'sam';
+    for (i = 0; i < ids.length; i++) if (ids[i] === 'jake') return 'jake';
+    if (ids.indexOf('mum') >= 0 && ids.indexOf('dad') >= 0) return 'ian';
+    return 'all';
+  }
+  function loadLayoutStore() {
+    try { layoutStore = JSON.parse(localStorage.getItem('onto.layouts') || '{}') || {}; } catch (e) { layoutStore = {}; }
+    if (!layoutStore || typeof layoutStore !== 'object') layoutStore = {};
+  }
+  function saveLayoutStore() {
+    try { localStorage.setItem('onto.layouts', JSON.stringify(layoutStore)); } catch (e) {}
+  }
+  function currentLayout() {
+    var profile = profileById(profileId), pick = layoutStore[profileId];
+    for (var i = 0; i < LAYOUTS.length; i++) if (LAYOUTS[i].id === pick) return pick;
+    return profile.layout;
+  }
+  function layoutMode() { return GUEST ? 'now' : currentLayout(); }
+  function syncProfileFromStorage() {
+    if (GUEST || desktopQuery) return;
+    var viewers = null;
+    try { viewers = localStorage.getItem('onto.viewers'); } catch (e) {}
+    var mapped = profileFromViewers(viewers);
+    try {
+      var saved = localStorage.getItem('onto.profile');
+      if (saved && profileById(saved).id === saved && profileById(saved).viewers === viewers) {
+        profileId = saved;
+        return;
+      }
+    } catch (e2) {}
+    profileId = mapped;
+    persistProfile();
+  }
+  function persistProfile() {
+    if (GUEST || desktopQuery) return;
+    try { localStorage.setItem('onto.profile', profileId); } catch (e) {}
+  }
+  function paintBodyProfile() {
+    var i, list = document.body.classList;
+    for (i = 0; i < PROFILES.length; i++) list.remove('profile-' + PROFILES[i].id);
+    if (!GUEST) list.add('profile-' + profileId);
+  }
   function storedRating() {
     if (GUEST) return null;
     if (desktopQuery) return desktopParam('rating') || null;
@@ -192,12 +253,6 @@
     for (var i = 0; i < people.length; i++) if (people[i].on) ids.push(people[i].id);
     return ids;
   }
-  function whoNow() {
-    var ids = selectedIds();
-    if (ids.indexOf('sam') >= 0) return 'sam';
-    if (ids.indexOf('jake') >= 0) return 'jake';
-    return ids.length ? 'adults' : '';
-  }
   function setAudience(viewers, rating) {
     // The embedded desktop player receives its audience explicitly from the
     // parent, so it never replaces that choice with the TV's local preference.
@@ -219,12 +274,22 @@
     // would make a quick rating press clear the override instead of setting it.
     data.defaultCeiling = null;
     data.rating = rating || null;
+    profileId = profileFromViewers(viewers);
+    persistProfile();
     render();
     var keep = { row: focus.row, col: focus.col };
     loadHome().then(function () { focus = keep; moveFocus(0, 0); });
   }
-  function chooseWho(id) {
-    for (var i = 0; i < WHO.length; i++) if (WHO[i].id === id) return setAudience(WHO[i].viewers, null);
+  function chooseProfile(id) {
+    var profile = profileById(id);
+    profileId = profile.id;
+    persistProfile();
+    setAudience(profile.viewers, null);
+  }
+  function chooseLayout(id) {
+    layoutStore[profileId] = id;
+    saveLayoutStore();
+    render();
   }
   function chooseRating(rating) {
     var viewers = selectedIds().join(',');
@@ -260,99 +325,313 @@
     button.addEventListener('click', function () {
       focus = { row: 0, col: col };
       moveFocus(0, 0);
-      if (kind === 'who') chooseWho(value); else chooseRating(value);
+      if (kind === 'layout') chooseLayout(value); else chooseRating(value);
     });
     return button;
   }
   function audienceControls(holder) {
-    var who = whoNow(), col = 0, i;
-    var people = document.createElement('span');
-    people.className = 'seg-group';
-    for (i = 0; i < WHO.length; i++) {
-      var w = WHO[i];
-      var b = segButton('who', w.id, '<span class="tick" aria-hidden="true">' + PERSON_SVG + '</span><span class="who"></span>', '', who === w.id, col++);
-      b.lastChild.textContent = w.name;
-      b.title = w.name + ' · ' + w.rating;
-      b.setAttribute('aria-label', 'Youngest watching: ' + w.name + ', rated ' + w.rating);
-      people.appendChild(b);
-    }
-    holder.appendChild(people);
+    var profile = profileById(profileId), col = 0, i, layout = layoutMode();
+    var chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'viewer profile-chip';
+    chip.tabIndex = -1;
+    chip.setAttribute('data-profile', 'chip');
+    chip.setAttribute('aria-label', 'Who\'s watching: ' + profile.name + '. Change');
+    var avatar = document.createElement('span');
+    avatar.className = 'profile-avatar';
+    avatar.textContent = profile.mark;
+    var label = document.createElement('span');
+    label.className = 'profile-name';
+    label.textContent = profile.name;
+    chip.appendChild(avatar);
+    chip.appendChild(label);
+    chip.title = profile.name;
+    chip.addEventListener('click', function () {
+      focus = { row: 0, col: 0 };
+      moveFocus(0, 0);
+      openPicker();
+    });
+    holder.appendChild(chip);
+    col++;
     var ratings = document.createElement('span');
     ratings.className = 'seg-group ratings';
     for (i = 0; i < RATINGS.length; i++) {
       var r = RATINGS[i], isDefault = r === data.defaultCeiling;
-      // rate-*, not rating-*: the old ceiling badge's rating-* classes paint every button.
       var rb = segButton('rating', r, '', 'rate-' + r.toLowerCase() + (isDefault ? ' default' : ''), data.ceiling === r, col++);
       rb.textContent = r;
-      rb.title = 'Rated ' + r + (isDefault ? ' (default for who is watching)' : '');
+      rb.title = 'Rated ' + r + (isDefault ? ' (' + profile.name + '\'s rating)' : '');
       rb.setAttribute('aria-label', 'Rating ' + r + (isDefault ? ', default' : ''));
       ratings.appendChild(rb);
     }
     holder.appendChild(ratings);
+    var layouts = document.createElement('span');
+    layouts.className = 'seg-group layouts';
+    for (i = 0; i < LAYOUTS.length; i++) {
+      var lay = LAYOUTS[i];
+      var lb = segButton('layout', lay.id, lay.glyph, '', layout === lay.id, col++);
+      lb.title = lay.title;
+      lb.setAttribute('aria-label', lay.title);
+      lb.setAttribute('aria-pressed', layout === lay.id ? 'true' : 'false');
+      layouts.appendChild(lb);
+    }
+    holder.appendChild(layouts);
   }
-  function columnCount() { return window.innerWidth <= 600 ? 1 : window.innerWidth <= 1100 ? 2 : window.innerWidth < 1600 ? 4 : 6; }
+  function minutesLabel(now) { return now && now.minutes ? now.minutes + ' min' : ''; }
+  function nextLabel(now) {
+    if (!now || !now.next) return '';
+    var line = 'Next \u00b7 ' + (now.next.show || '');
+    if (now.next.title) line += ' \u00b7 ' + now.next.title;
+    return line;
+  }
+  function paintHero(item) {
+    var hero = $('hero'), mode = layoutMode();
+    if (!item || item.app || mode === 'pictures') { hero.hidden = true; hero.textContent = ''; return; }
+    hero.hidden = false;
+    hero.className = mode === 'guide' ? 'hero-compact' : 'hero-full';
+    hero.textContent = '';
+    var artWrap = document.createElement('div');
+    artWrap.className = 'hero-art-wrap';
+    var img = document.createElement('img');
+    img.className = 'hero-art';
+    img.alt = '';
+    artWrap.appendChild(img);
+    if (item.now && item.now.art) loadArt(img, artUrl(item.now.art));
+    var copy = document.createElement('div');
+    copy.className = 'hero-copy';
+    var channel = document.createElement('div');
+    channel.className = 'hero-channel';
+    channel.textContent = item.number + ' \u00b7 ' + item.name;
+    copy.appendChild(channel);
+    var show = document.createElement('div');
+    show.className = 'hero-show';
+    show.textContent = (item.now && item.now.show) || '\u2014';
+    copy.appendChild(show);
+    if (item.now && item.now.title) {
+      var title = document.createElement('div');
+      title.className = 'hero-title';
+      title.textContent = item.now.title;
+      copy.appendChild(title);
+    }
+    var mins = minutesLabel(item.now);
+    if (mins) {
+      var length = document.createElement('div');
+      length.className = 'hero-length';
+      length.textContent = mins;
+      copy.appendChild(length);
+    }
+    var next = nextLabel(item.now);
+    if (next) {
+      var nextEl = document.createElement('div');
+      nextEl.className = 'hero-next';
+      nextEl.textContent = next;
+      copy.appendChild(nextEl);
+    }
+    hero.appendChild(artWrap);
+    hero.appendChild(copy);
+  }
+  function columnCount() {
+    var mode = layoutMode();
+    if (mode === 'guide') return 1;
+    if (mode === 'pictures') {
+      if (window.innerWidth <= 600) return 1;
+      if (window.innerWidth <= 1100) return 2;
+      return 4;
+    }
+    if (window.innerWidth <= 600) return 1;
+    if (window.innerWidth <= 1100) return 2;
+    if (window.innerWidth < 1600) return 4;
+    return 6;
+  }
   function channelButton(item, index) {
-    var button = document.createElement('button');
+    var mode = layoutMode(), button = document.createElement('button');
     button.type = 'button';
-    button.className = 'channel' + (item.app ? ' app-' + item.app : '');
+    button.className = 'channel layout-' + mode + (item.app ? ' app-' + item.app : '');
     button.tabIndex = -1;
     button._item = item;
     var show = item.now && item.now.show;
     button.setAttribute('aria-label', item.number + ' ' + item.name + (show ? ', ' + show : ''));
-    button.appendChild(antennaEl());
-    var bezel = document.createElement('span');
-    bezel.className = 'bezel';
-    if (item.app === 'games' || item.app === 'uke' || item.app === 'console') {
-      var glyph = document.createElement('span');
-      glyph.className = 'app-glyph';
-      glyph.setAttribute('aria-hidden', 'true');
-      glyph.innerHTML = item.app === 'games' ? GAME_SVG : item.app === 'uke' ? UKE_SVG : CONSOLE_SVG;
-      bezel.appendChild(glyph);
+    if (mode === 'guide') {
+      button.appendChild(antennaEl());
+      var gName = document.createElement('span');
+      gName.className = 'guide-name';
+      var gNum = document.createElement('span');
+      gNum.className = 'num';
+      gNum.textContent = String(item.number);
+      var gLabel = document.createElement('span');
+      gLabel.className = 'name';
+      gLabel.textContent = item.name;
+      gName.appendChild(gNum);
+      gName.appendChild(gLabel);
+      button.appendChild(gName);
+      if (!item.app && show) {
+        var gNow = document.createElement('span');
+        gNow.className = 'guide-now';
+        var gShow = document.createElement('span');
+        gShow.className = 'guide-show';
+        gShow.textContent = show;
+        gNow.appendChild(gShow);
+        if (item.now.title || item.now.minutes) {
+          var gTitle = document.createElement('span');
+          gTitle.className = 'guide-detail';
+          var bits = [];
+          if (item.now.title) bits.push(item.now.title);
+          if (item.now.minutes) bits.push(item.now.minutes + ' min');
+          gTitle.textContent = bits.join(' \u00b7 ');
+          gNow.appendChild(gTitle);
+        }
+        button.appendChild(gNow);
+        if (item.now.next) {
+          var gNext = document.createElement('span');
+          gNext.className = 'guide-next';
+          gNext.textContent = (item.now.next.show || '') + (item.now.next.title ? ' \u00b7 ' + item.now.next.title : '');
+          button.appendChild(gNext);
+        }
+      } else if (item.app) {
+        var gApp = document.createElement('span');
+        gApp.className = 'guide-app';
+        gApp.textContent = item.name;
+        button.appendChild(gApp);
+      }
+    } else if (mode === 'pictures') {
+      button.appendChild(antennaEl());
+      var bezelP = document.createElement('span');
+      bezelP.className = 'bezel';
+      if (item.app) {
+        var glyphP = document.createElement('span');
+        glyphP.className = 'app-glyph';
+        glyphP.setAttribute('aria-hidden', 'true');
+        glyphP.innerHTML = item.app === 'games' ? GAME_SVG : item.app === 'uke' ? UKE_SVG : CONSOLE_SVG;
+        bezelP.appendChild(glyphP);
+      } else if (item.now && item.now.art) {
+        var imgP = document.createElement('img');
+        imgP.className = 'art';
+        imgP.alt = '';
+        bezelP.appendChild(imgP);
+        loadArt(imgP, artUrl(item.now.art));
+      }
+      var pill = document.createElement('span');
+      pill.className = 'picture-label';
+      pill.textContent = item.name;
+      bezelP.appendChild(pill);
+      button.appendChild(bezelP);
+    } else {
+      button.appendChild(antennaEl());
+      var bezel = document.createElement('span');
+      bezel.className = 'bezel';
+      if (item.app === 'games' || item.app === 'uke' || item.app === 'console') {
+        var glyph = document.createElement('span');
+        glyph.className = 'app-glyph';
+        glyph.setAttribute('aria-hidden', 'true');
+        glyph.innerHTML = item.app === 'games' ? GAME_SVG : item.app === 'uke' ? UKE_SVG : CONSOLE_SVG;
+        bezel.appendChild(glyph);
+      }
+      if (item.now && item.now.art) {
+        var img = document.createElement('img');
+        img.className = 'art';
+        img.alt = '';
+        bezel.appendChild(img);
+        loadArt(img, artUrl(item.now.art));
+      }
+      var copy = document.createElement('span');
+      copy.className = 'channel-copy';
+      var line = document.createElement('span');
+      line.className = 'channel-line';
+      var num = document.createElement('span');
+      num.className = 'num';
+      num.textContent = String(item.number);
+      var name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = item.name;
+      line.appendChild(num);
+      line.appendChild(name);
+      copy.appendChild(line);
+      if (show) {
+        var now = document.createElement('span');
+        now.className = 'now';
+        now.title = show;
+        var mark = document.createElement('span');
+        mark.className = 'mini-play';
+        mark.setAttribute('aria-hidden', 'true');
+        mark.innerHTML = PLAY_SVG;
+        var title = document.createElement('span');
+        title.className = 'now-title';
+        title.textContent = show;
+        now.appendChild(mark);
+        now.appendChild(title);
+        copy.appendChild(now);
+      }
+      bezel.appendChild(copy);
+      button.appendChild(bezel);
     }
-    if (item.now && item.now.art) {
-      var img = document.createElement('img');
-      img.className = 'art';
-      img.alt = '';
-      bezel.appendChild(img);
-      loadArt(img, artUrl(item.now.art));
-    }
-    var copy = document.createElement('span');
-    copy.className = 'channel-copy';
-    var line = document.createElement('span');
-    line.className = 'channel-line';
-    var num = document.createElement('span');
-    num.className = 'num';
-    num.textContent = String(item.number);
-    var name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = item.name;
-    line.appendChild(num);
-    line.appendChild(name);
-    copy.appendChild(line);
-    if (show) {
-      var now = document.createElement('span');
-      now.className = 'now';
-      now.title = show;
-      var mark = document.createElement('span');
-      mark.className = 'mini-play';
-      mark.setAttribute('aria-hidden', 'true');
-      mark.innerHTML = PLAY_SVG;
-      var title = document.createElement('span');
-      title.className = 'now-title';
-      title.textContent = show;
-      now.appendChild(mark);
-      now.appendChild(title);
-      copy.appendChild(now);
-    }
-    bezel.appendChild(copy);
-    button.appendChild(bezel);
     button.addEventListener('click', function () {
-      var row = Math.floor(index / columnCount()) + (rows.length && rows[0].kind === 'viewers' ? 1 : 0);
-      focus = { row: row, col: index % columnCount() };
+      var topRows = rows.length && rows[0].kind === 'viewers' ? 1 : 0;
+      focus = { row: Math.floor(index / columnCount()) + topRows, col: index % columnCount() };
       moveFocus(0, 0);
       activate(item);
     });
     return button;
+  }
+  function ensurePickerPeople() {
+    var people = $('picker-people');
+    if (people.children.length) return;
+    for (var i = 0; i < PROFILES.length; i++) {
+      (function (person) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'picker-person viewer';
+        b.tabIndex = -1;
+        b.setAttribute('data-profile', person.id);
+        var av = document.createElement('span');
+        av.className = 'picker-avatar';
+        av.textContent = person.mark;
+        var nm = document.createElement('span');
+        nm.className = 'picker-name';
+        nm.textContent = person.name;
+        b.appendChild(av);
+        b.appendChild(nm);
+        b.title = person.name;
+        b.setAttribute('aria-label', person.name);
+        b.addEventListener('click', function () { chooseProfile(person.id); closePicker(); });
+        people.appendChild(b);
+      })(PROFILES[i]);
+    }
+  }
+  function openPicker() {
+    if (GUEST) return;
+    ensurePickerPeople();
+    pickerOpen = true;
+    $('picker').hidden = false;
+    var pick = $('picker-people').querySelector('[data-profile="' + profileId + '"]');
+    if (pick) {
+      var focused = document.querySelectorAll('.focused');
+      for (var i = 0; i < focused.length; i++) focused[i].classList.remove('focused');
+      pick.classList.add('focused');
+      try { pick.focus(); } catch (e) {}
+    }
+  }
+  function closePicker() {
+    pickerOpen = false;
+    $('picker').hidden = true;
+    moveFocus(0, 0);
+  }
+  function pickerKey(key) {
+    if (!pickerOpen) return false;
+    var people = $('picker-people').children, at = -1, i;
+    for (i = 0; i < people.length; i++) if (people[i] === document.activeElement || people[i].classList.contains('focused')) at = i;
+    if (at < 0) at = 0;
+    if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) { closePicker(); return true; }
+    if (key === KEY.ENTER) {
+      if (people[at]) chooseProfile(people[at].getAttribute('data-profile'));
+      closePicker();
+      return true;
+    }
+    if (key === KEY.LEFT) at = (at + people.length - 1) % people.length;
+    else if (key === KEY.RIGHT) at = (at + 1) % people.length;
+    else return true;
+    for (i = 0; i < people.length; i++) people[i].classList.remove('focused');
+    people[at].classList.add('focused');
+    try { people[at].focus(); } catch (e2) {}
+    return true;
   }
   window.addEventListener('resize', function () { if (!$('home').hidden) render(); });
   function render() {
@@ -365,7 +644,11 @@
       who.className = 'guest-name';
       who.textContent = GUEST.name || '';
       viewers.appendChild(who);
-    } else audienceControls(viewers);
+    } else {
+      syncProfileFromStorage();
+      paintBodyProfile();
+      audienceControls(viewers);
+    }
     var badge = $('ceiling');
     // The rating switch shows the ceiling at home; guests keep the plain badge.
     if (data.ceiling && GUEST) {
@@ -386,10 +669,17 @@
     paintClock();
     var cards = gridCards();
     var holder = $('channels');
+    holder.className = 'layout-' + layoutMode();
     holder.innerHTML = '';
     for (var c = 0; c < cards.length; c++) holder.appendChild(channelButton(cards[c], c));
+    var firstChannel = null;
+    for (var fc = 0; fc < cards.length; fc++) if (!cards[fc].app) { firstChannel = cards[fc]; break; }
+    paintHero(firstChannel);
     rows = [];
-    if (viewers.children.length && !GUEST) rows.push({ kind: 'viewers', els: viewers.querySelectorAll('.seg') });
+    if (viewers.children.length && !GUEST) {
+      var controls = viewers.querySelectorAll('.viewer');
+      rows.push({ kind: 'viewers', els: controls });
+    }
     for (var start = 0; start < holder.children.length; start += columnCount()) {
       var slice = [];
       for (var n = start; n < holder.children.length && n < start + columnCount(); n++) slice.push(holder.children[n]);
@@ -416,8 +706,10 @@
     try { el.focus(); } catch (e) {}
     if (row.kind === 'channels') {
       var holder = $('channels'), box = el.getBoundingClientRect(), area = holder.getBoundingClientRect();
-      if (box.top < area.top + 32) holder.scrollTop -= area.top + 32 - box.top;
-      if (box.bottom > area.bottom - 16) holder.scrollTop += box.bottom - area.bottom + 16;
+      var padTop = 36, padBottom = 40;
+      if (box.top < area.top + padTop) holder.scrollTop -= area.top + padTop - box.top;
+      if (box.bottom > area.bottom - padBottom) holder.scrollTop += box.bottom - area.bottom + padBottom;
+      if (el._item && !el._item.app) paintHero(el._item);
     }
   }
   function activate(item) {
@@ -435,7 +727,8 @@
     var row = rows[focus.row], el = row && row.els[focus.col];
     if (!el) return;
     if (row.kind === 'viewers') {
-      if (el.getAttribute('data-who')) return chooseWho(el.getAttribute('data-who'));
+      if (el.getAttribute('data-profile') === 'chip') return openPicker();
+      if (el.getAttribute('data-layout')) return chooseLayout(el.getAttribute('data-layout'));
       return chooseRating(el.getAttribute('data-rating'));
     }
     activate(el._item);
@@ -1297,6 +1590,7 @@
       return;
     }
     if (consoleState) { if (consoleKey(key)) event.preventDefault(); return; }
+    if (pickerOpen) { if (pickerKey(key)) event.preventDefault(); return; }
     if (!$('setup').hidden) return;
     if (key >= 48 && key <= 57) {
       // Digits tune like a TV: wait briefly for a second digit when one could follow.
@@ -1379,6 +1673,9 @@
     render();
   };
 
+  loadLayoutStore();
+  syncProfileFromStorage();
+  paintBodyProfile();
   paintClock();
   setInterval(paintClock, 1000);
   setInterval(watchBand, 30000);
