@@ -187,18 +187,69 @@ def probe_video(path, ffprobe="ffprobe", tv=False):
         return None, str(exc)
 
 
+# ffprobe results keyed by file identity, so a rebuild only probes new or changed files.
+# Probing every video (about 1,500, many on a USB drive) took ~7 minutes on the fanless M2
+# and ran every 10 minutes while downloads were landing (2026-11-04).
+PROBE_CACHE_VERSION = 1
+
+
+def probe_cache_path(output):
+    return output.parent / f".{output.name}.probe-cache.json"
+
+
+def load_probe_cache(path):
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if data.get("version") == PROBE_CACHE_VERSION and isinstance(data.get("entries"), dict):
+            return data["entries"]
+    except (OSError, ValueError, AttributeError):
+        pass
+    return {}
+
+
+def save_probe_cache(path, entries):
+    try:
+        atomic_write(Path(path), json.dumps({"version": PROBE_CACHE_VERSION, "entries": entries}))
+    except OSError as exc:
+        print(f"Probe cache not saved: {exc}", file=sys.stderr)
+
+
+def cached_probe(path, ffprobe, tv, cache, used):
+    """probe_video, reusing an earlier result while the file's size and mtime are unchanged."""
+    if cache is None:
+        return probe_video(path, ffprobe, tv)
+    try:
+        info = path.stat()
+    except OSError as exc:
+        return None, str(exc)
+    key = f"{int(bool(tv))}|{path}"
+    hit = cache.get(key)
+    if isinstance(hit, dict) and hit.get("size") == info.st_size and hit.get("mtime") == info.st_mtime_ns:
+        used[key] = hit
+        return hit.get("duration"), hit.get("error")
+    duration, error = probe_video(path, ffprobe, tv)
+    # A timeout or I/O error may pass (a busy drive): probe again next time.
+    if not (error and ("timed out" in error or "Errno" in error)):
+        used[key] = {"size": info.st_size, "mtime": info.st_mtime_ns, "duration": duration, "error": error}
+    return duration, error
+
+
 def clean_title(stem):
     return re.sub(r"\s*\[[\w-]{8,}\]$", "", stem)
 
 
-def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, tiers=None, tv=False):
-    """Gather playable videos from every configured root plus the individual picks."""
+def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, tiers=None, tv=False, cache=None, used=None):
+    """Gather playable videos from every configured root plus the individual picks.
+    With `cache` (from load_probe_cache), unchanged files are not probed again; the
+    entries actually used are written into `used`, which becomes the next cache."""
     if roots is None:
         roots = [{"label": "", "path": library, "classify": "shows"}]
     videos, rejected, warned, seen = [], [], set(), {}
+    if used is None:
+        used = {}
 
     def add(path, src, channel, title, tier):
-        duration, error = probe_video(path, ffprobe, tv)
+        duration, error = cached_probe(path, ffprobe, tv, cache, used)
         if error:
             rejected.append((src, error))
             return
@@ -294,7 +345,10 @@ def main(argv=None):
     if not any(path.is_file() and path.suffix.lower() in MEDIA_SUFFIXES
                for path in library.rglob("*")):
         parser.error(f"No playable videos found under {library}; existing output left unchanged")
-    videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers, args.tv)
+    cache_path = probe_cache_path(output)
+    cache, used = load_probe_cache(cache_path), {}
+    videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers, args.tv, cache, used)
+    save_probe_cache(cache_path, used)
     for name, error in rejected:
         print(f"Excluded {name}: {error}", file=sys.stderr)
     if not videos:

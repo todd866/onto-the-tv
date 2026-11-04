@@ -118,8 +118,9 @@ export async function buildPlayer(root, settings, runner = execute, extraArgs = 
     });
     return stdout.trim();
   } catch (error) {
-    throw new Error(error.code === 'ENOENT'
-      ? 'Python 3 is required to build the player. Install Python 3 and FFmpeg first.'
-      : String(error.stderr || error.message).trim().slice(-1800));
+    if (error.code === 'ENOENT') throw new Error('Python 3 is required to build the player. Install Python 3 and FFmpeg first.');
+    // stderr carries warnings too, so name a timeout or signal rather than echo them as the cause.
+    const cause = error.killed || error.signal ? `catalogue build stopped (${error.signal || 'timeout'} at the 600 s limit). ` : '';
+    throw new Error(cause + String(error.stderr || error.message).trim().slice(-1800));
   }
 }

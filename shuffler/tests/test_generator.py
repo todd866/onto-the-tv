@@ -155,6 +155,40 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(len(generator.collect_videos(Path(directory), output, roots=roots)[0]), 1)
 
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'ffmpeg/ffprobe required')
+    def test_a_rebuild_probes_only_new_or_changed_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'Films'
+            root.mkdir(parents=True)
+            base = ['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=red:s=16x16:d=0.2',
+                    '-c:v', 'libx264', '-pix_fmt', 'yuv420p']
+            for name in ('A.mp4', 'B.mp4'):
+                subprocess.run(base + [str(root / name)], check=True)
+            (root / 'Broken.mp4').write_bytes(b'not a video')
+            output = Path(directory) / 'stage' / 'out.html'
+            roots = [{'label': 'grown-ups', 'path': Path(directory), 'tier': 'grownup'}]
+            first_used = {}
+            first = generator.collect_videos(Path(directory), output, roots=roots, cache={}, used=first_used)
+            self.assertEqual(len(first_used), 3, 'every file, including the rejected one, is cached')
+            calls = []
+            real = generator.probe_video
+            generator.probe_video = lambda path, *rest: (calls.append(path.name), real(path, *rest))[1]
+            try:
+                second_used = {}
+                second = generator.collect_videos(Path(directory), output, roots=roots, cache=first_used, used=second_used)
+                self.assertEqual(calls, [], 'nothing re-probed')
+                self.assertEqual(second, first)
+                subprocess.run(base + ['-t', '0.1', str(root / 'B.mp4')], check=True)   # B changes
+                (root / 'A.mp4').rename(Path(directory) / 'A-moved-out.mp4')         # A leaves the library
+                third_used = {}
+                generator.collect_videos(Path(directory) / 'Films', output,
+                                         roots=[{'label': 'grown-ups', 'path': root, 'tier': 'grownup'}],
+                                         cache=second_used, used=third_used)
+                self.assertEqual(calls, ['B.mp4'])
+                self.assertEqual(len(third_used), 2, 'files no longer present drop out of the cache')
+            finally:
+                generator.probe_video = real
+
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'ffmpeg/ffprobe required')
     def test_an_empty_library_is_refused_even_when_other_sources_have_videos(self):
         with tempfile.TemporaryDirectory() as directory:
             empty = Path(directory) / 'library'
