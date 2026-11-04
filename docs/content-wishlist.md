@@ -18,6 +18,14 @@ RÜFÜS DU SOL (6) → `/Volumes/Stash/Movies/music-videos/<series or artist>`;
 Come Dine With Me (20) → `grown-ups`; Hop Hop the Owl (12) → `preschool`.
 The runner is idempotent (`archive.txt`) and stops on YouTube bot-checks; re-run it to resume.
 
+## Subscriptions (since 5 Nov 2026)
+
+`m2:~/.local/state/onto-the-tv-channels/subs/watch.py` (launchd `com.onto-the-tv.subs`, daily 11:15
+M2 time) downloads NEW long-form uploads from the channels in `subs.json` (Bald and Bankrupt, Grian,
+Mumbo Jumbo, Minecraft, NPR Tiny Desk, triple j Like A Version, Cercle, Come Dine With Me, Hop Hop),
+max 12 a day, via `yt-batch/run2.sh` (shared archive). Add a channel by adding a line to `subs.json`
+(url, folder, min seconds, optional want/skip title regex); its first run only records what exists.
+
 ## Priority (Ian, 4 Nov 2026)
 
 Fran's top three are **Come Dine With Me, Friends and The Big Bang Theory**, and she is a big fan
