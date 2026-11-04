@@ -214,7 +214,7 @@ def save_probe_cache(path, entries):
         print(f"Probe cache not saved: {exc}", file=sys.stderr)
 
 
-def cached_probe(path, ffprobe, tv, cache, used):
+def cached_probe(path, ffprobe, tv, cache, used, checkpoint=None):
     """probe_video, reusing an earlier result while the file's size and mtime are unchanged."""
     if cache is None:
         return probe_video(path, ffprobe, tv)
@@ -231,6 +231,8 @@ def cached_probe(path, ffprobe, tv, cache, used):
     # A timeout or I/O error may pass (a busy drive): probe again next time.
     if not (error and ("timed out" in error or "Errno" in error)):
         used[key] = {"size": info.st_size, "mtime": info.st_mtime_ns, "duration": duration, "error": error}
+        if checkpoint:
+            checkpoint()
     return duration, error
 
 
@@ -238,7 +240,8 @@ def clean_title(stem):
     return re.sub(r"\s*\[[\w-]{8,}\]$", "", stem)
 
 
-def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, tiers=None, tv=False, cache=None, used=None):
+def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, tiers=None, tv=False, cache=None, used=None,
+                   checkpoint=None):
     """Gather playable videos from every configured root plus the individual picks.
     With `cache` (from load_probe_cache), unchanged files are not probed again; the
     entries actually used are written into `used`, which becomes the next cache."""
@@ -249,7 +252,7 @@ def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, t
         used = {}
 
     def add(path, src, channel, title, tier):
-        duration, error = cached_probe(path, ffprobe, tv, cache, used)
+        duration, error = cached_probe(path, ffprobe, tv, cache, used, checkpoint)
         if error:
             rejected.append((src, error))
             return
@@ -347,7 +350,16 @@ def main(argv=None):
         parser.error(f"No playable videos found under {library}; existing output left unchanged")
     cache_path = probe_cache_path(output)
     cache, used = load_probe_cache(cache_path), {}
-    videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers, args.tv, cache, used)
+    fresh = [0]
+
+    def checkpoint():
+        # Save as we go: a build stopped at its time limit (or by a restart) keeps what it probed,
+        # so the next attempt resumes instead of starting from nothing (2026-11-04).
+        fresh[0] += 1
+        if fresh[0] % 50 == 0:
+            save_probe_cache(cache_path, {**cache, **used})
+
+    videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers, args.tv, cache, used, checkpoint)
     save_probe_cache(cache_path, used)
     for name, error in rejected:
         print(f"Excluded {name}: {error}", file=sys.stderr)

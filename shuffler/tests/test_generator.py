@@ -166,9 +166,14 @@ class SourceTests(unittest.TestCase):
             (root / 'Broken.mp4').write_bytes(b'not a video')
             output = Path(directory) / 'stage' / 'out.html'
             roots = [{'label': 'grown-ups', 'path': Path(directory), 'tier': 'grownup'}]
-            first_used = {}
-            first = generator.collect_videos(Path(directory), output, roots=roots, cache={}, used=first_used)
+            first_used, ticks = {}, []
+            first = generator.collect_videos(Path(directory), output, roots=roots, cache={}, used=first_used,
+                                             checkpoint=lambda: ticks.append(1))
             self.assertEqual(len(first_used), 3, 'every file, including the rejected one, is cached')
+            self.assertEqual(len(ticks), 3, 'a checkpoint after each new probe, so a stopped build keeps them')
+            generator.collect_videos(Path(directory), output, roots=roots, cache=first_used, used={},
+                                     checkpoint=lambda: ticks.append(1))
+            self.assertEqual(len(ticks), 3, 'cache hits are not new probes')
             calls = []
             real = generator.probe_video
             generator.probe_video = lambda path, *rest: (calls.append(path.name), real(path, *rest))[1]
