@@ -22,6 +22,8 @@ while [ $# -gt 0 ]; do
 done
 
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+# bootout returns before the old job is gone; bootstrapping too soon fails with "5: Input/output error".
+for _ in $(seq 1 20); do launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break; sleep 0.5; done
 if [ -n "$REMOVE" ]; then
   mv "$PLIST" "$HOME/.Trash/$LABEL.plist.$(date +%s)" 2>/dev/null || true
   echo "removed $LABEL"; exit 0
@@ -54,7 +56,11 @@ cat > "$PLIST" <<EOF
   <key>StandardErrorPath</key><string>$LOG</string>
 </dict></plist>
 EOF
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
+for attempt in 1 2 3; do
+  launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null && break
+  [ "$attempt" = 3 ] && { launchctl bootstrap "gui/$(id -u)" "$PLIST"; exit 1; }
+  sleep 2
+done
 # The first start builds the catalogue (probing every video), which takes a while on a USB drive.
 for _ in $(seq 1 60); do
   curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && break

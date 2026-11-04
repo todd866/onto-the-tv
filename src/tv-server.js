@@ -458,7 +458,16 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return true;
   }
 
-  return { home, show, next, progress, file: src => video(src).video.file, video: src => video(src).video };
+  // Whether this audience may watch a video on at least one channel (the guest app checks every file request).
+  function allowed(src, viewers) {
+    const index = bySrc.get(src);
+    if (index === undefined) return false;
+    const item = videos[index];
+    const { ceiling, blocked } = audience(viewerIds(viewers));
+    return channelsOf(item).some(id => ratingAllowed(item, ceiling, blocked, id));
+  }
+
+  return { home, show, next, progress, allowed, file: src => video(src).video.file, video: src => video(src).video };
 }
 
 async function readBody(request, limit = 16 * 1024) {
@@ -490,6 +499,8 @@ export async function streamFile(request, response, file, mediaCache) {
     ...(range ? { 'Content-Range': `bytes ${start}-${end}/${info.size}` } : {}) });
   if (request.method === 'HEAD') return response.end();
   const stream = mediaCache ? await mediaCache.stream(file, info, { start, end }) : createReadStream(file, { start, end });
+  // The client may have gone while the file or cache was opening: then close the stream now.
+  if (response.destroyed || request.destroyed) return stream.destroy();
   stream.on('error', () => response.destroy());
   response.on('close', () => stream.destroy());
   stream.pipe(response);
@@ -636,8 +647,12 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         const item = library.video(url.searchParams.get('src') || '');
         const file = artwork ? await artwork.get(item.file, { durationSeconds: item.duration }) : null;
         if (!file) return send(response, 404, { error: 'No artwork.' });
+        if (response.destroyed || request.destroyed) return;
+        const image = createReadStream(file);
+        image.on('error', () => response.destroy());
+        response.on('close', () => image.destroy());
         response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=86400' });
-        return createReadStream(file).pipe(response);
+        return image.pipe(response);
       }
       if (path === '/api/media-cache') {
         if (!sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });

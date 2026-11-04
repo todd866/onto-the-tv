@@ -16,6 +16,8 @@ import { createFileStorage, createTvLibrary, createTvServer, layeredHistory, loa
 import { createSceneStore } from '../src/scenes.js';
 import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
+import { createGuestInvites } from '../src/guest-invites.js';
+import { createGuestServer } from '../src/guest-server.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -23,6 +25,8 @@ const option = (name, fallback) => { const at = args.indexOf(name); return at >=
 const appData = option('--app-data', join(homedir(), 'Library/Application Support/Onto the TV'));
 const port = Number(option('--port', process.env.ONTO_TV_PORT || 8686));
 const host = option('--host', '0.0.0.0');
+// The guest (phone) app listens on loopback only; Tailscale Funnel publishes it over https.
+const guestPort = Number(option('--guest-port', process.env.ONTO_GUEST_PORT || 8687));
 const RESCAN_MS = 10 * 60_000, APP_HISTORY_MS = 15_000;
 const log = message => console.log(`${new Date().toISOString()} ${message}`);
 
@@ -134,6 +138,13 @@ async function warmLibrary(videos) {
 const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore, log });
 server.listen(port, host, () => log(`serving ${library.home().channels.length} channels on http://${host}:${port}/`));
 
+// Invited guests: a separate server with no route to the TV's controls (src/guest-server.js).
+const invites = await createGuestInvites(join(data, 'guests.json'));
+const guestServer = guestPort ? createGuestServer({ videos: () => catalogueHolder.videos, invites, dataDir: join(data, 'guests'),
+  uiRoot: join(root, 'guest'), artwork, mediaCache, log }) : null;
+guestServer?.on('error', error => log(`guest app not started: ${error.code || error.message}`));
+guestServer?.listen(guestPort, '127.0.0.1', () => log(`guest app on http://127.0.0.1:${guestPort}/`));
+
 void warmLibrary(libraryVideos);
 
 setInterval(() => { reloadAppHistory().catch(() => {}); }, APP_HISTORY_MS).unref();
@@ -157,6 +168,6 @@ setInterval(async () => {
 }, RESCAN_MS).unref();
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => { log(`${signal}: saving and stopping`); warmPending = null; warmGeneration++; server.close(async () => { await mediaCache?.close(); process.exit(0); });
+  process.on(signal, () => { log(`${signal}: saving and stopping`); warmPending = null; warmGeneration++; guestServer?.close(); server.close(async () => { await mediaCache?.close(); process.exit(0); });
     setTimeout(() => process.exit(0), 3000).unref(); });
 }
