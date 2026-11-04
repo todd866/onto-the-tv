@@ -1,6 +1,9 @@
 # Guest phone app
 
-Stage 1 of the invite site: friends and family watch the library on a phone browser.
+Stage 1 of the invite site: friends and family watch the library on a phone browser, in the real
+Onto the TV interface (`tv/`) running in guest mode (`ONTO_CONFIG.guest` from the guest server's
+`/config.js`). Guest mode drops the viewer row and the Games, Uke and Console tiles, adds a Back
+key and the phone's back gesture, tap-to-show controls and tap-to-seek, and wraps long titles.
 
 - **Server.** `src/guest-server.js` runs inside `bin/tv-server.js` on `127.0.0.1:8687` (`--guest-port`,
   `0` turns it off). It shares the catalogue and media cache but has no route to the TV server's
