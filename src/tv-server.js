@@ -125,12 +125,14 @@ const FRAN_SHOWS = /^(?:(?:couples )?come dine with me|bald and bankrupt|friends
 // Jake's own mix (Ian, 4 Nov 2026): he loves Minecraft, and cars (Track Time); he will watch
 // Bluey but is not in love with it. Shouty YouTuber channels stay off.
 const JAKE_TIERS = new Set(['shared', 'big', 'older']);
-const JAKE_SKIPS = /^(?:brent rivera|unspeakable|stokes twins|vlad and niki|.*kids diana|waffloos|morebeckbros|lincoln.s super)/i;
 const JAKE_SHOWS = /minecraft|grian|mumbo|hermitcraft|pixlriffs|track time|hot wheels|lego/i;
-// Shows the kids love that a parent would rather ration (Ian, 4 Nov 2026: the plane-crash
-// cartoons, "If Planes Could Talk"): fine to watch, but rarely picked and never billed as
-// a card's "now on" while the channel has anything else.
-const LIMITED_SHOWS = /billy.s aviation|if planes could talk|plane crash|air crash|mayday/i;
+// Shows the kids love that the parents would rather ration (Ian, 4 Nov 2026): the plane-crash
+// cartoons ("If Planes Could Talk"), and YouTube slop in general ("he *loves* a bit of youtube
+// slop, we kinda hate it, so use it sparingly"). Fine to watch, rarely picked, and never billed
+// as a card's "now on" while the channel has anything else.
+const LIMITED_SHOWS = new RegExp(['billy.s aviation', 'if planes could talk', 'plane crash', 'air crash', 'mayday',
+  'brent rivera', 'ben azelart', 'stephen sharer', 'carter sharer', 'unspeakable', 'stokes twins', 'beck ?bro', 'vlad and niki',
+  'kids diana', 'waffloos', 'lincoln.s super', 'mrbeast', 'try not to laugh', 'ytp'].join('|'), 'i');
 const LIMITED_WEIGHT = 0.05;
 // Each person's favourites lead their own channel; the rest of its pool are discoveries.
 const FAVOURITES = { mum: FRAN_SHOWS, jake: JAKE_SHOWS };
@@ -148,7 +150,7 @@ export function inTvGenre(item, channelId) {
     if (!defined.kids && KID_TIERS.has(item.tier)) return false;
     return !isFilm(item) && defined.shows.test(String(item.channel || '').replace(/^[^\w]+/, ''));
   }
-  if (defined?.person === 'jake') return JAKE_TIERS.has(item.tier) && !isFilm(item) && !JAKE_SKIPS.test(String(item.channel || ''));
+  if (defined?.person === 'jake') return JAKE_TIERS.has(item.tier) && !isFilm(item);
   if (defined?.person === 'mum') return MUM_TIERS.has(item.tier) && !isFilm(item) && !MUM_SKIPS.test(String(item.channel || ''));
   if (defined?.person) return PERSONAL_TIERS.has(item.tier) && !isFilm(item);
   if (channelId === 'sitcoms') return item.tier === 'sitcom' || item.tier === 'bbc';

@@ -61,7 +61,8 @@ show name: the "For Fran" channel picks these shows by folder name.
 
 ## Keep, but rationed
 
-Billy's Aviation / "If Planes Could Talk" (air-crash cartoons): Jake loves them, Fran doesn't. Keep
+Ian: Jake *loves* a bit of YouTube slop, the parents hate it — "use it sparingly". What we already have stays
+and is rationed by the server; never acquire more. Same treatment for Billy's Aviation / "If Planes Could Talk" (air-crash cartoons): Jake loves them, Fran doesn't. Keep
 them (the rotation tops them up), never add more of the kind, and the server plays them rarely
 and never bills them as a card's "now on" (LIMITED_SHOWS in `src/tv-server.js`).
 
