@@ -27,7 +27,7 @@ try {
     calls.push([viewers, rating]); const result = library.home(viewers, rating); const wait = delay;
     if (wait) await new Promise(r=>setTimeout(r,wait));
     if (offline) throw new Error('offline');
-    return result;
+    return { ...result, origin: 'http://localhost:8686' };
   });
   await page.addInitScript(() => {
     window.tv = {

@@ -1,7 +1,22 @@
 // The renderer never receives arbitrary network access. Rating decisions stay in tv-server.
-export const TV_HOME_ORIGIN = 'http://localhost:8686';
-export async function fetchTvHome(viewers, fetcher = fetch, rating = null) {
-  const url = new URL('/api/home', TV_HOME_ORIGIN);
+// The M2 is the TV box with the whole library (reached over Tailscale from anywhere);
+// this Mac's own server is the fallback when the M2 cannot be reached.
+export const TV_HOME_ORIGINS = ['http://iantodds-macbook-air.tail8cd07b.ts.net:8686', 'http://localhost:8686'];
+export const TV_HOME_ORIGIN = TV_HOME_ORIGINS[TV_HOME_ORIGINS.length - 1];
+export async function fetchTvHome(viewers, fetcher = fetch, rating = null, origins = TV_HOME_ORIGINS) {
+  let failure;
+  for (const origin of origins) {
+    try {
+      return { ...(await fetchHomeFrom(origin, viewers, fetcher, rating)), origin };
+    } catch (error) {
+      if (/^Invalid (viewers|rating)\.$/.test(error.message)) throw error;
+      failure = error;
+    }
+  }
+  throw failure;
+}
+async function fetchHomeFrom(origin, viewers, fetcher, rating) {
+  const url = new URL('/api/home', origin);
   if (rating !== null && rating !== undefined) {
     if (!['G', 'PG', 'M'].includes(rating)) throw new Error('Invalid rating.');
     url.searchParams.set('rating', rating);
@@ -12,7 +27,7 @@ export async function fetchTvHome(viewers, fetcher = fetch, rating = null) {
     }
     url.searchParams.set('viewers', [...new Set(viewers)].join(','));
   }
-  const response = await fetcher(url, { signal: AbortSignal.timeout(5000), redirect: 'error' });
+  const response = await fetcher(url, { signal: AbortSignal.timeout(origin === TV_HOME_ORIGIN ? 5000 : 3000), redirect: 'error' });
   if (!response.ok) throw new Error(`TV lineup unavailable (${response.status}).`);
   const home = await response.json();
   if (!home || ![null, 'G', 'PG', 'PG-13', 'M'].includes(home.ceiling)

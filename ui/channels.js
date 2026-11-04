@@ -1,6 +1,8 @@
 /* Desktop channel browser. The server owns the lineup, picks and rating ceiling. */
 (() => {
-  const origin = 'http://localhost:8686';
+  // The server that answered the last lineup: the M2, or this Mac's own as a fallback.
+  const ORIGINS = ['http://iantodds-macbook-air.tail8cd07b.ts.net:8686', 'http://localhost:8686'];
+  let origin = ORIGINS[0];
   const $ = id => document.getElementById(id);
   // Who's watching: the youngest in the room sets the default rating; the rating
   // switch overrides it either way until the audience changes. This Mac is a
@@ -133,6 +135,8 @@
     try {
       const home = await window.tv.getTvHome(viewers, rating);
       if (request !== generation) return;
+      if (!ORIGINS.includes(home.origin)) throw new Error('Unexpected TV server.');
+      if (home.origin !== origin) { art.clear(); origin = home.origin; }
       controls(home);
       // Keep the artwork cache bounded to the current lineup.
       const paths = new Set(home.channels.map(channel => channel.now?.art));
