@@ -435,6 +435,12 @@ test('the lineup splits shows into their own channels and each adult gets a pers
   const shows = library.home('mum,dad').channels.map(channel => channel.now.show);
   assert.equal(shows.some(show => /\((?:19|20)\d\d\)$/.test(show)), false, 'no folder years on the cards');
 
+  assert.ok(ids('jake,mum,dad').includes('forjake'), 'Jake gets his own channel');
+  assert.equal(ids('sam,jake,mum,dad').includes('forjake'), false, 'not when Sam is the youngest');
+  assert.equal(ids('mum,dad').includes('forjake'), false);
+  assert.equal(library.home('jake,mum,dad').channels[0].id, 'forjake', "his channel leads Jake's lineup");
+  assert.ok(of('forjake').includes('Track Time') && of('forjake').includes('Bluey'));
+  assert.equal(of('forjake').includes('Bing'), false, 'preschool stays off');
   library.next('fordad', { viewers: 'mum,dad', current: 'Friends (1994)/S01E01.mp4', reason: 'skip', time: 60, watched: 60, duration: 1300 });
   assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.sgrown'))['Friends (1994)/S01E01.mp4'] < 1, "Dad's channel learns on Dad's key");
 });

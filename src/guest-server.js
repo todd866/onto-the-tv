@@ -17,7 +17,10 @@ import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
-import { createFileStorage, createTvLibrary, streamFile } from './tv-server.js';
+import { TV_CHANNELS, createFileStorage, createTvLibrary, streamFile } from './tv-server.js';
+
+// The household's own channels (For Dad, For Jake...) are not for guests.
+const PERSONAL = new Set(TV_CHANNELS.filter(channel => channel.person).map(channel => channel.id));
 import { loadPlaybackHistory } from './playback-history.js';
 import { listSidecars, readSubtitle } from './subtitles.js';
 
@@ -136,6 +139,8 @@ export function createGuestServer({ videos, invites, dataDir, uiRoot, artwork = 
         if (path === '/api/scenes' && request.method === 'GET') return send(response, 200, { cuts: [], thumbs: [], segments: [] });
         if (path === '/api/home' && request.method === 'GET') {
           const home = state.library.home(viewers);
+          home.channels = home.channels.filter(channel => !PERSONAL.has(channel.id));
+          home.channels.forEach((channel, index) => { channel.number = index + 1; });
           for (const channel of home.channels) {
             const src = new URLSearchParams(channel.now.art.split('?')[1]).get('src');
             if (src) deal(state, src);
@@ -144,6 +149,7 @@ export function createGuestServer({ videos, invites, dataDir, uiRoot, artwork = 
         }
         if (path === '/api/next' && request.method === 'POST') {
           const body = await readJson(request);
+          if (PERSONAL.has(String(body.channel || ''))) return send(response, 404, { error: 'Not found.' });
           const item = state.library.next(String(body.channel || ''), { viewers, current: body.current ? String(body.current) : undefined });
           deal(state, item.src);
           // Decade channels interleave ads: deal those too, so the player may fetch them.

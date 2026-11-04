@@ -38,7 +38,7 @@ channels first, what's on now and how long is left, and words a person would say
 8. **Familiar first** (Ian: "We'll draw people in with familiar shows"). Each profile's own
    channel and the "now on" pick on every card favour that person's known favourites; other
    shows stay on as low-weight discoveries, never removed and never top billing. Fran:
-   Come Dine With Me, Friends, The Big Bang Theory, Kath & Kim, British reality. Ian: live music sessions,
+   Come Dine With Me, Friends, The Big Bang Theory, Kath & Kim, British reality. Jake: Minecraft, cars (Bluey as a discovery). Ian: live music sessions,
    dark crime-comedy, aviation.
 
 ## Non-goals

@@ -112,6 +112,7 @@ export const TV_CHANNELS = [
   { id: 'reality', number: 33, name: 'Reality', audience: 'adult',
     shows: /^(?:(?:couples )?come dine with me|grand designs|gogglebox|masterchef|the block|location|escape to)/i },
   { id: 'formum', number: 34, name: 'For Mum', person: 'mum', audience: 'adult' },
+  { id: 'forjake', number: 36, name: 'For Jake', person: 'jake', audience: 'kid' },
 ];
 // Fran's own mix, from Ian (4 Nov 2026): her top three are Come Dine With Me, Friends and The
 // Big Bang Theory, and she is a big fan of British reality TV; she likes Kath & Kim too. No animation, no violence.
@@ -121,6 +122,13 @@ const MUM_SKIPS = /^(?:mobland|snatch|lock stock|the gentlemen|in bruges)\b/i;
 // is a low-weight discovery. Per show: 4 against 0.3, so favourites win about three picks in four.
 const FAVOURITE_WEIGHT = 4, DISCOVERY_WEIGHT = 0.3;
 const FRAN_SHOWS = /^(?:(?:couples )?come dine with me|friends\b|kath (?:&|and) kim|the big bang theory|big bang theory|gogglebox|first dates|four in a bed|the great british bake off|great british bake off|bake off|escape to the country|a place in the sun|location,? location|the hotel inspector|24 hours in a&e|married at first sight uk|love island|the apprentice|dragons.? den|grand designs|bargain hunt|homes under the hammer|the traitors|race across the world|the repair shop)/i;
+// Jake's own mix (Ian, 4 Nov 2026): he loves Minecraft, and cars (Track Time); he will watch
+// Bluey but is not in love with it. Shouty YouTuber channels stay off.
+const JAKE_TIERS = new Set(['shared', 'big', 'older']);
+const JAKE_SKIPS = /^(?:brent rivera|unspeakable|stokes twins|vlad and niki|.*kids diana|waffloos|morebeckbros|lincoln.s super)/i;
+const JAKE_SHOWS = /minecraft|grian|mumbo|hermitcraft|pixlriffs|track time|hot wheels|billy.s aviation|lego/i;
+// Each person's favourites lead their own channel; the rest of its pool are discoveries.
+const FAVOURITES = { mum: FRAN_SHOWS, jake: JAKE_SHOWS };
 const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]));
 
 const RIDES_SHOWS = /\b(?:knight rider|the a[- ]team|the dukes of hazzard|airwolf|chips|baywatch|top gear)\b/i;
@@ -135,6 +143,7 @@ export function inTvGenre(item, channelId) {
     if (!defined.kids && KID_TIERS.has(item.tier)) return false;
     return !isFilm(item) && defined.shows.test(String(item.channel || '').replace(/^[^\w]+/, ''));
   }
+  if (defined?.person === 'jake') return JAKE_TIERS.has(item.tier) && !isFilm(item) && !JAKE_SKIPS.test(String(item.channel || ''));
   if (defined?.person === 'mum') return MUM_TIERS.has(item.tier) && !isFilm(item) && !MUM_SKIPS.test(String(item.channel || ''));
   if (defined?.person) return PERSONAL_TIERS.has(item.tier) && !isFilm(item);
   if (channelId === 'sitcoms') return item.tier === 'sitcom' || item.tier === 'bbc';
@@ -339,7 +348,12 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   // A person's own channel shows only when that person is watching without a child.
   function personPresent(channel, ids) {
-    return !channel?.person || (ids.includes(channel.person) && !TV_VIEWERS.some(person => person.ceiling && ids.includes(person.id)));
+    if (!channel?.person) return true;
+    // A child's own channel shows when that child is the youngest in the room.
+    const own = TV_VIEWERS.find(person => person.id === channel.person);
+    if (own?.ceiling) return ids.includes(own.id) && !TV_VIEWERS.some(person => person.ceiling && ids.includes(person.id)
+      && RATING_ORDER.indexOf(person.ceiling) < RATING_ORDER.indexOf(own.ceiling));
+    return ids.includes(channel.person) && !TV_VIEWERS.some(person => person.ceiling && ids.includes(person.id));
   }
 
   function poolFor(channelId, ids, rating = null) {
@@ -469,12 +483,13 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       }
     }
     let weights = weightsFor(key);
-    if (CHANNEL_BY_ID.get(channelId)?.person === 'mum') {
+    const favourites = FAVOURITES[CHANNEL_BY_ID.get(channelId)?.person];
+    if (favourites) {
       const learned = weights;
       weights = Object.create(null);
       for (const index of pool) {
         const item = videos[index];
-        weights[item.src] = player.weightFor(learned, item.src) * (FRAN_SHOWS.test(String(item.channel || '')) ? FAVOURITE_WEIGHT : DISCOVERY_WEIGHT);
+        weights[item.src] = player.weightFor(learned, item.src) * (favourites.test(String(item.channel || '')) ? FAVOURITE_WEIGHT : DISCOVERY_WEIGHT);
       }
     }
     // Episodic films and sitcoms play in order; cartoons stay shuffled.

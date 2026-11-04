@@ -41,7 +41,7 @@ show name: the "For Fran" channel picks these shows by folder name.
 | Fran | Come Dine With Me full episodes and omnibuses (UK, Ireland, Couples) | 41 watches; her top show |
 | Fran | Christmas carol and Christmas songs playlists (seasonal) | 21 watches |
 | Sam | Hop Hop the Owl full episodes; The Wiggles; Ms Rachel | 32 Hop Hop, 74 nursery-song watches |
-| Jake | Long, calm gaming content: Minecraft builds, LEGO, BeckBroPlays long plays | 40 Minecraft watches; keep the YTP/"try not to laugh" edits off |
+| Jake | **Minecraft (his favourite, Ian 4 Nov)**: Grian, Mumbo Jumbo, Hermitcraft episodes, official Minecraft animations and Minecraft Live, LEGO Minecraft → `/Volumes/Stash/Movies/gaming/<creator>` ("For Jake" picks folders matching minecraft/grian/mumbo/hermitcraft/lego) | 40 Minecraft watches; keep the YTP/"try not to laugh" edits off |
 
 ## Wanted — not downloadable by us (buy, record, or find a legal free source)
 
@@ -56,6 +56,7 @@ show name: the "For Fran" channel picks these shows by folder name.
 | Sam | ABC Kids staples: Play School (have), In the Night Garden, Teletubbies, Bananas in Pyjamas, Peppa Pig (have), Paddington, Peter Rabbit | ABC Kids morning and wind-down blocks |
 | Jake | Pokémon, LEGO Dreamzzz, Paw Patrol, SpongeBob, Odd Squad, Gardening Australia Junior | 9Go!/Nickelodeon/ABC 5–8 anchors |
 | Family | Friday family films (Paddington, Wallace & Gromit, Pixar) | the "Friday movie" ritual |
+| Jake | A Minecraft Movie (2025, PG) | his favourite game; buy or rent |
 
 ## Keep off the TV
 
