@@ -131,7 +131,7 @@ try {
   homeQueries = []; homeRatings = [];
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
-  await page.locator('.seg.rating-pg.on').waitFor();
+  await page.locator('.seg.rate-pg.on').waitFor();
   assert.equal(homeQueries.at(-1), 'jake,mum,dad');
   assert.equal(homeRatings.at(-1), null);
   assert.deepEqual(await segments(), ['sam', 'jake*', 'adults', 'G', 'PG*^', 'M']);
@@ -142,21 +142,21 @@ try {
   await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
-  await page.locator('.seg.rating-m.on').waitFor();
+  await page.locator('.seg.rate-m.on').waitFor();
   assert.equal(homeQueries.at(-1), 'jake,mum,dad');
   assert.equal(homeRatings.at(-1), 'M');
   assert.deepEqual(await segments(), ['sam', 'jake*', 'adults', 'G', 'PG^', 'M*']);
   await page.screenshot({ path: path.join(out, 'home-override-dark.png') });
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('Enter');
-  await page.locator('.seg.rating-pg.on').waitFor();
+  await page.locator('.seg.rate-pg.on').waitFor();
   assert.equal(homeRatings.at(-1), null, 'choosing the default clears the override');
   // A rating survives a reload until the audience changes.
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
-  await page.locator('.seg.rating-m.on').waitFor();
+  await page.locator('.seg.rate-m.on').waitFor();
   await page.goto('http://tv.test/');
-  await page.locator('.seg.rating-m.on').waitFor();
+  await page.locator('.seg.rate-m.on').waitFor();
   assert.equal(homeRatings.at(-1), 'M');
 
   // A rating pressed before the new audience's lineup arrives is still an override.
@@ -164,12 +164,12 @@ try {
   await page.locator('.seg[data-who="sam"]').click();
   await page.locator('.seg[data-rating="M"]').click();
   homeDelay = 0;
-  await page.locator('.seg.rating-m.on').waitFor();
+  await page.locator('.seg.rate-m.on').waitFor();
   assert.equal(homeQueries.at(-1), 'sam,jake,mum,dad');
   assert.equal(homeRatings.at(-1), 'M');
   // Picking who's watching resets the rating to theirs.
   await page.locator('.seg[data-who="adults"]').click();
-  await page.locator('.seg.rating-m.on.default').waitFor();
+  await page.locator('.seg.rate-m.on.default').waitFor();
   assert.equal(homeQueries.at(-1), 'mum,dad');
   assert.equal(homeRatings.at(-1), null);
   await page.screenshot({ path: path.join(out, 'home-adults-dark.png') });
@@ -184,7 +184,7 @@ try {
   assert.equal(await page.locator('.channel:not([class*="app-"])').count(), 0);
   homeDelay = 0;
   await page.locator('.seg[data-who="jake"]').click();
-  await page.locator('.seg.rating-pg.on').waitFor();
+  await page.locator('.seg.rate-pg.on').waitFor();
   assert.equal(homeQueries.at(-1), 'jake,mum,dad');
   await page.waitForTimeout(400);
   assert.deepEqual(await segments(), ['sam', 'jake*', 'adults', 'G', 'PG*^', 'M']);
@@ -194,7 +194,7 @@ try {
   assert.equal(await page.locator('.channel:not([class*="app-"])').count(), 0);
   failHome = false;
   await page.locator('.seg[data-who="adults"]').click();
-  await page.locator('.seg.rating-m.on').waitFor();
+  await page.locator('.seg.rate-m.on').waitFor();
   await page.waitForFunction(() => [...document.querySelectorAll('.art')].every(img => img.complete && img.naturalWidth));
 
   const preparedRequests = artRequests;

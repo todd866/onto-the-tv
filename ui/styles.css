@@ -34,17 +34,17 @@ h1 { margin:0; color:var(--amber); font-size:21px; font-weight:800; letter-spaci
 #channel-rating button[data-rating="M"][aria-pressed="true"] { background:#e5484d; color:#fff; }
 #channel-viewers button[aria-pressed="true"] svg { fill:currentColor; }
 #channel-refresh { margin-left:auto; padding:5px 9px; } #channel-state { min-width:1.2em; color:var(--amber); font-size:16px; text-align:center; }
-#channel-list { flex:1; min-height:0; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,15em),1fr)); align-content:start; gap:12px; margin:0; padding:4px 4px 10px; list-style:none; }
+#channel-list { flex:1; min-height:0; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,11.5em),1fr)); align-content:start; gap:12px; margin:0; padding:4px 4px 10px; list-style:none; }
 /* Match the TV's image-backed bezel without squeezing three labels into one line. */
-.channel-card { position:relative; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; min-height:150px; padding:0; text-align:left; background:#14213d; color:#f4f1ea; border:7px solid #14213d; border-radius:30px; isolation:isolate; }
+.channel-card { position:relative; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; min-height:0; aspect-ratio:16/10; padding:0; text-align:left; background:#14213d; color:#f4f1ea; border:5px solid #14213d; border-radius:22px; isolation:isolate; }
 .channel-card:hover,.channel-card:focus-visible { border-color:var(--amber); }
 .channel-card:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
-.channel-picture { position:absolute; inset:0; z-index:-1; display:block; border-radius:22px; background:#1b2c4d; overflow:hidden; }
+.channel-picture { position:absolute; inset:0; z-index:-1; display:block; border-radius:17px; background:#1b2c4d; overflow:hidden; }
 .channel-picture img { display:block; width:100%; height:100%; object-fit:cover; }
-.channel-readout { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:9px; align-items:baseline; padding:36px 11px 11px; border-radius:22px; background:linear-gradient(transparent,#0b1428e8 45%,#0b1428); }
-.channel-number { text-align:right; color:var(--amber); font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; }
-.channel-name { font-size:17px; font-weight:800; line-height:1.2; overflow-wrap:anywhere; }
-.channel-now { grid-column:2; margin-top:5px; font-size:14px; color:#d5dfef; line-height:1.35; overflow-wrap:anywhere; }
+.channel-readout { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:9px; align-items:baseline; padding:26px 9px 8px; border-radius:17px; background:linear-gradient(transparent,#0b1428e8 45%,#0b1428); }
+.channel-number { text-align:right; color:var(--amber); font-size:19px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; }
+.channel-name { font-size:15px; font-weight:800; line-height:1.2; overflow-wrap:anywhere; }
+.channel-now { grid-column:2; margin-top:2px; font-size:12.5px; color:#d5dfef; line-height:1.35; overflow-wrap:anywhere; }
 .channel-feedback { align-self:center; margin:auto; max-width:100%; overflow-wrap:anywhere; }
 .channel-feedback[disabled] { opacity:1; cursor:default; border:0; background:transparent; color:var(--muted); }
 #channel-home:has(.channel-feedback:not([hidden])) #channel-list:empty { flex:0; }
@@ -122,4 +122,4 @@ label { display:flex; flex-direction:column; gap:6px; margin-top:13px; font-size
   .ambient-actions { margin:0; }
 }
 
-@media (max-height:500px) { .channel-card { min-height:170px; } }
+@media (max-height:500px) { .channel-card { min-height:0; } }

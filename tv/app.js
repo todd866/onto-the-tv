@@ -177,9 +177,12 @@
   function gridCards() {
     var cards = (data.channels || []).slice();
     if (!GUEST) {
-      cards.push({ id: 'games', number: 6, name: 'Games', app: 'games' });
-      cards.push({ id: 'uke', number: 7, name: 'Uke', app: 'uke' });
-      cards.push({ id: 'console', number: 20, name: 'Console', app: 'console' });
+      // The apps follow the channels and take the next numbers.
+      var last = 0;
+      for (var i = 0; i < cards.length; i++) if (cards[i].number > last) last = cards[i].number;
+      cards.push({ id: 'games', number: last + 1, name: 'Games', app: 'games' });
+      cards.push({ id: 'uke', number: last + 2, name: 'Uke', app: 'uke' });
+      cards.push({ id: 'console', number: last + 3, name: 'Console', app: 'console' });
     }
     // The server orders the lineup for this audience; the app tiles follow it.
     return cards;
@@ -249,7 +252,7 @@
   function segButton(kind, value, label, extraClass, on, col) {
     var button = document.createElement('button');
     button.type = 'button';
-    button.className = 'viewer seg ' + kind + (extraClass ? ' ' + extraClass : '') + (on ? ' on' : '');
+    button.className = 'viewer seg seg-' + kind + (extraClass ? ' ' + extraClass : '') + (on ? ' on' : '');
     button.tabIndex = -1;
     button.setAttribute('data-' + kind, value);
     button.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -278,7 +281,8 @@
     ratings.className = 'seg-group ratings';
     for (i = 0; i < RATINGS.length; i++) {
       var r = RATINGS[i], isDefault = r === data.defaultCeiling;
-      var rb = segButton('rating', r, '', 'rating-' + r.toLowerCase() + (isDefault ? ' default' : ''), data.ceiling === r, col++);
+      // rate-*, not rating-*: the old ceiling badge's rating-* classes paint every button.
+      var rb = segButton('rating', r, '', 'rate-' + r.toLowerCase() + (isDefault ? ' default' : ''), data.ceiling === r, col++);
       rb.textContent = r;
       rb.title = 'Rated ' + r + (isDefault ? ' (default for who is watching)' : '');
       rb.setAttribute('aria-label', 'Rating ' + r + (isDefault ? ', default' : ''));

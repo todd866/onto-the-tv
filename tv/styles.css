@@ -397,9 +397,9 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
 .seg-group .viewer.on.focused, .seg-group .viewer.on:focus { border-color: #f4f1ea; }
 .ratings .viewer { min-width: 104px; justify-content: center; font-size: 38px; color: #c9cede; }
 .ratings .viewer.default { box-shadow: inset 0 -6px 0 #8a93ad; }
-.ratings .viewer.rating-g.on { background: #3dbe5a; border-color: #3dbe5a; color: #14213d; }
-.ratings .viewer.rating-pg.on { background: #f5d90a; border-color: #f5d90a; color: #14213d; }
-.ratings .viewer.rating-m.on { background: #e5484d; border-color: #e5484d; color: #fff; }
+.ratings .viewer.rate-g.on { background: #3dbe5a; border-color: #3dbe5a; color: #14213d; }
+.ratings .viewer.rate-pg.on { background: #f5d90a; border-color: #f5d90a; color: #14213d; }
+.ratings .viewer.rate-m.on { background: #e5484d; border-color: #e5484d; color: #fff; }
 .ratings .viewer.on.default { box-shadow: none; }
 
 /* A full lineup on the TV: six smaller tiles a row, so twenty-odd channels fit on one screen. */
@@ -410,7 +410,7 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
   .channel:nth-child(4n) { margin-right: 20px; }
   .channel:nth-child(6n) { margin-right: 0; }
   .bezel { border-radius: 44px; border-width: 10px; }
-  .channel-copy { padding: 40px 14px 14px; }
+  .channel-copy { padding: 40px 14px 14px; background: linear-gradient(to top, rgba(11, 20, 40, 0.96) 0%, rgba(11, 20, 40, 0.88) 62%, rgba(11, 20, 40, 0) 100%); }
   .channel .num { font-size: 32px; margin-right: 10px; }
   .channel .name { font-size: 30px; }
   /* 28px is the TV's smallest legible size; long titles wrap rather than clip. */

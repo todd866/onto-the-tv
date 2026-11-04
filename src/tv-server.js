@@ -375,8 +375,13 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   const AUDIENCE_ORDER = { grown: { adult: 0, all: 1, kid: 2 }, child: { kid: 0, all: 1, adult: 2 } };
 
+  // Folder names carry a year and "Official" for sorting; the card shows the show's name.
+  function showName(name) {
+    return String(name).replace(/\s*\((?:19|20)\d\d\)\s*$/, '').replace(/\s*-?\s*Official(?: Channel)?\s*$/i, '').trim() || String(name);
+  }
+
   function nowPlaying(item) {
-    return { show: item.channel || item.title || item.src, art: '/art?src=' + encodeURIComponent(item.src) };
+    return { show: showName(item.channel || item.title || item.src), art: '/art?src=' + encodeURIComponent(item.src) };
   }
 
   function home(viewers, ratingValue) {
@@ -400,6 +405,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     // A person's own channel leads their lineup.
     const rank = id => (CHANNEL_BY_ID.get(id).person ? -1 : order[CHANNEL_BY_ID.get(id).audience]);
     channels.sort((a, b) => rank(a.id) - rank(b.id) || position.get(a.id) - position.get(b.id));
+    // Channels are numbered in the order this audience sees them, so the guide reads 1, 2, 3.
+    channels.forEach((channel, index) => { channel.number = index + 1; });
     return {
       ceiling: blocked ? null : ceiling,
       // The ceiling the people alone would set, so the rating switch can show its default.

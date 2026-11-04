@@ -51,7 +51,7 @@ test('home is channel-first and the youngest viewer sets the ceiling', async () 
     ['sam', 'Sam', true], ['jake', 'Jake', true], ['mum', 'Mum', true], ['dad', 'Dad', true],
   ]);
   assert.deepEqual(home.channels.map(channel => [channel.number, channel.id, channel.name]),
-    [[1, 'cartoons', 'Cartoons'], [22, 'littleones', 'Little Ones'], [23, 'bluey', 'Bluey']]);
+    [[1, 'cartoons', 'Cartoons'], [2, 'littleones', 'Little Ones'], [3, 'bluey', 'Bluey']], 'numbered in the order shown');
   assert.equal(home.channels[0].now.show, 'Bluey');
   assert.equal(home.channels[0].count, 3, 'channels report their pool size at this ceiling');
   assert.equal(home.channels[0].now.art, '/art?src=Bluey%2Fa.mp4');
@@ -156,7 +156,7 @@ test('Rides & Adventures matches its shows and applies a PG channel rating', asy
   assert.equal(inTvGenre({ channel: 'Knight Rider', src: 'ads/80s/ad.mp4' }, 'rides'), false);
   const library = createTvLibrary({ videos: rides, history, storage, random: () => 0 });
   assert.equal(library.home('sam').channels.some(channel => channel.id === 'rides'), false);
-  assert.equal(library.home('jake').channels.find(channel => channel.id === 'rides').number, 19);
+  assert.ok(library.home('jake').channels.some(channel => channel.id === 'rides'));
   assert.equal(library.next('rides', { viewers: 'jake' }).show, names[0]);
   assert.throws(() => library.next('rides', { viewers: 'sam' }), /empty/);
   assert.throws(() => library.next('rides', { viewers: 'sam,jake' }), /empty/);
@@ -416,6 +416,9 @@ test('the lineup splits shows into their own channels and each adult gets a pers
   assert.equal(ids('sam,dad').includes('fordad'), false, 'no personal channel with a child in the room');
   assert.equal(ids('mum,dad').length >= 16, true);
   assert.equal(new Set(TV_NUMBERS()).size, TV_NUMBERS().length, 'channel numbers are unique');
+  assert.deepEqual(library.home('mum,dad').channels.map(channel => channel.number), library.home('mum,dad').channels.map((_, i) => i + 1));
+  const shows = library.home('mum,dad').channels.map(channel => channel.now.show);
+  assert.equal(shows.some(show => /\((?:19|20)\d\d\)$/.test(show)), false, 'no folder years on the cards');
 
   library.next('fordad', { viewers: 'mum,dad', current: 'Friends (1994)/S01E01.mp4', reason: 'skip', time: 60, watched: 60, duration: 1300 });
   assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.sgrown'))['Friends (1994)/S01E01.mp4'] < 1, "Dad's channel learns on Dad's key");
