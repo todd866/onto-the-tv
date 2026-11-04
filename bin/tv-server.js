@@ -113,7 +113,7 @@ const sceneLookup = src => {
   return video ? sceneStore.load(video.file) : null;
 };
 let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers });
-const current = { home: viewers => library.home(viewers), show: name => library.show(name), next: (id, input) => library.next(id, input),
+const current = { home: (viewers, rating) => library.home(viewers, rating), show: name => library.show(name), next: (id, input) => library.next(id, input),
   progress: input => library.progress(input), file: src => library.file(src), video: src => library.video(src) };
 let mediaCache = null;
 try { mediaCache = await createMediaCache({ directory: join(homedir(), 'Library/Caches/Onto the TV/media'), maxBytes: 40 * 1024 ** 3,
