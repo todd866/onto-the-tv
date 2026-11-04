@@ -121,12 +121,17 @@ const MUM_SKIPS = /^(?:mobland|snatch|lock stock|the gentlemen|in bruges)\b/i;
 // Familiar shows draw people in (Ian): her favourites lead the channel, everything else on it
 // is a low-weight discovery. Per show: 4 against 0.3, so favourites win about three picks in four.
 const FAVOURITE_WEIGHT = 4, DISCOVERY_WEIGHT = 0.3;
-const FRAN_SHOWS = /^(?:(?:couples )?come dine with me|friends\b|kath (?:&|and) kim|the big bang theory|big bang theory|gogglebox|first dates|four in a bed|the great british bake off|great british bake off|bake off|escape to the country|a place in the sun|location,? location|the hotel inspector|24 hours in a&e|married at first sight uk|love island|the apprentice|dragons.? den|grand designs|bargain hunt|homes under the hammer|the traitors|race across the world|the repair shop)/i;
+const FRAN_SHOWS = /^(?:(?:couples )?come dine with me|bald and bankrupt|friends\b|kath (?:&|and) kim|the big bang theory|big bang theory|gogglebox|first dates|four in a bed|the great british bake off|great british bake off|bake off|escape to the country|a place in the sun|location,? location|the hotel inspector|24 hours in a&e|married at first sight uk|love island|the apprentice|dragons.? den|grand designs|bargain hunt|homes under the hammer|the traitors|race across the world|the repair shop)/i;
 // Jake's own mix (Ian, 4 Nov 2026): he loves Minecraft, and cars (Track Time); he will watch
 // Bluey but is not in love with it. Shouty YouTuber channels stay off.
 const JAKE_TIERS = new Set(['shared', 'big', 'older']);
 const JAKE_SKIPS = /^(?:brent rivera|unspeakable|stokes twins|vlad and niki|.*kids diana|waffloos|morebeckbros|lincoln.s super)/i;
-const JAKE_SHOWS = /minecraft|grian|mumbo|hermitcraft|pixlriffs|track time|hot wheels|billy.s aviation|lego/i;
+const JAKE_SHOWS = /minecraft|grian|mumbo|hermitcraft|pixlriffs|track time|hot wheels|lego/i;
+// Shows the kids love that a parent would rather ration (Ian, 4 Nov 2026: the plane-crash
+// cartoons, "If Planes Could Talk"): fine to watch, but rarely picked and never billed as
+// a card's "now on" while the channel has anything else.
+const LIMITED_SHOWS = /billy.s aviation|if planes could talk|plane crash|air crash|mayday/i;
+const LIMITED_WEIGHT = 0.05;
 // Each person's favourites lead their own channel; the rest of its pool are discoveries.
 const FAVOURITES = { mum: FRAN_SHOWS, jake: JAKE_SHOWS };
 const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]));
@@ -418,7 +423,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       const count = poolFor(channel.id, ids, rating).length;
       if (!count) continue;
       const key = stageKey(channel.id, ids, rating);
-      if (!staged.has(key)) staged.set(key, chooseIndex(channel.id, ids, { rating }));
+      if (!staged.has(key)) staged.set(key, chooseIndex(channel.id, ids, { rating, billing: true }));
       // count: videos on this channel at this audience's ceiling (the morning acceptance gate reads it).
       channels.push({ id: channel.id, number: channel.number, name: channel.name, count, now: nowPlaying(videos[staged.get(key)]) });
     }
@@ -465,7 +470,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (!TV_CHANNELS.some(channel => channel.id === channelId)) {
       throw Object.assign(new Error('Unknown channel.'), { status: 404 });
     }
-    const pool = poolFor(channelId, ids, ratingOf(options.rating));
+    let pool = poolFor(channelId, ids, ratingOf(options.rating));
     if (!pool.length) throw Object.assign(new Error('This channel is empty.'), { status: 404 });
     const key = channelTasteKey(channelId, ids) || channelId;
     const played = recent.get(channelId) || [];
@@ -484,12 +489,19 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     }
     let weights = weightsFor(key);
     const favourites = FAVOURITES[CHANNEL_BY_ID.get(channelId)?.person];
-    if (favourites) {
-      const learned = weights;
+    const limited = pool.filter(index => LIMITED_SHOWS.test(String(videos[index].channel || '') + ' ' + String(videos[index].title || '')));
+    if (options.billing && limited.length && limited.length < pool.length) {
+      const keep = new Set(limited);
+      pool = pool.filter(index => !keep.has(index));
+    }
+    if (favourites || limited.length) {
+      const learned = weights, rationed = new Set(limited);
       weights = Object.create(null);
       for (const index of pool) {
         const item = videos[index];
-        weights[item.src] = player.weightFor(learned, item.src) * (favourites.test(String(item.channel || '')) ? FAVOURITE_WEIGHT : DISCOVERY_WEIGHT);
+        const taste = favourites ? (favourites.test(String(item.channel || '')) ? FAVOURITE_WEIGHT : DISCOVERY_WEIGHT) : 1;
+        // Below the learner's floor on purpose: a rationed show stays rare even when loved.
+        weights[item.src] = rationed.has(index) ? LIMITED_WEIGHT : player.weightFor(learned, item.src) * taste;
       }
     }
     // Episodic films and sitcoms play in order; cartoons stay shuffled.

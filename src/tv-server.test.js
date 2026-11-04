@@ -446,3 +446,17 @@ test('the lineup splits shows into their own channels and each adult gets a pers
 });
 
 function TV_NUMBERS() { return TV_CHANNELS.map(channel => channel.number).concat([6, 7, 20]); }
+
+test('rationed shows stay rare and never get top billing while there is anything else', async () => {
+  const { history, storage } = await setup();
+  const v = (show, n) => ({ src: `${show}/S01E0${n}.mp4`, file: `/m/${show}/S01E0${n}.mp4`, title: `S01E0${n}`, channel: show, tier: 'big', duration: 600 });
+  const catalogue = [];
+  for (let n = 1; n <= 6; n++) catalogue.push(v('Billy’s Aviation', n), v('Track Time', n), v('SciShow Kids', n));
+  let r = 0;
+  const library = createTvLibrary({ videos: catalogue, history, storage, random: () => (r = (r * 7 + 0.37) % 1) });
+  for (let i = 0; i < 12; i++) assert.notEqual(library.home('jake,mum,dad').channels.find(c => c.id === 'forjake').now.show, 'Billy’s Aviation');
+  const shows = [];
+  for (let i = 0; i < 60; i++) shows.push(library.next('forjake', { viewers: 'jake,mum,dad' }).show);
+  const share = shows.filter(show => show === 'Billy’s Aviation').length / shows.length;
+  assert.ok(share <= 0.1, `rationed share ${share}`);
+});

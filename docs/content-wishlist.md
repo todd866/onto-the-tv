@@ -39,6 +39,7 @@ show name: the "For Fran" channel picks these shows by folder name.
 | Ian (+Jake) | Mark Rober, Johnny Harris, Outdoor Boys, abandoned-places and restoration docs | subscribed; ~22 urbex/resto watches |
 | Ian (+Jake) | Car restoration and Top Gear / Grand Tour-style long-form | ~15 car watches; Jake loves cars |
 | Fran | Come Dine With Me full episodes and omnibuses (UK, Ireland, Couples) | 41 watches; her top show |
+| Ian + Fran | **Bald and Bankrupt** — one of the few YouTubers they share (Ian, 4 Nov); queued in batch 2 → `together` | subscribed |
 | Fran | Christmas carol and Christmas songs playlists (seasonal) | 21 watches |
 | Sam | Hop Hop the Owl full episodes; The Wiggles; Ms Rachel | 32 Hop Hop, 74 nursery-song watches |
 | Jake | **Minecraft (his favourite, Ian 4 Nov)**: Grian, Mumbo Jumbo, Hermitcraft episodes, official Minecraft animations and Minecraft Live, LEGO Minecraft → `/Volumes/Stash/Movies/gaming/<creator>` ("For Jake" picks folders matching minecraft/grian/mumbo/hermitcraft/lego) | 40 Minecraft watches; keep the YTP/"try not to laugh" edits off |
@@ -57,6 +58,12 @@ show name: the "For Fran" channel picks these shows by folder name.
 | Jake | Pokémon, LEGO Dreamzzz, Paw Patrol, SpongeBob, Odd Squad, Gardening Australia Junior | 9Go!/Nickelodeon/ABC 5–8 anchors |
 | Family | Friday family films (Paddington, Wallace & Gromit, Pixar) | the "Friday movie" ritual |
 | Jake | A Minecraft Movie (2025, PG) | his favourite game; buy or rent |
+
+## Keep, but rationed
+
+Billy's Aviation / "If Planes Could Talk" (air-crash cartoons): Jake loves them, Fran doesn't. Keep
+them (the rotation tops them up), never add more of the kind, and the server plays them rarely
+and never bills them as a card's "now on" (LIMITED_SHOWS in `src/tv-server.js`).
 
 ## Keep off the TV
 
