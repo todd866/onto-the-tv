@@ -52,8 +52,14 @@ const CARTOON_TIERS = new Set(['preschool', 'shared', 'big', 'older', 'adultanim
 const GROWNUP_TV_TIERS = new Set(['grownup', 'couple']);
 // A film is anything in a film folder, whatever its tier; the rating ceiling
 // still decides who sees it. (player.inStream('movies') only admits family tiers.)
+// Grown-up films are filed one folder per film, "In Bruges (2008)", so a grown-up
+// folder named with a year whose file carries no episode marker is a film too.
 const FILM_FOLDERS = new Set(['Films', 'Family Films']);
-const isFilm = item => FILM_FOLDERS.has(item.channel);
+const YEAR_FOLDER = /\((?:19|20)\d\d\)\s*$/;
+const EPISODE_MARK = /\bS\d{1,2}\s?E\d{1,3}\b|\b\d{1,2}x\d{2}\b/i;
+const isFilm = item => FILM_FOLDERS.has(item.channel)
+  || (GROWNUP_TV_TIERS.has(item.tier) && YEAR_FOLDER.test(String(item.channel || ''))
+    && !EPISODE_MARK.test(String(item.src || '')));
 const DECADES = { d50: '50s', d60: '60s', d70: '70s', d80: '80s', d90: '90s' };
 // Numbers 6 and 7 are Games and Uke on the TV. Decade channels carry period ads.
 // Sports is the taped-broadcast channel: its files are scanned for ad breaks.
@@ -470,7 +476,7 @@ function send(response, status, body, headers = {}) {
   response.end(content);
 }
 
-async function streamFile(request, response, file, mediaCache) {
+export async function streamFile(request, response, file, mediaCache) {
   const info = await stat(file);
   const type = MIME[extname(file).toLowerCase()] || 'application/octet-stream';
   const range = parseRange(request.headers.range, info.size);

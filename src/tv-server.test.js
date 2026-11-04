@@ -336,11 +336,17 @@ test('Movies is films only; grown-up TV has its own Mum & Dad channel', () => {
   const couple = { src: 'Couples Come Dine With Me/e1.mp4', channel: 'Couples Come Dine With Me', tier: 'couple' };
   const bruges = { src: 'Films/In Bruges.mkv', channel: 'Films', tier: 'grownup' };
   const nemo = { src: 'Family Films/Finding Nemo.mkv', channel: 'Family Films', tier: 'shared' };
-  for (const show of [cdwm, couple]) {
+  // Grown-up films are filed one folder per film, named with the year (the M2's real layout).
+  const snatch = { src: 'grown-ups/Snatch (2000)/Snatch (2000) [1080p]/Snatch.2000.1080p.mp4', channel: 'Snatch (2000)', tier: 'grownup' };
+  const nile = { src: 'together/Death on the Nile (2022)/Death.on.the.Nile.2022.mp4', channel: 'Death on the Nile (2022)', tier: 'couple' };
+  // A series folder named with a year is still TV when its files are episodes.
+  const series = { src: 'grown-ups/Utopia (2014)/Utopia S01E01.mp4', channel: 'Utopia (2014)', tier: 'grownup' };
+  const mobland = { src: 'grown-ups/Mobland/Mobland S01E05.mp4', channel: 'Mobland', tier: 'grownup' };
+  for (const show of [cdwm, couple, series, mobland]) {
     assert.equal(inTvGenre(show, 'movies'), false, show.src);
     assert.equal(inTvGenre(show, 'grownups'), true, show.src);
   }
-  for (const film of [bruges, nemo]) {
+  for (const film of [bruges, nemo, snatch, nile]) {
     assert.equal(inTvGenre(film, 'movies'), true, film.src);
     assert.equal(inTvGenre(film, 'grownups'), false, film.src);
     assert.equal(inTvGenre(film, 'cartoons'), false, film.src);
