@@ -27,8 +27,8 @@ const player = require('../shuffler/player.js');
 export const TV_VIEWERS = [
   { id: 'sam', name: 'Sam', ceiling: 'G' },
   { id: 'jake', name: 'Jake', ceiling: 'PG' },
-  { id: 'mum', name: 'Mum', ceiling: null },
-  { id: 'dad', name: 'Dad', ceiling: null },
+  { id: 'mum', name: 'Fran', ceiling: null },
+  { id: 'dad', name: 'Ian', ceiling: null },
 ];
 
 const RATING_ORDER = ['G', 'PG', 'PG-13', 'M'];
@@ -89,8 +89,8 @@ export const TV_CHANNELS = [
   { id: 'sports', number: 17, name: 'Sports', recordedAds: true, audience: 'all' },
   { id: 'hophop', number: 18, name: 'Hop Hop', audience: 'kid' },
   { id: 'rides', number: 19, name: 'Rides & Adventures', rating: 'PG', audience: 'all' },
-  { id: 'fordad', number: 35, name: 'For Dad', person: 'dad', audience: 'adult' },
-  { id: 'grownups', number: 21, name: 'Mum & Dad', audience: 'adult' },
+  { id: 'fordad', number: 35, name: 'For Ian', person: 'dad', audience: 'adult' },
+  { id: 'grownups', number: 21, name: 'Ian & Fran', audience: 'adult' },
   { id: 'littleones', number: 22, name: 'Little Ones', audience: 'kid', kids: true,
     shows: /^(?:bing|peppa pig|play school|cbeebies bedtime|charlie and lola|sarah and duck|jojo and gran gran|fireman sam|hey duggee|cocomelon|nick jr|in the night garden|teletubbies|ms ?rachel)/i },
   { id: 'bluey', number: 23, name: 'Bluey', audience: 'kid', kids: true, shows: /^bluey\b/i },
@@ -111,7 +111,7 @@ export const TV_CHANNELS = [
     shows: /^(?:48 hours|exposed|lindsay clancy|dateline|australian story|four corners)/i },
   { id: 'reality', number: 33, name: 'Reality', audience: 'adult',
     shows: /^(?:(?:couples )?come dine with me|grand designs|gogglebox|masterchef|the block|location|escape to)/i },
-  { id: 'formum', number: 34, name: 'For Mum', person: 'mum', audience: 'adult' },
+  { id: 'formum', number: 34, name: 'For Fran', person: 'mum', audience: 'adult' },
   { id: 'forjake', number: 36, name: 'For Jake', person: 'jake', audience: 'kid' },
 ];
 // Fran's own mix, from Ian (4 Nov 2026): her top three are Come Dine With Me, Friends and The
@@ -410,8 +410,43 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return String(name).replace(/\s*\((?:19|20)\d\d\)\s*$/, '').replace(/\s*-?\s*Official(?: Channel)?\s*$/i, '').trim() || String(name);
   }
 
-  function nowPlaying(item) {
-    return { show: showName(item.channel || item.title || item.src), art: '/art?src=' + encodeURIComponent(item.src) };
+  // What a card says about a pick: the episode in words people use ("S3 E1 · Cactus Hour"),
+  // not the file name, and its length in minutes.
+  function episodeLabel(item, show) {
+    let text = String(item.title || item.src || '').replace(/\.[a-z0-9]{2,4}$/i, '').replace(/\s*\[[^\]]*\]\s*/g, ' ');
+    // Scene-style names ("The.One.where.Monica.Gets...") read as words.
+    if ((text.match(/\./g) || []).length >= 3 && (text.match(/ /g) || []).length < 2) text = text.replace(/\.(?!\d)/g, ' ');
+    text = text.replace(/[｜|]/g, ' · ').replace(/\(official (?:music )?video\)|\(official audio\)|full episode\s*-?/gi, '')
+      .replace(/(?:^|\s)[@#][\w.]+/g, ' ').replace(/\s+/g, ' ').trim();
+    // Drop " · <show>" and "<show> -" pieces: the card already names the show.
+    text = text.split(' · ').filter(part => part.trim().toLowerCase() !== show.toLowerCase()).join(' · ').trim();
+    const series = /(?:series|season)\s*(\d+)\s*(?:ep(?:isode)?\.?|e)\s*(\d+)/i.exec(text) || /\bS(\d{1,2})\s?E(\d{1,3})\b/i.exec(text);
+    if (!series) text = text.replace(/^(?:series|season)\s*\d+\s+/i, '');
+    const words = show.toLowerCase().split(/\s+/).filter(Boolean);
+    let rest = text;
+    if (series) rest = text.slice(series.index + series[0].length);
+    else if (words.length && text.toLowerCase().startsWith(words.join(' '))) rest = text.slice(words.join(' ').length);
+    rest = rest.replace(/^[\s.:·\-–—]+/, '').replace(/\b(?:720p|1080p|2160p|x26[45]|hevc|web-?rip|blu-?ray|brrip|aac|dvdrip)\b.*$/i, '')
+      .replace(/^E\d{1,3}\s+/i, '').replace(/[\s.·\-]+$/, '').trim();
+    const label = (series ? `S${Number(series[1])} E${Number(series[2])}` : '') + (series && rest ? ' · ' : '') + rest;
+    return (label || text).slice(0, 90);
+  }
+
+  // A film's card names the film, not its folder ("Family Films").
+  function cardShow(item) {
+    if (isFilm(item) && FILM_FOLDERS.has(item.channel)) return episodeLabel(item, '').replace(/\s*\(?((?:19|20)\d\d)\)?$/, ' ($1)').trim();
+    return showName(item.channel || item.title || item.src);
+  }
+
+  function nowPlaying(item, following) {
+    const show = cardShow(item);
+    const now = { show, title: episodeLabel(item, show), minutes: Math.round((item.duration || 0) / 60), art: '/art?src=' + encodeURIComponent(item.src) };
+    if (following) {
+      const nextShow = cardShow(following);
+      now.next = { show: nextShow, title: isFilm(following) ? '' : episodeLabel(following, nextShow) };
+    }
+    if (isFilm(item)) now.title = '';
+    return now;
   }
 
   function home(viewers, ratingValue) {
@@ -426,8 +461,12 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       if (!count) continue;
       const key = stageKey(channel.id, ids, rating);
       if (!staged.has(key)) staged.set(key, chooseIndex(channel.id, ids, { rating, billing: true }));
+      // What comes after the card's pick, for the guide and the "now on" panel; it becomes the
+      // card's pick once this one is played.
+      if (!staged.has(key + '\nnext') && count > 1) staged.set(key + '\nnext', chooseIndex(channel.id, ids, { rating, billing: true, current: videos[staged.get(key)].src, peek: true }));
+      const following = staged.has(key + '\nnext') && staged.get(key + '\nnext') !== staged.get(key) ? videos[staged.get(key + '\nnext')] : null;
       // count: videos on this channel at this audience's ceiling (the morning acceptance gate reads it).
-      channels.push({ id: channel.id, number: channel.number, name: channel.name, count, now: nowPlaying(videos[staged.get(key)]) });
+      channels.push({ id: channel.id, number: channel.number, name: channel.name, count, now: nowPlaying(videos[staged.get(key)], following) });
     }
     // Grown-ups see their channels first, children theirs; the numbers stay put.
     const order = AUDIENCE_ORDER[ceiling === 'M' ? 'grown' : 'child'];
@@ -508,7 +547,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     }
     // Episodic films and sitcoms play in order; cartoons stay shuffled.
     const serial = ['movies', 'sitcoms', 'grownups', 'friends', 'seinfeld', 'crime'].includes(channelId);
-    const ending = options.reason === 'ended';
+    // peek: what follows the current pick (a serial's next episode), without grading anything.
+    const ending = options.reason === 'ended' || options.peek === true;
     const showOf = index => videos[index].channel || 'Other';
     let index = -1;
     if (serial && ending && currentIndex >= 0 && player.episodeNumber(videos[currentIndex]) !== null) {
@@ -568,6 +608,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (!options.current && staged.has(key)) {
       const index = staged.get(key);
       staged.delete(key);
+      // The guide's "next" becomes the card's pick.
+      if (staged.has(key + '\nnext')) { staged.set(key, staged.get(key + '\nnext')); staged.delete(key + '\nnext'); }
       remember(channelId, index);
       return finish(index, channelId, ids, rating);
     }

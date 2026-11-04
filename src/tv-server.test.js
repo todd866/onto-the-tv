@@ -48,7 +48,7 @@ test('home is channel-first and the youngest viewer sets the ceiling', async () 
   const home = library.home();
   assert.equal(home.ceiling, 'G');
   assert.deepEqual(home.viewers.map(person => [person.id, person.name, person.on]), [
-    ['sam', 'Sam', true], ['jake', 'Jake', true], ['mum', 'Mum', true], ['dad', 'Dad', true],
+    ['sam', 'Sam', true], ['jake', 'Jake', true], ['mum', 'Fran', true], ['dad', 'Ian', true],
   ]);
   assert.deepEqual(home.channels.map(channel => [channel.number, channel.id, channel.name]),
     [[1, 'cartoons', 'Cartoons'], [2, 'littleones', 'Little Ones'], [3, 'bluey', 'Bluey']], 'numbered in the order shown');
@@ -62,7 +62,7 @@ test('home is channel-first and the youngest viewer sets the ceiling', async () 
   assert.equal(dad.ceiling, 'M');
   assert.deepEqual(dad.viewers.map(person => person.on), [false, false, false, true]);
   assert.deepEqual(dad.channels.map(channel => channel.id), ['movies', 'cartoons', 'littleones', 'bluey'], 'grown-ups see their channels first');
-  assert.equal(dad.channels.find(channel => channel.id === 'movies').now.show, 'Films');
+  assert.equal(dad.channels.find(channel => channel.id === 'movies').now.show, 'D', 'a film card names the film');
 
   const withSam = library.home('sam,dad');
   assert.equal(withSam.ceiling, 'G');
@@ -123,7 +123,7 @@ test('adults use the existing taste keys and hidden genres stay hidden', async (
   library.next('movies', { viewers: 'mum,dad', current: 'Films/d.mkv', reason: 'skip', time: 120, watched: 120, duration: 6000 });
   assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.sboth'))['Films/d.mkv'] < 1);
   assert.equal(library.home('dad').channels.find(channel => channel.id === 'movies').now.show === 'Sci-Fi Show'
-    || library.home('dad').channels.find(channel => channel.id === 'movies').now.show === 'Films', true);
+    || library.home('dad').channels.find(channel => channel.id === 'movies').now.show === 'D', true);
 });
 
 test('countTvChannelVideos uses inTvGenre and ignores ads', () => {
@@ -459,4 +459,18 @@ test('rationed shows stay rare and never get top billing while there is anything
   for (let i = 0; i < 60; i++) shows.push(library.next('forjake', { viewers: 'jake,mum,dad' }).show);
   const share = shows.filter(show => show === 'Billy’s Aviation').length / shows.length;
   assert.ok(share <= 0.1, `rationed share ${share}`);
+});
+
+test('cards carry the episode in words, its length and what comes next', async () => {
+  const { history, storage } = await setup();
+  const v = (n, title) => ({ src: `Kath & Kim/${title}.mp4`, file: `/m/Kath & Kim/${title}.mp4`, title, channel: 'Kath & Kim', tier: 'sitcom', duration: 1320 + n });
+  const catalogue = [v(1, 'Series 3 Ep 1 Cactus Hour [DR0311V001S00]'), v(2, 'Series 3 Ep 2 Party [DR0311V002S00]')];
+  const library = createTvLibrary({ videos: catalogue, history, storage, random: () => 0 });
+  const now = library.home('dad').channels.find(channel => channel.id === 'sitcoms').now;
+  assert.equal(now.show, 'Kath & Kim');
+  assert.equal(now.title, 'S3 E1 · Cactus Hour');
+  assert.equal(now.minutes, 22);
+  assert.deepEqual(now.next, { show: 'Kath & Kim', title: 'S3 E2 · Party' });
+  library.next('sitcoms', { viewers: 'dad' });
+  assert.equal(library.home('dad').channels.find(channel => channel.id === 'sitcoms').now.title, 'S3 E2 · Party', 'next becomes the card');
 });
