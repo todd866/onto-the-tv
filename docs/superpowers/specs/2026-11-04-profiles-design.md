@@ -35,6 +35,12 @@ channels first, what's on now and how long is left, and words a person would say
 7. **A fuller lineup.** Channels informed by the household's YouTube history and by what
    Australian free-to-air runs (research in progress; see "Lineup" below).
 
+8. **Familiar first** (Ian: "We'll draw people in with familiar shows"). Each profile's own
+   channel and the "now on" pick on every card favour that person's known favourites; other
+   shows stay on as low-weight discoveries, never removed and never top billing. Fran:
+   Come Dine With Me, Friends, The Big Bang Theory, British reality. Ian: live music sessions,
+   dark crime-comedy, aviation.
+
 ## Non-goals
 
 - No Continue Watching or Browse rows on the home (standing rule in `docs/tv-home-redesign.md`).
