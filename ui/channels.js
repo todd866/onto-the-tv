@@ -1,7 +1,7 @@
 /* Desktop channel browser. The server owns the lineup, picks and rating ceiling. */
 (() => {
   // The server that answered the last lineup: the M2, or this Mac's own as a fallback.
-  const ORIGINS = ['http://iantodds-macbook-air.tail8cd07b.ts.net:8686', 'http://localhost:8686'];
+  const ORIGINS = ['https://iantodds-macbook-air.tail8cd07b.ts.net:8443', 'http://localhost:8686'];
   let origin = ORIGINS[0];
   const $ = id => document.getElementById(id);
   // Who's watching: the youngest in the room sets the default rating; the rating

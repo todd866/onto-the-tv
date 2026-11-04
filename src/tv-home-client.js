@@ -1,7 +1,8 @@
 // The renderer never receives arbitrary network access. Rating decisions stay in tv-server.
-// The M2 is the TV box with the whole library (reached over Tailscale from anywhere);
+// The M2 is the TV box with the whole library, reached through its tailnet-only
+// Tailscale HTTPS proxy (tailscale serve --https=8443): the certificate proves it is the M2;
 // this Mac's own server is the fallback when the M2 cannot be reached.
-export const TV_HOME_ORIGINS = ['http://iantodds-macbook-air.tail8cd07b.ts.net:8686', 'http://localhost:8686'];
+export const TV_HOME_ORIGINS = ['https://iantodds-macbook-air.tail8cd07b.ts.net:8443', 'http://localhost:8686'];
 export const TV_HOME_ORIGIN = TV_HOME_ORIGINS[TV_HOME_ORIGINS.length - 1];
 export async function fetchTvHome(viewers, fetcher = fetch, rating = null, origins = TV_HOME_ORIGINS) {
   let failure;
