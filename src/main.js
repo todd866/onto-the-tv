@@ -250,7 +250,7 @@ handle('taste:save', input => {
   return tasteWriter(input);
 });
 handle('app:get', snapshot);
-handle('tv-home:get', viewers => fetchTvHome(viewers));
+handle('tv-home:get', (viewers, rating) => fetchTvHome(viewers, fetch, rating));
 handle('history:record', async input => {
   if (await recordLocalHistory(playbackHistory, catalogue, input, { casting: channelCasting })) sendState(session.getState());
 });

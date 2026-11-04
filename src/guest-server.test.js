@@ -116,7 +116,7 @@ test('a PG guest gets no grown-up channel and cannot ask for one', async () => {
   try {
     const cookie = await signIn(base, code);
     const home = await (await fetch(`${base}/api/home`, { headers: { cookie } })).json();
-    assert.deepEqual(home.channels.map(channel => channel.id), ['cartoons']);
+    assert.deepEqual(home.channels.map(channel => channel.id), ['cartoons', 'bluey'], 'kids channels only');
     const response = await post(base, '/api/next', cookie, { channel: 'grownups' });
     assert.notEqual(response.status, 200);
   } finally { await close(); }

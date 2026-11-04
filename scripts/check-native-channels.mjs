@@ -23,22 +23,22 @@ let offline = false, delay = 0, calls = [], next = [], artRequests = 0;
 try {
   const page = await browser.newPage();
   const errors = []; page.on('pageerror', error => errors.push(error.message));
-  await page.exposeFunction('fixtureHome', async viewers => {
-    calls.push(viewers); const result = library.home(viewers); const wait = delay;
+  await page.exposeFunction('fixtureHome', async (viewers, rating) => {
+    calls.push([viewers, rating]); const result = library.home(viewers, rating); const wait = delay;
     if (wait) await new Promise(r=>setTimeout(r,wait));
     if (offline) throw new Error('offline');
     return result;
   });
   await page.addInitScript(() => {
     window.tv = {
-      getTvHome: viewers => window.fixtureHome(viewers),
+      getTvHome: (viewers, rating) => window.fixtureHome(viewers, rating),
       get:async()=>({hasPlayer:false,library:'Fixture library',tvHost:'',avTransportUrl:'',bindHost:'',tv:{status:'idle',current:null,upcoming:[],history:[]}}),
       onState:()=>{},onMode:()=>{},onError:()=>{},onCast:()=>{},
     };
   });
   await page.route('http://localhost:8686/**', async route => {
     const url = new URL(route.request().url());
-    if (url.pathname === '/api/home') return route.fulfill({json:library.home(url.searchParams.get('viewers'))});
+    if (url.pathname === '/api/home') return route.fulfill({json:library.home(url.searchParams.get('viewers'),url.searchParams.get('rating'))});
     if (url.pathname === '/api/next') {
       const body=route.request().postDataJSON();next.push(body);
       return route.fulfill({json:library.next(body.channel,body)});
@@ -58,12 +58,17 @@ try {
     try { return route.fulfill({body:await readFile(file),contentType:type}); } catch { return route.fulfill({status:404,body:''}); }
   });
   await page.goto(pathToFileURL(resolve('ui/index.html')).href);
-  await page.locator('#channel-ceiling[data-rating="G"]').waitFor();
+  const rated = value => page.locator(`#channel-rating [data-rating="${value}"][aria-pressed="true"]`).waitFor();
+  const pick = name => page.getByRole('button',{name:new RegExp('^Youngest watching: '+name)}).click();
+  const ratingButton = value => page.getByRole('button',{name:new RegExp('^Rated '+value+'( |$)')});
+  // This Mac opens on the grown-ups: who is Mum & Dad, the rating M is their default.
+  await rated('M');
+  assert.deepEqual(calls.at(-1),[['mum','dad'],null]);
   await page.evaluate(()=>document.fonts.ready);
   assert.equal(await page.evaluate(()=>document.fonts.check('700 14px Nunito')),true);
   await page.waitForFunction(()=>[...document.querySelectorAll('.channel-card')].every(el=>el.querySelector('img')?.naturalWidth));
-  assert.deepEqual(await page.locator('.channel-number').allTextContents(),library.home().channels.map(c=>String(c.number)));
-  assert.equal(await page.locator('.channel-name').getByText('Rides & Adventures',{exact:true}).count(),0);
+  assert.deepEqual(await page.locator('.channel-number').allTextContents(),library.home('mum,dad').channels.map(c=>String(c.number)));
+  assert.equal(await page.locator('#channel-rating .default').textContent(),'M');
   const screenshots=[];
   for (const theme of ['dark','light']) {
     await page.emulateMedia({colorScheme:theme});
@@ -79,22 +84,40 @@ try {
   const before=[calls.length,artRequests];offline=true;
   await page.locator('#mode-tv').click();await page.locator('#mode-local').click();
   assert.deepEqual([calls.length,artRequests],before);
-  assert.equal(await page.locator('.channel-picture img').count(),library.home().channels.length);
+  assert.equal(await page.locator('.channel-picture img').count(),library.home('mum,dad').channels.length);
   offline=false;
-  await page.getByRole('checkbox',{name:'Sam',exact:true}).uncheck();
-  await page.locator('#channel-ceiling[data-rating="PG"]').waitFor();
-  assert.equal(await page.locator('.channel-name').getByText('Rides & Adventures',{exact:true}).count(),1);
-  await page.getByRole('checkbox',{name:'Jake',exact:true}).uncheck();
-  await page.locator('#channel-ceiling[data-rating="M"]').waitFor();
   for (const theme of ['dark','light']) {
     await page.emulateMedia({colorScheme:theme});
     await page.screenshot({path:resolve(out,`adults-${theme}.png`)});
   }
-  // Rapid ceiling changes: the slow adult response cannot restore forbidden picks.
+  // One click picks Jake: PG by default.
+  await pick('Jake');
+  await rated('PG');
+  assert.deepEqual(calls.at(-1),[['jake','mum','dad'],null]);
+  assert.equal(await page.locator('.channel-name').getByText('Rides & Adventures',{exact:true}).count(),1);
+  // The rating switch overrides it either way; picking the default clears the override.
+  await ratingButton('G').click();
+  await rated('G');
+  assert.deepEqual(calls.at(-1),[['jake','mum','dad'],'G']);
+  assert.equal(await page.locator('.channel-name').getByText('Rides & Adventures',{exact:true}).count(),0);
+  await ratingButton('PG').click();
+  await rated('PG');
+  assert.deepEqual(calls.at(-1),[['jake','mum','dad'],null]);
+  await ratingButton('M').click();
+  await rated('M');
+  for (const theme of ['dark','light']) {
+    await page.emulateMedia({colorScheme:theme});
+    await page.screenshot({path:resolve(out,`override-${theme}.png`)});
+  }
+  // The choice survives a reload of the app.
+  await page.reload();
+  await rated('M');
+  assert.deepEqual(calls.at(-1),[['jake','mum','dad'],'M']);
+  // Rapid audience changes: the slow adult response cannot restore forbidden picks.
   delay=250;await page.locator('#channel-refresh').click();delay=0;
-  await page.getByRole('checkbox',{name:'Sam',exact:true}).check();
-  await page.locator('#channel-ceiling[data-rating="G"]').waitFor();await page.waitForTimeout(300);
-  assert.equal(await page.locator('#channel-ceiling').textContent(),'G');
+  await pick('Sam');
+  await rated('G');await page.waitForTimeout(300);
+  assert.equal(await page.locator('#channel-rating [aria-pressed="true"]').textContent(),'G');
   assert.equal(await page.locator('.channel-name').getByText('Rides & Adventures',{exact:true}).count(),0);
   // Card arrows follow the actual grid, and Back returns to the tuned card.
   await page.locator('.channel-card').first().focus();
@@ -109,7 +132,7 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#channel-player').hidden);
   for (let i=0;i<50 && !next.length;i++) await page.waitForTimeout(100);
   assert.ok(next.length,'embedded TV player must request an episode');
-  assert.equal(next.at(-1).viewers,'sam,mum,dad');
+  assert.equal(next.at(-1).viewers,'sam,jake,mum,dad');
   const frame = page.frames().find(f=>f.url().startsWith('http://localhost:8686/'));
   await frame.locator('#player:visible').waitFor();
   for (const theme of ['dark','light']) {
@@ -132,15 +155,12 @@ try {
   await page.locator('#channel-back').click();
   assert.equal(await page.locator('#channel-player').getAttribute('src'),'about:blank');
   assert.equal(await page.locator('.channel-card').nth(1).evaluate(el=>el===document.activeElement),true);
-  // Empty audience fails closed, and an offline viewer change clears earlier cards.
-  for(const name of ['Sam','Mum','Dad']) await page.getByRole('checkbox',{name,exact:true}).uncheck();
-  await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='∅');
-  assert.equal(await page.locator('.channel-card').count(),0);
-  offline=true;await page.getByRole('checkbox',{name:'Jake',exact:true}).check();
+  // An offline audience change clears earlier cards.
+  offline=true;await pick('Jake');
   await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='⚠');
   assert.equal(await page.locator('.channel-card').count(),0);
   assert.equal(await page.locator('#channel-feedback').isVisible(),true);
-  offline=false;await page.locator('#channel-feedback').click();await page.locator('#channel-ceiling[data-rating="PG"]').waitFor();
+  offline=false;await page.locator('#channel-feedback').click();await rated('PG');
   // Full long titles wrap instead of being lost in an ellipsis.
   await page.locator('.channel-name').first().evaluate(el=>el.textContent='Rides & Adventures around the world');
   await page.locator('.channel-now').first().evaluate(el=>el.textContent='▶ The extraordinary adventures of a family travelling across Australia');

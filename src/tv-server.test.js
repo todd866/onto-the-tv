@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
+import { TV_CHANNELS, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 
 const videos = [
@@ -50,7 +50,8 @@ test('home is channel-first and the youngest viewer sets the ceiling', async () 
   assert.deepEqual(home.viewers.map(person => [person.id, person.name, person.on]), [
     ['sam', 'Sam', true], ['jake', 'Jake', true], ['mum', 'Mum', true], ['dad', 'Dad', true],
   ]);
-  assert.deepEqual(home.channels.map(channel => [channel.number, channel.id, channel.name]), [[1, 'cartoons', 'Cartoons']]);
+  assert.deepEqual(home.channels.map(channel => [channel.number, channel.id, channel.name]),
+    [[1, 'cartoons', 'Cartoons'], [22, 'littleones', 'Little Ones'], [23, 'bluey', 'Bluey']]);
   assert.equal(home.channels[0].now.show, 'Bluey');
   assert.equal(home.channels[0].count, 3, 'channels report their pool size at this ceiling');
   assert.equal(home.channels[0].now.art, '/art?src=Bluey%2Fa.mp4');
@@ -60,7 +61,7 @@ test('home is channel-first and the youngest viewer sets the ceiling', async () 
   const dad = library.home('dad');
   assert.equal(dad.ceiling, 'M');
   assert.deepEqual(dad.viewers.map(person => person.on), [false, false, false, true]);
-  assert.deepEqual(dad.channels.map(channel => channel.id), ['cartoons', 'movies']);
+  assert.deepEqual(dad.channels.map(channel => channel.id), ['movies', 'cartoons', 'littleones', 'bluey'], 'grown-ups see their channels first');
   assert.equal(dad.channels.find(channel => channel.id === 'movies').now.show, 'Films');
 
   const withSam = library.home('sam,dad');
@@ -104,7 +105,7 @@ test('adults use the existing taste keys and hidden genres stay hidden', async (
   const library = createTvLibrary({ videos: catalogue, history, storage, random: () => 0 });
   const sam = library.home('sam');
   assert.equal(sam.ceiling, 'G');
-  assert.deepEqual(sam.channels.map(channel => channel.id), ['cartoons', 'music', 'christmas', 'hophop']);
+  assert.deepEqual(sam.channels.map(channel => channel.id), ['cartoons', 'hophop', 'littleones', 'bluey', 'music', 'christmas'], 'kids see their channels first');
   assert.deepEqual(library.next('hophop', { viewers: 'sam' }).show, 'Hop Hop the Owl');
   const jake = library.home('jake');
   assert.equal(jake.ceiling, 'PG');
@@ -353,3 +354,71 @@ test('Movies is films only; grown-up TV has its own Mum & Dad channel', () => {
     assert.equal(inTvGenre(film, 'cartoons'), false, film.src);
   }
 });
+
+test('the people set the default rating and the rating switch overrides it either way', async () => {
+  const { library } = await setup();
+  const family = library.home('sam,jake,mum,dad');
+  assert.equal(family.ceiling, 'G');
+  assert.equal(family.defaultCeiling, 'G');
+  assert.equal(family.rating, null);
+  const up = library.home('sam,jake,mum,dad', 'M');
+  assert.equal(up.ceiling, 'M');
+  assert.equal(up.defaultCeiling, 'G');
+  assert.equal(up.rating, 'M');
+  assert.ok(up.channels.some(channel => channel.id === 'movies'));
+  assert.equal(up.channels[0].id, 'movies', 'an M ceiling orders grown-up channels first');
+  const down = library.home('dad', 'g');
+  assert.equal(down.ceiling, 'G');
+  assert.equal(down.channels.some(channel => channel.id === 'movies'), false);
+  assert.equal(down.channels[0].id, 'cartoons');
+  assert.equal(library.home('dad', 'nonsense').ceiling, 'M', 'an unknown rating is ignored');
+  assert.equal(library.home('', 'M').channels.length, 0, 'nobody watching stays blocked');
+  assert.equal(library.next('movies', { viewers: 'sam', rating: 'M' }).show, 'Films');
+  assert.throws(() => library.next('movies', { viewers: 'dad', rating: 'G' }), /empty/);
+  assert.equal(library.allowed('Films/d.mkv', 'sam'), false);
+  assert.equal(library.allowed('Films/d.mkv', 'sam', 'M'), true);
+});
+
+test('the lineup splits shows into their own channels and each adult gets a personal one', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  const history = await loadPlaybackHistory(join(dir, 'history.json'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  const v = (show, tier, name = 'S01E01') => ({ src: `${show}/${name}.mp4`, file: `/m/${show}/${name}.mp4`, title: name, channel: show, tier, duration: 1300 });
+  const catalogue = [
+    v('Bing', 'preschool'), v('Bluey', 'shared'), v('Octonauts', 'shared'), v('Numberblocks', 'shared'), v('Shaun the Sheep', 'shared'),
+    v('Track Time', 'big'), v('Futurama (1999)', 'adultanim'), v('Blackadder (1983)', 'bbc'), v('Friends (1994)', 'sitcom'),
+    v('Seinfeld (1989)', 'sitcom'), v("Miss Fisher's Murder Mysteries", 'couple'), v('48 Hours', 'grownup'),
+    v('Come Dine With Me', 'grownup'), v('In Bruges (2008)', 'grownup', 'In Bruges (2008)'),
+  ];
+  const library = createTvLibrary({ videos: catalogue, history, storage, random: () => 0 });
+  const of = channel => catalogue.filter(item => inTvGenre(item, channel)).map(item => item.channel);
+  assert.deepEqual(of('littleones'), ['Bing']);
+  assert.deepEqual(of('bluey'), ['Bluey']);
+  assert.deepEqual(of('adventures'), ['Octonauts']);
+  assert.deepEqual(of('learn'), ['Numberblocks']);
+  assert.deepEqual(of('shorts'), ['Shaun the Sheep']);
+  assert.deepEqual(of('trains'), ['Track Time']);
+  assert.deepEqual(of('adultanim'), ['Futurama (1999)']);
+  assert.equal(of('cartoons').includes('Futurama (1999)'), false, 'grown-up cartoons leave the kids channel');
+  assert.ok(of('sitcoms').includes('Blackadder (1983)'));
+  assert.deepEqual(of('friends'), ['Friends (1994)']);
+  assert.deepEqual(of('seinfeld'), ['Seinfeld (1989)']);
+  assert.deepEqual(of('crime'), ["Miss Fisher's Murder Mysteries"]);
+  assert.deepEqual(of('truecrime'), ['48 Hours']);
+  assert.deepEqual(of('reality'), ['Come Dine With Me']);
+  assert.equal(of('fordad').includes('In Bruges (2008)'), false, 'films stay on Movies');
+  assert.equal(of('fordad').includes('Bluey'), false);
+
+  const ids = viewers => library.home(viewers).channels.map(channel => channel.id);
+  assert.ok(ids('dad').includes('fordad'));
+  assert.equal(ids('dad').includes('formum'), false);
+  assert.ok(ids('mum,dad').includes('fordad') && ids('mum,dad').includes('formum'));
+  assert.equal(ids('sam,dad').includes('fordad'), false, 'no personal channel with a child in the room');
+  assert.equal(ids('mum,dad').length >= 16, true);
+  assert.equal(new Set(TV_NUMBERS()).size, TV_NUMBERS().length, 'channel numbers are unique');
+
+  library.next('fordad', { viewers: 'mum,dad', current: 'Friends (1994)/S01E01.mp4', reason: 'skip', time: 60, watched: 60, duration: 1300 });
+  assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.sgrown'))['Friends (1994)/S01E01.mp4'] < 1, "Dad's channel learns on Dad's key");
+});
+
+function TV_NUMBERS() { return TV_CHANNELS.map(channel => channel.number).concat([6, 7, 20]); }

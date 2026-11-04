@@ -9,10 +9,11 @@ const root = fileURLToPath(new URL('../tv/', import.meta.url));
 const out = process.env.TV_UI_OUTPUT || '/private/tmp/onto-tv-ui';
 await mkdir(out, { recursive: true });
 const longShow = 'Bluey — The Sign';
-function homeFor(viewers) {
+function homeFor(viewers, rating = null) {
   const ids = viewers == null ? ['sam', 'jake', 'mum', 'dad'] : String(viewers).split(',').filter(Boolean);
   const on = id => ids.includes(id);
-  const ceiling = on('sam') ? 'G' : on('jake') ? 'PG' : ids.length ? 'M' : null;
+  const defaultCeiling = on('sam') ? 'G' : on('jake') ? 'PG' : ids.length ? 'M' : null;
+  const ceiling = defaultCeiling && rating ? rating : defaultCeiling;
   const channels = [
     { id: 'cartoons', number: 1, name: 'Cartoons', now: { show: longShow, art: '/art?src=show0' } },
     { id: 'movies', number: 2, name: 'Movies', now: { show: 'The Great Adventure', art: '/art?src=show1' } },
@@ -23,7 +24,7 @@ function homeFor(viewers) {
   if (ceiling && ceiling !== 'G') channels.push({ id: 'rides', number: 19, name: 'Rides & Adventures', now: { show: 'Knight Rider (1982)', art: '/art?src=show5' } });
   if (ceiling === 'M') channels.push(...['Comedy', 'Sport & Docs', 'Sci-Fi', 'Classics', '1950s', '1960s', '1970s', '1980s', '1990s', 'Sports', 'Hop Hop'].map((name, i) => ({ id: 'extra' + i, number: i + 8, name, now: { show: ['The A-Team', 'Wild Australia', 'Airwolf'][i % 3], art: '/art?src=show' + i } })));
   return {
-    ceiling,
+    ceiling, defaultCeiling, rating: rating || null,
     viewers: [
       { id: 'sam', name: 'Sam', on: on('sam') },
       { id: 'jake', name: 'Jake', on: on('jake') },
@@ -34,7 +35,7 @@ function homeFor(viewers) {
   };
 }
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
-let homeQueries = [], diagnostics = [], nextRequests = [], artRequests = 0, artUnavailable = false;
+let homeQueries = [], homeRatings = [], diagnostics = [], nextRequests = [], artRequests = 0, artUnavailable = false;
 let homeDelay = 0, failHome = false;
 try {
   const page = await browser.newPage();
@@ -63,7 +64,8 @@ try {
       homeQueries.push(viewers);
       if (homeDelay) await new Promise(resolve => setTimeout(resolve, homeDelay));
       if (failHome) return route.fulfill({ status: 503, json: { error: 'fixture offline' } });
-      return route.fulfill({ json: homeFor(url.searchParams.has('viewers') ? viewers : null) });
+      homeRatings.push(url.searchParams.get('rating'));
+      return route.fulfill({ json: homeFor(url.searchParams.has('viewers') ? viewers : null, url.searchParams.get('rating')) });
     }
     if (url.pathname === '/art') {
       artRequests++;
@@ -91,16 +93,21 @@ try {
   assert.equal(await page.getByText('Continue Watching').count(), 0);
   assert.equal(await page.getByText('Browse shows').count(), 0);
   assert.equal(await page.getByText('Games', { exact: true }).count(), 1);
-  assert.equal(await page.locator('#ceiling').textContent(), 'G');
-  assert.equal(await page.locator('.viewer.on').count(), 4);
+  // Who's watching: three segments (the youngest sets the default rating) and a G/PG/M switch.
+  const segments = () => page.evaluate(() => [...document.querySelectorAll('#viewers .seg')].map(el =>
+    (el.getAttribute('data-who') || el.getAttribute('data-rating')) + (el.classList.contains('on') ? '*' : '') + (el.classList.contains('default') ? '^' : '')));
+  assert.deepEqual(await segments(), ['sam*', 'jake', 'adults', 'G*^', 'PG', 'M']);
   assert.equal(await page.locator('.channel .now').first().getAttribute('title'), longShow);
   const tooSmall = await page.evaluate(() => {
-    const nodes = [...document.querySelectorAll('#home button, #home .num, #home .name, #home .now, #home .who, #ceiling, #clock')];
+    const nodes = [...document.querySelectorAll('#home button, #home .num, #home .name, #home .now, #home .who, #clock')];
     return nodes.filter(el => el.textContent.trim() && parseFloat(getComputedStyle(el).fontSize) < 28).map(el => el.className + ' ' + getComputedStyle(el).fontSize);
   });
   assert.deepEqual(tooSmall, []);
   const card = await page.locator('.channel').first().boundingBox();
-  assert.ok(Math.abs(card.width - 440) < 2 && Math.abs(card.height - 330) < 2, JSON.stringify(card));
+  assert.ok(card.width > 280 && card.width < 300 && Math.abs(card.height - 212) < 2, 'six tiles a row at 1920: ' + JSON.stringify(card));
+  const clipped = await page.evaluate(() => [...document.querySelectorAll('.channel .name, .channel .now-title, #viewers .seg')]
+    .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent));
+  assert.deepEqual(clipped, [], 'no clipped channel or control text');
   await assertViewport(page, { primary: [{ selector: '#home' }], controls: [{ selector: '.viewer.focused' }] });
   await page.keyboard.press('ArrowDown');
   await page.locator('.channel.focused').waitFor();
@@ -117,31 +124,46 @@ try {
   await page.screenshot({ path: path.join(out, 'home-focus-light.png') });
   await assertViewport(page, { primary: ['#home'], controls: [{ selector: '.channel.focused' }] });
 
+  // One press picks Jake: PG, and the people's rating is the switch's default.
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('http://tv.test/');
   await page.locator('.viewer.focused').waitFor();
-  homeQueries = [];
+  homeQueries = []; homeRatings = [];
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
-  await page.locator('#ceiling', { hasText: 'PG' }).waitFor();
+  await page.locator('.seg.rating-pg.on').waitFor();
   assert.equal(homeQueries.at(-1), 'jake,mum,dad');
-  assert.equal(await page.locator('#ceiling').textContent(), 'PG');
-  assert.equal(await page.locator('.viewer').first().getAttribute('aria-pressed'), 'false');
+  assert.equal(homeRatings.at(-1), null);
+  assert.deepEqual(await segments(), ['sam', 'jake*', 'adults', 'G', 'PG*^', 'M']);
   await page.screenshot({ path: path.join(out, 'home-dark-unticked.png') });
   assert.equal(await page.getByRole('button', { name: /19 Rides/ }).count(), 1);
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await page.waitForTimeout(200);
-  await page.screenshot({ path: path.join(out, 'home-rides-dark.png') });
-  await page.emulateMedia({ colorScheme: 'light' });
-  await page.screenshot({ path: path.join(out, 'home-rides-light.png') });
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.keyboard.press('Escape');
+
+  // The rating switch overrides the people's default, up or down, without a password.
+  await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
-  await page.locator('#ceiling', { hasText: 'M' }).waitFor();
-  assert.equal(await page.locator('.viewer.on').count(), 2);
+  await page.locator('.seg.rating-m.on').waitFor();
+  assert.equal(homeQueries.at(-1), 'jake,mum,dad');
+  assert.equal(homeRatings.at(-1), 'M');
+  assert.deepEqual(await segments(), ['sam', 'jake*', 'adults', 'G', 'PG^', 'M*']);
+  await page.screenshot({ path: path.join(out, 'home-override-dark.png') });
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Enter');
+  await page.locator('.seg.rating-pg.on').waitFor();
+  assert.equal(homeRatings.at(-1), null, 'choosing the default clears the override');
+  // A rating survives a reload until the audience changes.
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await page.locator('.seg.rating-m.on').waitFor();
+  await page.goto('http://tv.test/');
+  await page.locator('.seg.rating-m.on').waitFor();
+  assert.equal(homeRatings.at(-1), 'M');
+
+  // Picking who's watching resets the rating to theirs.
+  await page.locator('.seg[data-who="adults"]').click();
+  await page.locator('.seg.rating-m.on.default').waitFor();
+  assert.equal(homeQueries.at(-1), 'mum,dad');
+  assert.equal(homeRatings.at(-1), null);
   await page.screenshot({ path: path.join(out, 'home-adults-dark.png') });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.screenshot({ path: path.join(out, 'home-adults-light.png') });
@@ -150,23 +172,21 @@ try {
   // Restrict an adult lineup while the old response is delayed. A second
   // change must build from the requested viewers, and stale replies cannot win.
   homeDelay = 350;
-  await page.locator('.viewer').first().click(); // Sam on: G
+  await page.locator('.seg[data-who="sam"]').click();
   assert.equal(await page.locator('.channel:not([class*="app-"])').count(), 0);
-  assert.equal(await page.locator('#ceiling').getAttribute('hidden'), '');
   homeDelay = 0;
-  await page.locator('.viewer').nth(1).click(); // Jake on too
-  await page.locator('#ceiling', { hasText: 'G' }).waitFor();
-  assert.equal(homeQueries.at(-1), 'sam,jake,mum,dad');
+  await page.locator('.seg[data-who="jake"]').click();
+  await page.locator('.seg.rating-pg.on').waitFor();
+  assert.equal(homeQueries.at(-1), 'jake,mum,dad');
   await page.waitForTimeout(400);
-  assert.equal(await page.locator('.viewer.on').count(), 4);
-  assert.equal(await page.locator('#ceiling').textContent(), 'G');
+  assert.deepEqual(await segments(), ['sam', 'jake*', 'adults', 'G', 'PG*^', 'M']);
   failHome = true;
-  await page.locator('.viewer').first().click();
+  await page.locator('.seg[data-who="sam"]').click();
   await page.locator('#status', { hasText: 'fixture offline' }).waitFor();
   assert.equal(await page.locator('.channel:not([class*="app-"])').count(), 0);
   failHome = false;
-  await page.locator('.viewer').nth(1).click();
-  await page.locator('#ceiling', { hasText: 'M' }).waitFor();
+  await page.locator('.seg[data-who="adults"]').click();
+  await page.locator('.seg.rating-m.on').waitFor();
   await page.waitForFunction(() => [...document.querySelectorAll('.art')].every(img => img.complete && img.naturalWidth));
 
   const preparedRequests = artRequests;

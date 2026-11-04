@@ -388,3 +388,53 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
   .guest .channel .name { font-size: 32px; }
   .guest .channel .now { font-size: 22px; }
 }
+
+/* Audience: who's watching (the youngest sets the default rating) and the rating switch. */
+.seg-group { display: flex; align-items: center; margin-right: 24px; padding: 6px; border-radius: 24px; background: #14213d; }
+.seg-group .viewer { margin-right: 0; border-color: #14213d; min-height: 76px; }
+.seg-group .viewer + .viewer { margin-left: 6px; }
+.seg-group .viewer.focused, .seg-group .viewer:focus { border-color: #ffb547; }
+.seg-group .viewer.on.focused, .seg-group .viewer.on:focus { border-color: #f4f1ea; }
+.ratings .viewer { min-width: 104px; justify-content: center; font-size: 38px; color: #c9cede; }
+.ratings .viewer.default { box-shadow: inset 0 -6px 0 #8a93ad; }
+.ratings .viewer.rating-g.on { background: #3dbe5a; border-color: #3dbe5a; color: #14213d; }
+.ratings .viewer.rating-pg.on { background: #f5d90a; border-color: #f5d90a; color: #14213d; }
+.ratings .viewer.rating-m.on { background: #e5484d; border-color: #e5484d; color: #fff; }
+.ratings .viewer.on.default { box-shadow: none; }
+
+/* A full lineup on the TV: six smaller tiles a row, so twenty-odd channels fit on one screen. */
+@media (min-width: 1600px) {
+  #top { min-height: 96px; margin-bottom: 0; }
+  #channels { padding-top: 24px; }
+  .channel { width: calc((100% - 100px) / 6); height: 212px; margin: 0 20px 20px 0; }
+  .channel:nth-child(4n) { margin-right: 20px; }
+  .channel:nth-child(6n) { margin-right: 0; }
+  .bezel { border-radius: 44px; border-width: 10px; }
+  .channel-copy { padding: 40px 14px 14px; }
+  .channel .num { font-size: 32px; margin-right: 10px; }
+  .channel .name { font-size: 30px; }
+  /* 28px is the TV's smallest legible size; long titles wrap rather than clip. */
+  .channel .now { font-size: 28px; margin-top: 4px; white-space: normal; align-items: flex-start; }
+  .now-title { overflow: visible; text-overflow: clip; }
+  .mini-play, .mini-play svg { width: 22px; height: 22px; }
+  .mini-play { margin-top: 5px; }
+  .channel.focused > .antenna, .channel:focus > .antenna { top: -20px; width: 64px; height: 22px; margin-left: -32px; }
+}
+@media (min-width: 1600px) {
+  .app-games .app-glyph svg, .app-console .app-glyph svg { width: 170px; height: 94px; }
+  .app-uke .app-glyph svg { width: 76px; height: 104px; }
+}
+/* Smaller companion screens: the audience controls stay on one short line. */
+@media (max-width: 1100px) {
+  .seg-group { margin: 0 10px 8px 0; padding: 4px; border-radius: 16px; }
+  .seg-group .viewer { min-height: 52px; margin: 0; padding: 4px 10px; border-width: 4px; font-size: 26px; }
+  .seg-group .viewer + .viewer { margin-left: 4px; }
+  .seg-group .viewer .tick, .seg-group .viewer .tick svg { width: 26px; height: 26px; }
+  .seg-group .viewer .tick { margin-right: 6px; }
+  .ratings .viewer { min-width: 56px; font-size: 26px; }
+  .ratings .viewer.default { box-shadow: inset 0 -4px 0 #8a93ad; }
+}
+@media (max-width: 600px) {
+  .seg-group .viewer .tick { display: none; }
+  .seg-group .viewer { padding: 4px 8px; font-size: 22px; }
+}

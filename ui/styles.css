@@ -22,32 +22,35 @@ h1 { margin:0; color:var(--amber); font-size:21px; font-weight:800; letter-spaci
 /* Channel home: one compact control row and a deliberately scrolling card grid. */
 #channel-home { flex:1; min-height:0; display:flex; flex-direction:column; padding:12px 16px 16px; gap:10px; }
 .channel-tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; padding:8px 10px; background:var(--panel); border:2px solid var(--line); border-radius:var(--radius); }
-#channel-viewers { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
-.channel-tools label { display:inline-flex; flex-direction:row; align-items:center; gap:5px; margin:0; font-size:12px; } .channel-tools input[type="checkbox"] { width:15px; height:15px; margin:0; accent-color:var(--amber); }
-#channel-ceiling { min-width:30px; padding:3px 7px; border:2px solid var(--amber); border-radius:6px; color:var(--amber); font-variant-numeric:tabular-nums; text-align:center; }
+/* Who's watching (youngest sets the default rating) and the G/PG/M switch: two segmented controls. */
+.seg-group { display:inline-flex; align-items:center; gap:3px; padding:3px; border:2px solid var(--line); border-radius:12px; }
+.seg-group button { display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:5px 11px; border:0; border-radius:9px; background:transparent; font-size:14px; }
+.seg-group button[aria-pressed="true"] { background:var(--amber); color:#14213d; }
+.seg-group button:focus-visible { outline:2px solid var(--text); outline-offset:1px; }
+#channel-rating button { min-width:42px; justify-content:center; font-variant-numeric:tabular-nums; }
+#channel-rating button.default:not([aria-pressed="true"]) { box-shadow:inset 0 -3px 0 var(--line); }
+#channel-rating button[data-rating="G"][aria-pressed="true"] { background:#3dbe5a; color:#14213d; }
+#channel-rating button[data-rating="PG"][aria-pressed="true"] { background:#f5d90a; color:#14213d; }
+#channel-rating button[data-rating="M"][aria-pressed="true"] { background:#e5484d; color:#fff; }
+#channel-viewers button[aria-pressed="true"] svg { fill:currentColor; }
 #channel-refresh { margin-left:auto; padding:5px 9px; } #channel-state { min-width:1.2em; color:var(--amber); font-size:16px; text-align:center; }
-#channel-list { flex:1; min-height:0; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,22em),1fr)); align-content:start; gap:12px; margin:0; padding:4px 4px 10px; list-style:none; }
+#channel-list { flex:1; min-height:0; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,15em),1fr)); align-content:start; gap:12px; margin:0; padding:4px 4px 10px; list-style:none; }
 /* Match the TV's image-backed bezel without squeezing three labels into one line. */
-.channel-card { position:relative; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; min-height:210px; padding:0; text-align:left; background:#14213d; color:#f4f1ea; border:7px solid #14213d; border-radius:30px; isolation:isolate; }
+.channel-card { position:relative; min-width:0; display:flex; flex-direction:column; justify-content:flex-end; min-height:150px; padding:0; text-align:left; background:#14213d; color:#f4f1ea; border:7px solid #14213d; border-radius:30px; isolation:isolate; }
 .channel-card:hover,.channel-card:focus-visible { border-color:var(--amber); }
 .channel-card:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
 .channel-picture { position:absolute; inset:0; z-index:-1; display:block; border-radius:22px; background:#1b2c4d; overflow:hidden; }
 .channel-picture img { display:block; width:100%; height:100%; object-fit:cover; }
-.channel-readout { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:9px; align-items:baseline; padding:48px 14px 14px; border-radius:22px; background:linear-gradient(transparent,#0b1428e8 45%,#0b1428); }
-.channel-number { text-align:right; color:var(--amber); font-size:27px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; }
-.channel-name { font-size:20px; font-weight:800; line-height:1.2; overflow-wrap:anywhere; }
+.channel-readout { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:9px; align-items:baseline; padding:36px 11px 11px; border-radius:22px; background:linear-gradient(transparent,#0b1428e8 45%,#0b1428); }
+.channel-number { text-align:right; color:var(--amber); font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; }
+.channel-name { font-size:17px; font-weight:800; line-height:1.2; overflow-wrap:anywhere; }
 .channel-now { grid-column:2; margin-top:5px; font-size:14px; color:#d5dfef; line-height:1.35; overflow-wrap:anywhere; }
 .channel-feedback { align-self:center; margin:auto; max-width:100%; overflow-wrap:anywhere; }
 .channel-feedback[disabled] { opacity:1; cursor:default; border:0; background:transparent; color:var(--muted); }
 #channel-home:has(.channel-feedback:not([hidden])) #channel-list:empty { flex:0; }
 .channel-tools { border:0; border-radius:0; padding:10px 16px; }
-.channel-tools label { position:relative; padding:7px 10px; border:2px solid var(--line); border-radius:10px; cursor:pointer; font-size:14px; min-height:38px; }
-.channel-tools label:has(input:checked) { background:var(--amber); border-color:var(--amber); color:#14213d; }
-.channel-tools label:has(input:focus-visible) { outline:2px solid var(--text); outline-offset:2px; }
-.channel-tools input[type="checkbox"] { position:absolute; width:1px; height:1px; opacity:0; }
 .viewer-icon { width:20px; height:20px; }
 .viewer-icon svg { display:block; width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:7; stroke-linecap:round; }
-.channel-tools label:has(input:checked) svg { fill:currentColor; }
 
 
 #library-view { width:min(920px,100%); align-self:center; flex:1; min-height:0; padding:18px 22px; overflow:auto; } .library-toolbar { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:12px; } .library-toolbar p { margin:0; } #library-search { width:min(320px,50%); }
@@ -85,12 +88,8 @@ label { display:flex; flex-direction:column; gap:6px; margin-top:13px; font-size
 @media (max-width:620px) { .toolbar { padding:30px 12px 8px; flex-wrap:wrap; gap:7px; } .brand { min-width:0; } .brand img { display:none; } .modes { order:3; width:100%; } .modes button { flex:1; padding:6px 4px; } #channel-home { padding:9px 10px 12px; } #channel-list { grid-template-columns:1fr; gap:9px; } .channel-tools { gap:7px 9px; } #channel-refresh { margin-left:0; } #library-view,#history-view,#tv-view,#ambient-view { padding:14px 12px; } .library-toolbar { align-items:stretch; flex-direction:column; gap:8px; } #library-search { width:100%; } #library-list { grid-template-columns:1fr; } .browse { display:none; } .ambient-settings { grid-template-columns:1fr; } }
 @media (max-height:500px) and (min-width:621px) { .toolbar { min-height:50px; padding-top:5px; padding-bottom:5px; } #channel-home { padding-top:7px; } #tv-view { display:block; } }
 @media (max-height:500px) and (min-width:621px) { .ambient-stage,.ambient-preview-nav { width:min(100%,calc((100dvh - 175px) * 16 / 9)); } }
-#channel-ceiling[data-rating="G"] { background:#3dbe5a; border-color:#3dbe5a; color:#14213d; }
-#channel-ceiling[data-rating="PG"] { background:#f5d90a; border-color:#f5d90a; color:#14213d; }
-#channel-ceiling[data-rating="PG-13"] { background:#f5a524; border-color:#f5a524; color:#14213d; }
-#channel-ceiling[data-rating="M"] { background:#e5484d; border-color:#e5484d; color:#fff; }
 
-@media (prefers-color-scheme:light) { h1,#library-toggle,#channel-state { color:#14213d; } #channel-ceiling:not([data-rating]),#channel-ceiling[data-rating=""] { color:#14213d; } }
+@media (prefers-color-scheme:light) { h1,#library-toggle,#channel-state { color:#14213d; } }
 
 #history-list li > div { min-width:0; }
 .history-title { overflow-wrap:anywhere; }

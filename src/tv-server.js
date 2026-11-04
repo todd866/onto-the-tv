@@ -38,7 +38,7 @@ export const TIER_RATINGS = {
   big: 'PG',
   older: 'PG-13',
   grownup: 'M', couple: 'M', adultanim: 'M', sitcom: 'M', scifi: 'M',
-  comedy: 'M', docs: 'PG', classic: 'M', sports: 'PG',
+  comedy: 'M', docs: 'PG', classic: 'M', sports: 'PG', bbc: 'M', standup: 'M',
   '50s': 'M', '60s': 'M', '70s': 'M', '80s': 'M', '90s': 'M',
 };
 
@@ -48,7 +48,11 @@ export const TIER_RATINGS = {
 // Family Films). Mum & Dad (21): grown-up and couple TV, in episode order.
 // Sitcoms, music and Christmas keep the folders and the seasonal filter they
 // already had.
-const CARTOON_TIERS = new Set(['preschool', 'shared', 'big', 'older', 'adultanim']);
+const CARTOON_TIERS = new Set(['preschool', 'shared', 'big', 'older']);
+const KID_TIERS = CARTOON_TIERS;
+// Grown-up tiers a personal channel ("For Dad") draws from.
+const PERSONAL_TIERS = new Set(['grownup', 'couple', 'sitcom', 'scifi', 'adultanim', 'comedy', 'docs', 'classic', 'bbc', 'standup', 'sports',
+  '50s', '60s', '70s', '80s', '90s']);
 const GROWNUP_TV_TIERS = new Set(['grownup', 'couple']);
 // A film is anything in a film folder, whatever its tier; the rating ceiling
 // still decides who sees it. (player.inStream('movies') only admits family tiers.)
@@ -63,26 +67,53 @@ const isFilm = item => FILM_FOLDERS.has(item.channel)
 const DECADES = { d50: '50s', d60: '60s', d70: '70s', d80: '80s', d90: '90s' };
 // Numbers 6 and 7 are Games and Uke on the TV. Decade channels carry period ads.
 // Sports is the taped-broadcast channel: its files are scanned for ad breaks.
+// `audience` orders the home screen: a grown-up audience sees its own channels first,
+// a child's audience sees the kids' channels first; numbers never move.
+// `shows` channels pick named show folders; the rating still comes from each file's tier.
+// `person` channels are one adult's own mix, picked by that adult's learned taste.
 export const TV_CHANNELS = [
-  { id: 'cartoons', number: 1, name: 'Cartoons' },
-  { id: 'movies', number: 2, name: 'Movies' },
-  { id: 'sitcoms', number: 3, name: 'Sitcoms' },
-  { id: 'music', number: 4, name: 'Music' },
-  { id: 'christmas', number: 5, name: 'Christmas' },
-  { id: 'comedy', number: 8, name: 'Comedy' },
-  { id: 'docs', number: 9, name: 'Sport & Docs' },
-  { id: 'scifi', number: 10, name: 'Sci-Fi' },
-  { id: 'classic', number: 11, name: 'Classics' },
-  { id: 'd50', number: 12, name: '1950s', ads: '50s' },
-  { id: 'd60', number: 13, name: '1960s', ads: '60s' },
-  { id: 'd70', number: 14, name: '1970s', ads: '70s' },
-  { id: 'd80', number: 15, name: '1980s', ads: '80s' },
-  { id: 'd90', number: 16, name: '1990s', ads: '90s' },
-  { id: 'sports', number: 17, name: 'Sports', recordedAds: true },
-  { id: 'hophop', number: 18, name: 'Hop Hop' },
-  { id: 'rides', number: 19, name: 'Rides & Adventures', rating: 'PG' },
-  { id: 'grownups', number: 21, name: 'Mum & Dad' },
+  { id: 'cartoons', number: 1, name: 'Cartoons', audience: 'kid' },
+  { id: 'movies', number: 2, name: 'Movies', audience: 'adult' },
+  { id: 'sitcoms', number: 3, name: 'Sitcoms', audience: 'adult' },
+  { id: 'music', number: 4, name: 'Music', audience: 'all' },
+  { id: 'christmas', number: 5, name: 'Christmas', audience: 'all' },
+  { id: 'comedy', number: 8, name: 'Comedy', audience: 'adult' },
+  { id: 'docs', number: 9, name: 'Sport & Docs', audience: 'adult' },
+  { id: 'scifi', number: 10, name: 'Sci-Fi', audience: 'adult' },
+  { id: 'classic', number: 11, name: 'Classics', audience: 'adult' },
+  { id: 'd50', number: 12, name: '1950s', ads: '50s', audience: 'adult' },
+  { id: 'd60', number: 13, name: '1960s', ads: '60s', audience: 'adult' },
+  { id: 'd70', number: 14, name: '1970s', ads: '70s', audience: 'adult' },
+  { id: 'd80', number: 15, name: '1980s', ads: '80s', audience: 'adult' },
+  { id: 'd90', number: 16, name: '1990s', ads: '90s', audience: 'adult' },
+  { id: 'sports', number: 17, name: 'Sports', recordedAds: true, audience: 'all' },
+  { id: 'hophop', number: 18, name: 'Hop Hop', audience: 'kid' },
+  { id: 'rides', number: 19, name: 'Rides & Adventures', rating: 'PG', audience: 'all' },
+  { id: 'fordad', number: 35, name: 'For Dad', person: 'dad', audience: 'adult' },
+  { id: 'grownups', number: 21, name: 'Mum & Dad', audience: 'adult' },
+  { id: 'littleones', number: 22, name: 'Little Ones', audience: 'kid', kids: true,
+    shows: /^(?:bing|peppa pig|play school|cbeebies bedtime|charlie and lola|sarah and duck|jojo and gran gran|fireman sam|hey duggee|cocomelon|nick jr|in the night garden|teletubbies|ms ?rachel)/i },
+  { id: 'bluey', number: 23, name: 'Bluey', audience: 'kid', kids: true, shows: /^bluey\b/i },
+  { id: 'adventures', number: 24, name: 'Adventures', audience: 'kid', kids: true,
+    shows: /^(?:octonauts|kangaroo beach|go jetters|curious george|paw patrol|the wiggles)/i },
+  { id: 'learn', number: 25, name: 'Learn', audience: 'kid', kids: true,
+    shows: /^(?:numberblocks|alphablocks|colourblocks|scishow kids|national geographic kids|maddie moate|blippi|lego builds|sesame street|storybots)/i },
+  { id: 'shorts', number: 26, name: 'Shorts & Sillies', audience: 'kid', kids: true,
+    shows: /^(?:shaun the sheep|pixar shorts|looney tunes|timmy time|mr bean)/i },
+  { id: 'trains', number: 27, name: 'Trains, Planes & Cars', audience: 'kid', kids: true,
+    shows: /^(?:track time|billy.s aviation|hot wheels|bob the builder|blaze|thomas (?:&|and) friends)/i },
+  { id: 'friends', number: 28, name: 'Friends', audience: 'adult', shows: /^friends\b/i },
+  { id: 'seinfeld', number: 29, name: 'Seinfeld', audience: 'adult', shows: /^seinfeld\b/i },
+  { id: 'adultanim', number: 30, name: 'Grown-up Cartoons', audience: 'adult' },
+  { id: 'crime', number: 31, name: 'Crime & Mystery', audience: 'adult',
+    shows: /^(?:miss fisher|shetland|vera\b|death in paradise|midsomer|the bill|rake|jack irish|wire in the blood|line of duty|broadchurch|poirot|agatha christie|sherlock|lewis|inspector)/i },
+  { id: 'truecrime', number: 32, name: 'True Crime', audience: 'adult',
+    shows: /^(?:48 hours|exposed|lindsay clancy|dateline|australian story|four corners)/i },
+  { id: 'reality', number: 33, name: 'Reality', audience: 'adult',
+    shows: /^(?:(?:couples )?come dine with me|grand designs|gogglebox|masterchef|the block|location|escape to)/i },
+  { id: 'formum', number: 34, name: 'For Mum', person: 'mum', audience: 'adult' },
 ];
+const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]));
 
 const RIDES_SHOWS = /\b(?:knight rider|the a[- ]team|the dukes of hazzard|airwolf|chips|baywatch|top gear)\b/i;
 
@@ -90,11 +121,19 @@ export function inTvGenre(item, channelId) {
   if (!item || isAdSrc(item.src)) return false;
   if (channelId === 'christmas') return player.inStream(item, 'christmas');
   if (channelId === 'music') return item.tier === 'music';
-  if (channelId === 'sitcoms') return item.tier === 'sitcom';
+  const defined = CHANNEL_BY_ID.get(channelId);
+  if (defined?.shows) {
+    if (defined.kids && !KID_TIERS.has(item.tier)) return false;
+    if (!defined.kids && KID_TIERS.has(item.tier)) return false;
+    return !isFilm(item) && defined.shows.test(String(item.channel || '').replace(/^[^\w]+/, ''));
+  }
+  if (defined?.person) return PERSONAL_TIERS.has(item.tier) && !isFilm(item);
+  if (channelId === 'sitcoms') return item.tier === 'sitcom' || item.tier === 'bbc';
+  if (channelId === 'adultanim') return item.tier === 'adultanim' && !isFilm(item);
   if (channelId === 'movies') return isFilm(item);
   if (channelId === 'grownups') return GROWNUP_TV_TIERS.has(item.tier) && !isFilm(item);
   if (channelId === 'cartoons') return CARTOON_TIERS.has(item.tier) && !isFilm(item);
-  if (channelId === 'comedy') return item.tier === 'comedy';
+  if (channelId === 'comedy') return item.tier === 'comedy' || item.tier === 'standup';
   if (channelId === 'docs') return item.tier === 'docs';
   if (channelId === 'scifi') return item.tier === 'scifi';
   if (channelId === 'classic') return item.tier === 'classic';
@@ -253,8 +292,17 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return ids;
   }
 
-  function audience(ids) {
+  // The people in the room set the default ceiling (the youngest decides); `rating`
+  // overrides it either way. It is a household convenience, not a lock: guests never
+  // reach this override, their server passes its own fixed audience.
+  function ratingOf(value) {
+    const rating = String(value ?? '').trim().toUpperCase();
+    return RATING_ORDER.includes(rating) ? rating : null;
+  }
+
+  function audience(ids, rating = null) {
     if (!ids.length) return { ceiling: null, blocked: true };
+    if (rating) return { ceiling: rating, blocked: false };
     const caps = TV_VIEWERS.filter(person => ids.includes(person.id) && person.ceiling).map(person => person.ceiling);
     if (!caps.length) return { ceiling: 'M', blocked: false };
     const ceiling = caps.reduce((lowest, cap) => (RATING_ORDER.indexOf(cap) < RATING_ORDER.indexOf(lowest) ? cap : lowest));
@@ -280,8 +328,14 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return TV_CHANNELS.filter(channel => inGenre(item, channel.id)).map(channel => channel.id);
   }
 
-  function poolFor(channelId, ids) {
-    const { ceiling, blocked } = audience(ids);
+  // A person's own channel shows only when that person is watching without a child.
+  function personPresent(channel, ids) {
+    return !channel?.person || (ids.includes(channel.person) && !TV_VIEWERS.some(person => person.ceiling && ids.includes(person.id)));
+  }
+
+  function poolFor(channelId, ids, rating = null) {
+    if (!personPresent(CHANNEL_BY_ID.get(channelId), ids)) return [];
+    const { ceiling, blocked } = audience(ids, rating);
     return videos.map((item, index) => (inGenre(item, channelId) && ratingAllowed(item, ceiling, blocked, channelId) ? index : -1))
       .filter(index => index >= 0);
   }
@@ -307,29 +361,50 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return weights;
   }
 
-  function stageKey(channelId, ids) {
-    return channelId + '\n' + ids.slice().sort().join(',');
+  function stageKey(channelId, ids, rating = null) {
+    return channelId + '\n' + ids.slice().sort().join(',') + '\n' + (rating || '');
   }
+
+  // A person's own channel learns on that person's key: Dad's is the Mac player's "grown".
+  function channelTasteKey(channelId, ids) {
+    const person = CHANNEL_BY_ID.get(channelId)?.person;
+    if (person === 'dad') return 'grown';
+    if (person === 'mum') return Object.prototype.hasOwnProperty.call(player.STREAMS, 'mum') ? 'mum' : 'grown';
+    return tasteKey(ids);
+  }
+
+  const AUDIENCE_ORDER = { grown: { adult: 0, all: 1, kid: 2 }, child: { kid: 0, all: 1, adult: 2 } };
 
   function nowPlaying(item) {
     return { show: item.channel || item.title || item.src, art: '/art?src=' + encodeURIComponent(item.src) };
   }
 
-  function home(viewers) {
+  function home(viewers, ratingValue) {
     const ids = viewerIds(viewers);
     const selected = new Set(ids);
-    const { ceiling, blocked } = audience(ids);
+    const rating = ratingOf(ratingValue);
+    const { ceiling, blocked } = audience(ids, rating);
+    const people = audience(ids);
     const channels = [];
     for (const channel of TV_CHANNELS) {
-      const count = poolFor(channel.id, ids).length;
+      const count = poolFor(channel.id, ids, rating).length;
       if (!count) continue;
-      const key = stageKey(channel.id, ids);
-      if (!staged.has(key)) staged.set(key, chooseIndex(channel.id, ids, {}));
+      const key = stageKey(channel.id, ids, rating);
+      if (!staged.has(key)) staged.set(key, chooseIndex(channel.id, ids, { rating }));
       // count: videos on this channel at this audience's ceiling (the morning acceptance gate reads it).
       channels.push({ id: channel.id, number: channel.number, name: channel.name, count, now: nowPlaying(videos[staged.get(key)]) });
     }
+    // Grown-ups see their channels first, children theirs; the numbers stay put.
+    const order = AUDIENCE_ORDER[ceiling === 'M' ? 'grown' : 'child'];
+    const position = new Map(TV_CHANNELS.map((channel, index) => [channel.id, index]));
+    // A person's own channel leads their lineup.
+    const rank = id => (CHANNEL_BY_ID.get(id).person ? -1 : order[CHANNEL_BY_ID.get(id).audience]);
+    channels.sort((a, b) => rank(a.id) - rank(b.id) || position.get(a.id) - position.get(b.id));
     return {
       ceiling: blocked ? null : ceiling,
+      // The ceiling the people alone would set, so the rating switch can show its default.
+      defaultCeiling: people.blocked ? null : people.ceiling,
+      rating,
       viewers: TV_VIEWERS.map(person => ({ id: person.id, name: person.name, on: selected.has(person.id) })),
       channels,
     };
@@ -360,9 +435,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (!TV_CHANNELS.some(channel => channel.id === channelId)) {
       throw Object.assign(new Error('Unknown channel.'), { status: 404 });
     }
-    const pool = poolFor(channelId, ids);
+    const pool = poolFor(channelId, ids, ratingOf(options.rating));
     if (!pool.length) throw Object.assign(new Error('This channel is empty.'), { status: 404 });
-    const key = tasteKey(ids) || channelId;
+    const key = channelTasteKey(channelId, ids) || channelId;
     const played = recent.get(channelId) || [];
     let currentIndex = -1;
     if (typeof options.current === 'string' && options.current) {
@@ -379,7 +454,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     }
     const weights = weightsFor(key);
     // Episodic films and sitcoms play in order; cartoons stay shuffled.
-    const serial = channelId === 'movies' || channelId === 'sitcoms' || channelId === 'grownups';
+    const serial = ['movies', 'sitcoms', 'grownups', 'friends', 'seinfeld', 'crime'].includes(channelId);
     const ending = options.reason === 'ended';
     const showOf = index => videos[index].channel || 'Other';
     let index = -1;
@@ -403,9 +478,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     recent.set(channelId, played.slice(-RECENT_LIMIT));
   }
 
-  function queueFor(channel, show, ids) {
+  function queueFor(channel, show, ids, rating = null) {
     if (!channel?.ads) return [{ kind: 'show', src: show.src, breaks: [] }];
-    const { ceiling, blocked } = audience(ids);
+    const { ceiling, blocked } = audience(ids, rating);
     const pool = [];
     for (const item of videos) {
       if (adDecade(item.src) !== channel.ads) continue;
@@ -427,25 +502,26 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return built.queue;
   }
 
-  function finish(index, channelId, ids) {
+  function finish(index, channelId, ids, rating = null) {
     const described = describe(videos[index]);
     const channel = TV_CHANNELS.find(entry => entry.id === channelId);
-    return { ...described, queue: queueFor(channel, described, ids) };
+    return { ...described, queue: queueFor(channel, described, ids, rating) };
   }
 
   function next(channelId, options = {}) {
     const ids = viewerIds(options.viewers);
-    const key = stageKey(channelId, ids);
+    const rating = ratingOf(options.rating);
+    const key = stageKey(channelId, ids, rating);
     if (!options.current && staged.has(key)) {
       const index = staged.get(key);
       staged.delete(key);
       remember(channelId, index);
-      return finish(index, channelId, ids);
+      return finish(index, channelId, ids, rating);
     }
-    const index = chooseIndex(channelId, ids, options);
+    const index = chooseIndex(channelId, ids, { ...options, rating });
     staged.delete(key);
     remember(channelId, index);
-    return finish(index, channelId, ids);
+    return finish(index, channelId, ids, rating);
   }
 
   function progress({ src, positionSeconds, durationSeconds, completed }) {
@@ -461,11 +537,11 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   }
 
   // Whether this audience may watch a video on at least one channel (the guest app checks every file request).
-  function allowed(src, viewers) {
+  function allowed(src, viewers, ratingValue) {
     const index = bySrc.get(src);
     if (index === undefined) return false;
     const item = videos[index];
-    const { ceiling, blocked } = audience(viewerIds(viewers));
+    const { ceiling, blocked } = audience(viewerIds(viewers), ratingOf(ratingValue));
     // Ads belong to no channel; buildPlayQueue already filtered them by this ceiling.
     if (isAdSrc(item.src)) return !blocked;
     return channelsOf(item).some(id => ratingAllowed(item, ceiling, blocked, id));
@@ -633,7 +709,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         response.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' });
         return response.end(vtt);
       }
-      if (path === '/api/home') return send(response, 200, library.home(url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined));
+      if (path === '/api/home') return send(response, 200, library.home(url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, url.searchParams.get('rating')));
       if (path === '/api/show') return send(response, 200, library.show(url.searchParams.get('name') || ''));
       if (path === '/api/next' && request.method === 'POST') {
         const params = await readBody(request);

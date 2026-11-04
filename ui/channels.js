@@ -2,7 +2,23 @@
 (() => {
   const origin = 'http://localhost:8686';
   const $ = id => document.getElementById(id);
-  let viewers; // Omitted means the server's safe, whole-family default.
+  // Who's watching: the youngest in the room sets the default rating; the rating
+  // switch overrides it either way until the audience changes. This Mac is a
+  // grown-up's screen, so it opens on Mum & Dad and remembers the last choice.
+  const WHO = [
+    { id: 'sam', name: 'Sam', viewers: ['sam', 'jake', 'mum', 'dad'], rating: 'G' },
+    { id: 'jake', name: 'Jake', viewers: ['jake', 'mum', 'dad'], rating: 'PG' },
+    { id: 'adults', name: 'Mum & Dad', viewers: ['mum', 'dad'], rating: 'M' },
+  ];
+  const RATINGS = ['G', 'PG', 'M'];
+  const AUDIENCE_KEY = 'onto.desktop.audience';
+  let who = 'adults', rating = null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUDIENCE_KEY) || 'null');
+    if (WHO.some(entry => entry.id === saved?.who)) { who = saved.who; rating = RATINGS.includes(saved.rating) ? saved.rating : null; }
+  } catch { /* keep the default */ }
+  let viewers = WHO.find(entry => entry.id === who).viewers;
+  let defaultCeiling = null;
   let generation = 0, loaded = false, loading = false;
   const art = new Map();
   let selectedChannel;
@@ -32,6 +48,7 @@
     const url = new URL('/', origin);
     url.searchParams.set('desktop', '1');
     url.searchParams.set('viewers', viewers.join(','));
+    if (rating) url.searchParams.set('rating', rating);
     url.searchParams.set('channel', channel.id);
     $('channel-player').src = url.href;
     $('channel-player').hidden = false;
@@ -68,28 +85,40 @@
     if (ready) void ready.then(img => { if (img && button.isConnected) image.append(img.cloneNode()); });
     return button;
   }
+  function choose(nextWho, nextRating) {
+    who = nextWho; rating = nextRating;
+    viewers = WHO.find(entry => entry.id === who).viewers;
+    try { localStorage.setItem(AUDIENCE_KEY, JSON.stringify({ who, rating })); } catch { /* session only */ }
+    stop(); art.clear(); void refresh(true);
+  }
+  function segment(group, value, label, title, onClick) {
+    const button = document.createElement('button'); button.type = 'button'; button.dataset.value = value;
+    button.title = title; button.setAttribute('aria-label', title);
+    button.innerHTML = label; button.onclick = onClick;
+    $(group).append(button);
+  }
   function controls(home) {
     if (!$('channel-viewers').children.length) {
-      for (const person of home.viewers) {
-        const label = document.createElement('label');
-        const input = document.createElement('input'); input.type = 'checkbox'; input.value = person.id;
-        input.setAttribute('aria-label', person.name);
-        label.title = person.id === 'sam' ? 'Sam · G' : person.id === 'jake' ? 'Jake · PG' : `${person.name} · unrestricted`;
-        const icon = document.createElement('span'); icon.className = 'viewer-icon'; icon.innerHTML = personIcon;
-        label.append(input, icon, document.createTextNode(person.name));
-        input.onchange = () => {
-          viewers = [...$('channel-viewers').querySelectorAll('input:checked')].map(el => el.value);
-          stop(); art.clear(); void refresh(true);
-        };
-        $('channel-viewers').append(label);
+      for (const entry of WHO) {
+        segment('channel-viewers', entry.id, `<span class="viewer-icon">${personIcon}</span><span></span>`, `Youngest watching: ${entry.name} · ${entry.rating}`,
+          () => choose(entry.id, null));
+        $('channel-viewers').lastChild.lastChild.textContent = entry.name;
+      }
+      for (const value of RATINGS) {
+        segment('channel-rating', value, value, `Rated ${value}`,
+          // Picking the people's own rating clears the override.
+          () => { if (who) choose(who, value === defaultCeiling ? null : value); });
+        $('channel-rating').lastChild.dataset.rating = value;
       }
     }
-    for (const input of $('channel-viewers').querySelectorAll('input')) input.checked = home.viewers.some(p => p.id === input.value && p.on);
-    viewers = home.viewers.filter(p => p.on).map(p => p.id);
-    $('channel-ceiling').textContent = home.ceiling || '—';
-    $('channel-ceiling').dataset.rating = home.ceiling || '';
-    $('channel-ceiling').title = home.ceiling ? `Rating ceiling: ${home.ceiling}` : 'No viewers selected';
-    $('channel-ceiling').setAttribute('aria-label', $('channel-ceiling').title);
+    defaultCeiling = home ? home.defaultCeiling ?? null : null;
+    const ceiling = home ? home.ceiling : null;
+    for (const button of $('channel-viewers').children) button.setAttribute('aria-pressed', String(button.dataset.value === who));
+    for (const button of $('channel-rating').children) {
+      button.setAttribute('aria-pressed', String(button.dataset.value === ceiling));
+      button.classList.toggle('default', button.dataset.value === defaultCeiling);
+      button.title = `Rated ${button.dataset.value}${button.dataset.value === defaultCeiling ? ' (default for who is watching)' : ''}`;
+    }
   }
   async function refresh(changed = false) {
     if (!window.tv?.getTvHome) return;
@@ -98,12 +127,11 @@
     // A previous audience's picks must never remain actionable while changing viewers.
     if (changed) {
       loaded = false; $('channel-list').replaceChildren();
-      $('channel-ceiling').textContent = '—'; $('channel-ceiling').dataset.rating = '';
-      $('channel-ceiling').title = 'Rating ceiling pending';
-      $('channel-ceiling').setAttribute('aria-label', 'Rating ceiling pending');
+      controls(null);
+      for (const button of $('channel-viewers').children) button.setAttribute('aria-pressed', String(button.dataset.value === who));
     }
     try {
-      const home = await window.tv.getTvHome(viewers);
+      const home = await window.tv.getTvHome(viewers, rating);
       if (request !== generation) return;
       controls(home);
       // Keep the artwork cache bounded to the current lineup.

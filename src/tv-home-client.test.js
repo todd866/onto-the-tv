@@ -32,3 +32,13 @@ test('home client rejects malformed channel and viewer entries', async () => {
     await assert.rejects(fetchTvHome(undefined,fetcher(data)),/Invalid TV lineup/);
   }
 });
+
+test('home client sends a valid rating override and rejects others before fetching', async () => {
+  const calls = [];
+  const home = { ceiling: 'M', viewers: ['sam','jake','mum','dad'].map(id => ({id,name:id,on:true})), channels: [] };
+  const fetcher = async url => { calls.push(url); return { ok: true, json: async () => home }; };
+  await fetchTvHome(['sam'], fetcher, 'M');
+  await fetchTvHome(['sam'], fetcher, null);
+  assert.deepEqual(calls.map(url => url.searchParams.get('rating')), ['M', null]);
+  for (const rating of ['R', 'm', 1, {}]) await assert.rejects(fetchTvHome(['sam'], () => assert.fail('must not fetch'), rating), /Invalid rating/);
+});

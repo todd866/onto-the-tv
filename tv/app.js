@@ -131,9 +131,24 @@
         localStorage.setItem('onto.viewers.band', now);
         if (now === 'night') localStorage.setItem('onto.viewers', NIGHT_VIEWERS);
         else localStorage.removeItem('onto.viewers');
+        localStorage.removeItem('onto.rating');
       }
       return localStorage.getItem('onto.viewers');
     } catch (e) { return null; }
+  }
+  // Who's watching: the youngest in the room sets the default rating. The rating
+  // switch beside it overrides that either way until the next change of audience.
+  var WHO = [
+    { id: 'sam', name: 'Sam', viewers: 'sam,jake,mum,dad', rating: 'G' },
+    { id: 'jake', name: 'Jake', viewers: 'jake,mum,dad', rating: 'PG' },
+    { id: 'adults', name: 'Mum & Dad', viewers: 'mum,dad', rating: 'M' }
+  ];
+  var RATINGS = ['G', 'PG', 'M'];
+  function storedRating() {
+    if (GUEST) return null;
+    if (desktopQuery) return desktopParam('rating') || null;
+    if (storedViewers() === null) return null;
+    try { return localStorage.getItem('onto.rating'); } catch (e) { return null; }
   }
   var lastBand = band();
   function watchBand() {
@@ -143,9 +158,9 @@
     if ($('player').hidden) loadHome();
   }
   function homePath() {
-    var stored = storedViewers();
+    var stored = storedViewers(), rating = storedRating();
     if (stored === null) return '/api/home';
-    return '/api/home?viewers=' + q(stored);
+    return '/api/home?viewers=' + q(stored) + (rating ? '&rating=' + q(rating) : '');
   }
   function artUrl(path) {
     if (!path) return '';
@@ -166,7 +181,7 @@
       cards.push({ id: 'uke', number: 7, name: 'Uke', app: 'uke' });
       cards.push({ id: 'console', number: 20, name: 'Console', app: 'console' });
     }
-    cards.sort(function (a, b) { return a.number - b.number; });
+    // The server orders the lineup for this audience; the app tiles follow it.
     return cards;
   }
   function selectedIds() {
@@ -174,28 +189,42 @@
     for (var i = 0; i < people.length; i++) if (people[i].on) ids.push(people[i].id);
     return ids;
   }
-  function toggleViewer(id) {
+  function whoNow() {
+    var ids = selectedIds();
+    if (ids.indexOf('sam') >= 0) return 'sam';
+    if (ids.indexOf('jake') >= 0) return 'jake';
+    return ids.length ? 'adults' : '';
+  }
+  function setAudience(viewers, rating) {
     // The embedded desktop player receives its audience explicitly from the
-    // parent. Its viewer row is informational, so do not replace that
-    // session-only selection with the TV's local preference.
+    // parent, so it never replaces that choice with the TV's local preference.
     if (GUEST || desktopQuery || !$('player').hidden) return;
-    var ids = selectedIds(), at = ids.indexOf(id);
-    if (at >= 0) ids.splice(at, 1); else ids.push(id);
-    var ordered = [], people = data.viewers || [];
-    for (var i = 0; i < people.length; i++) if (ids.indexOf(people[i].id) >= 0) ordered.push(people[i].id);
-    try { localStorage.setItem('onto.viewers', ordered.join(',')); localStorage.setItem('onto.viewers.band', band()); } catch (e) {}
-    // Clear the old lineup before asking the server for the new ceiling. This
-    // closes the race where a restrictive selection could still activate an
-    // adult card while its response was in flight. Keep all four viewer rows so
-    // an empty selection remains visible and fails closed.
-    data.viewers = people.map(function (person) {
+    try {
+      localStorage.setItem('onto.viewers', viewers);
+      localStorage.setItem('onto.viewers.band', band());
+      if (rating) localStorage.setItem('onto.rating', rating); else localStorage.removeItem('onto.rating');
+    } catch (e) {}
+    // Clear the old lineup before asking the server for the new ceiling, so a card
+    // from the previous audience cannot be activated while the response is in flight.
+    var ids = viewers.split(',');
+    data.viewers = (data.viewers || FALLBACK_VIEWERS).map(function (person) {
       return { id: person.id, name: person.name, on: ids.indexOf(person.id) >= 0 };
     });
     data.channels = [];
     data.ceiling = null;
+    data.rating = rating || null;
     render();
     var keep = { row: focus.row, col: focus.col };
     loadHome().then(function () { focus = keep; moveFocus(0, 0); });
+  }
+  function chooseWho(id) {
+    for (var i = 0; i < WHO.length; i++) if (WHO[i].id === id) return setAudience(WHO[i].viewers, null);
+  }
+  function chooseRating(rating) {
+    var viewers = selectedIds().join(',');
+    if (!viewers) return;
+    // Picking the people's own rating clears the override.
+    setAudience(viewers, rating === data.defaultCeiling ? null : rating);
   }
   function loadArt(img, url) {
     if (!img || !url) return;
@@ -214,31 +243,47 @@
     el.innerHTML = ANTENNA_SVG;
     return el;
   }
-  function viewerButton(person, col) {
+  function segButton(kind, value, label, extraClass, on, col) {
     var button = document.createElement('button');
     button.type = 'button';
-    button.className = 'viewer' + (person.on ? ' on' : '');
+    button.className = 'viewer seg ' + kind + (extraClass ? ' ' + extraClass : '') + (on ? ' on' : '');
     button.tabIndex = -1;
-    button.setAttribute('data-id', person.id);
-    button.setAttribute('aria-pressed', person.on ? 'true' : 'false');
-    button.setAttribute('aria-label', person.name + (person.on ? ', watching' : ', not watching'));
-    var tick = document.createElement('span');
-    tick.className = 'tick';
-    tick.setAttribute('aria-hidden', 'true');
-    tick.innerHTML = PERSON_SVG;
-    var name = document.createElement('span');
-    name.className = 'who';
-    name.textContent = person.name;
-    button.appendChild(tick);
-    button.appendChild(name);
+    button.setAttribute('data-' + kind, value);
+    button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    button.innerHTML = label;
     button.addEventListener('click', function () {
       focus = { row: 0, col: col };
       moveFocus(0, 0);
-      toggleViewer(person.id);
+      if (kind === 'who') chooseWho(value); else chooseRating(value);
     });
     return button;
   }
-  function columnCount() { return window.innerWidth <= 600 ? 1 : window.innerWidth <= 1100 ? 2 : 4; }
+  function audienceControls(holder) {
+    var who = whoNow(), col = 0, i;
+    var people = document.createElement('span');
+    people.className = 'seg-group';
+    for (i = 0; i < WHO.length; i++) {
+      var w = WHO[i];
+      var b = segButton('who', w.id, '<span class="tick" aria-hidden="true">' + PERSON_SVG + '</span><span class="who"></span>', '', who === w.id, col++);
+      b.lastChild.textContent = w.name;
+      b.title = w.name + ' · ' + w.rating;
+      b.setAttribute('aria-label', 'Youngest watching: ' + w.name + ', rated ' + w.rating);
+      people.appendChild(b);
+    }
+    holder.appendChild(people);
+    var ratings = document.createElement('span');
+    ratings.className = 'seg-group ratings';
+    for (i = 0; i < RATINGS.length; i++) {
+      var r = RATINGS[i], isDefault = r === data.defaultCeiling;
+      var rb = segButton('rating', r, '', 'rating-' + r.toLowerCase() + (isDefault ? ' default' : ''), data.ceiling === r, col++);
+      rb.textContent = r;
+      rb.title = 'Rated ' + r + (isDefault ? ' (default for who is watching)' : '');
+      rb.setAttribute('aria-label', 'Rating ' + r + (isDefault ? ', default' : ''));
+      ratings.appendChild(rb);
+    }
+    holder.appendChild(ratings);
+  }
+  function columnCount() { return window.innerWidth <= 600 ? 1 : window.innerWidth <= 1100 ? 2 : window.innerWidth < 1600 ? 4 : 6; }
   function channelButton(item, index) {
     var button = document.createElement('button');
     button.type = 'button';
@@ -313,9 +358,10 @@
       who.className = 'guest-name';
       who.textContent = GUEST.name || '';
       viewers.appendChild(who);
-    } else for (var i = 0; i < people.length; i++) viewers.appendChild(viewerButton(people[i], i));
+    } else audienceControls(viewers);
     var badge = $('ceiling');
-    if (data.ceiling) {
+    // The rating switch shows the ceiling at home; guests keep the plain badge.
+    if (data.ceiling && GUEST) {
       badge.hidden = false;
       badge.className = 'rating rating-' + String(data.ceiling).toLowerCase().replace('-', '');
       badge.title = 'Rating ' + data.ceiling;
@@ -336,7 +382,7 @@
     holder.innerHTML = '';
     for (var c = 0; c < cards.length; c++) holder.appendChild(channelButton(cards[c], c));
     rows = [];
-    if (viewers.children.length && !GUEST) rows.push({ kind: 'viewers', els: viewers.children });
+    if (viewers.children.length && !GUEST) rows.push({ kind: 'viewers', els: viewers.querySelectorAll('.seg') });
     for (var start = 0; start < holder.children.length; start += columnCount()) {
       var slice = [];
       for (var n = start; n < holder.children.length && n < start + columnCount(); n++) slice.push(holder.children[n]);
@@ -381,7 +427,10 @@
   function select() {
     var row = rows[focus.row], el = row && row.els[focus.col];
     if (!el) return;
-    if (row.kind === 'viewers') return toggleViewer(el.getAttribute('data-id'));
+    if (row.kind === 'viewers') {
+      if (el.getAttribute('data-who')) return chooseWho(el.getAttribute('data-who'));
+      return chooseRating(el.getAttribute('data-rating'));
+    }
     activate(el._item);
   }
   function loadHome() {
@@ -1058,8 +1107,9 @@
     play = play && play.channel === channel ? play : { mode: 'channel', channel: channel };
     paintChannel(channel);
     var body = { channel: channel.id };
-    var viewers = storedViewers();
+    var viewers = storedViewers(), rating = storedRating();
     if (viewers !== null) body.viewers = viewers;
+    if (rating) body.rating = rating;
     if (fromItem) {
       body.current = fromItem.src;
       body.reason = reason;

@@ -1,7 +1,11 @@
 // The renderer never receives arbitrary network access. Rating decisions stay in tv-server.
 export const TV_HOME_ORIGIN = 'http://localhost:8686';
-export async function fetchTvHome(viewers, fetcher = fetch) {
+export async function fetchTvHome(viewers, fetcher = fetch, rating = null) {
   const url = new URL('/api/home', TV_HOME_ORIGIN);
+  if (rating !== null && rating !== undefined) {
+    if (!['G', 'PG', 'M'].includes(rating)) throw new Error('Invalid rating.');
+    url.searchParams.set('rating', rating);
+  }
   if (viewers !== undefined) {
     if (!Array.isArray(viewers) || viewers.length > 4 || viewers.some(id => !['sam', 'jake', 'mum', 'dad'].includes(id))) {
       throw new Error('Invalid viewers.');
