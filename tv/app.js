@@ -7,6 +7,10 @@
   var TOKEN = CONFIG.token || '';
   var PACKAGED = !(location.protocol === 'http:' || location.protocol === 'https:');
   var SERVER = PACKAGED ? '' : location.origin;
+  // Guest mode: the invite-only phone app (src/guest-server.js) serves this page with
+  // ONTO_CONFIG.guest. No viewer row, no games, uke or console; touch-first player.
+  var GUEST = CONFIG.guest || null;
+  if (GUEST) { document.body.classList.add('guest'); document.body.classList.add('desktop-embedded'); }
 
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 10009, ESC: 27, BACKSPACE: 8,
     PLAYPAUSE: 10252, PLAY: 415, PAUSE: 19, STOP: 413, FF: 417, RW: 412, NEXT: 10233, PREV: 10232,
@@ -119,6 +123,7 @@
   var desktopChannel = desktopQuery ? desktopParam('channel') : '';
   if (desktopQuery) document.body.classList.add('desktop-embedded');
   function storedViewers() {
+    if (GUEST) return null;   // the server applies the guest's own ceiling
     if (desktopQuery) return desktopParam('viewers');
     try {
       var now = band();
@@ -156,9 +161,11 @@
   }
   function gridCards() {
     var cards = (data.channels || []).slice();
-    cards.push({ id: 'games', number: 6, name: 'Games', app: 'games' });
-    cards.push({ id: 'uke', number: 7, name: 'Uke', app: 'uke' });
-    cards.push({ id: 'console', number: 20, name: 'Console', app: 'console' });
+    if (!GUEST) {
+      cards.push({ id: 'games', number: 6, name: 'Games', app: 'games' });
+      cards.push({ id: 'uke', number: 7, name: 'Uke', app: 'uke' });
+      cards.push({ id: 'console', number: 20, name: 'Console', app: 'console' });
+    }
     cards.sort(function (a, b) { return a.number - b.number; });
     return cards;
   }
@@ -171,7 +178,7 @@
     // The embedded desktop player receives its audience explicitly from the
     // parent. Its viewer row is informational, so do not replace that
     // session-only selection with the TV's local preference.
-    if (desktopQuery || !$('player').hidden) return;
+    if (GUEST || desktopQuery || !$('player').hidden) return;
     var ids = selectedIds(), at = ids.indexOf(id);
     if (at >= 0) ids.splice(at, 1); else ids.push(id);
     var ordered = [], people = data.viewers || [];
@@ -301,7 +308,12 @@
     data.viewers = people;
     var viewers = $('viewers');
     viewers.innerHTML = '';
-    for (var i = 0; i < people.length; i++) viewers.appendChild(viewerButton(people[i], i));
+    if (GUEST) {
+      var who = document.createElement('span');
+      who.className = 'guest-name';
+      who.textContent = GUEST.name || '';
+      viewers.appendChild(who);
+    } else for (var i = 0; i < people.length; i++) viewers.appendChild(viewerButton(people[i], i));
     var badge = $('ceiling');
     if (data.ceiling) {
       badge.hidden = false;
@@ -324,7 +336,7 @@
     holder.innerHTML = '';
     for (var c = 0; c < cards.length; c++) holder.appendChild(channelButton(cards[c], c));
     rows = [];
-    if (viewers.children.length) rows.push({ kind: 'viewers', els: viewers.children });
+    if (viewers.children.length && !GUEST) rows.push({ kind: 'viewers', els: viewers.children });
     for (var start = 0; start < holder.children.length; start += columnCount()) {
       var slice = [];
       for (var n = start; n < holder.children.length && n < start + columnCount(); n++) slice.push(holder.children[n]);
@@ -1018,6 +1030,7 @@
       if (play.queue[i].kind === 'show' && play.queue[i].breaks) play.breaks = play.queue[i].breaks;
     }
     $('home').hidden = true;
+    if (GUEST && $('player').hidden && !guestEntry) { guestEntry = true; try { history.pushState({ ontoPlayer: 1 }, ''); } catch (e) {} }
     $('player').hidden = false;
     document.body.classList.add('playing');
     hideAdChip();
@@ -1136,7 +1149,32 @@
     if (play.mode === 'channel') startChannel(play.channel, null); else stopPlayback();
   });
   media.on('pause', function () { mediaState = media.paused() ? 'paused' : 'loading'; if (media.paused()) { watchEvent('pause'); diag('pause', diagnosticSample()); } updateOsd(); showOsd(); });
-  video.addEventListener('click', togglePause);
+  // On a phone the first tap brings up the controls; a tap with them showing pauses.
+  video.addEventListener('click', function () {
+    if (GUEST && osd.classList.contains('hidden')) { showOsd(); return; }
+    togglePause();
+  });
+  // Tap or click the progress bar to jump there.
+  $('osd-track').addEventListener('click', function (event) {
+    if (!play || play.airing === 'ad') return;
+    var box = this.getBoundingClientRect(), duration = media.duration() || (play.item && play.item.duration) || 0;
+    if (!box.width || !duration) return;
+    media.seek(Math.max(0, Math.min(duration - 1, duration * (event.clientX - box.left) / box.width)));
+    updateOsd();
+    showOsd();
+  });
+  // Guest back: the on-screen button and the phone's own back gesture both return to channels.
+  var guestEntry = false;
+  function guestBack() {
+    if (guestEntry) { history.back(); return; }
+    stopPlayback();
+  }
+  $('osd-back').addEventListener('click', guestBack);
+  window.addEventListener('popstate', function () {
+    if (!GUEST) return;
+    guestEntry = false;
+    if (!$('player').hidden) stopPlayback();
+  });
   $('osd-play').addEventListener('click', togglePause);
   $('osd-prev-scene').addEventListener('click', function () { commitJump(-1); });
   $('osd-next-scene').addEventListener('click', function () { commitJump(1); });

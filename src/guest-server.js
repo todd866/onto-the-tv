@@ -1,12 +1,16 @@
-// The phone web app for invited guests: a separate HTTP server that shares the
-// library but none of the TV's controls. It answers only these routes:
+// The phone web app for invited guests: the real TV interface (tv/) in guest mode,
+// served by a separate HTTP server that shares the library but none of the TV's
+// controls. It answers only these routes:
 //   GET  /w/<invite>   trade an invite link for a session cookie
+//   GET  /config.js    guest mode for the TV interface (who you are)
 //   GET  /api/me       who you are
 //   GET  /api/home     channels at your rating ceiling, each with what's on
 //   POST /api/next     the next video on a channel
 //   POST /api/progress your place in a video (your own history, not the family's)
+//   POST /api/watch    accepted and dropped (guests do not teach the family's taste)
+//   GET  /api/scenes   empty; GET /api/subs, /subs sidecar subtitles
 //   GET  /media, /art  only for videos this server has dealt to you
-//   static files from guest/
+//   static files from tv/
 // It is meant to listen on 127.0.0.1 behind Tailscale Funnel (https). The TV server's
 // pairing token, TV commands, games, diagnostics and taste are not reachable from here.
 import { createServer } from 'node:http';
@@ -15,13 +19,16 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { createFileStorage, createTvLibrary, streamFile } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
+import { listSidecars, readSubtitle } from './subtitles.js';
 
 // Phones play MP4 and QuickTime directly; MKV and AVI need the TV.
 const PHONE_TYPES = new Set(['.mp4', '.m4v', '.mov']);
 // A guest's ceiling maps onto the household viewer with that ceiling.
 const VIEWERS_FOR = { G: 'sam', PG: 'jake', M: 'dad' };
 const STATIC = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json',
+  '.woff': 'font/woff' };
+
 const COOKIE = 'onto_guest';
 const DEALT_LIMIT = 400;
 // The M2 is fanless and on a home upload: cap simultaneous video streams.
@@ -104,7 +111,14 @@ export function createGuestServer({ videos, invites, dataDir, uiRoot, artwork = 
           `${COOKIE}=${redeemed.session}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secureCookie ? '; Secure' : ''}` });
       }
 
-      if (path.startsWith('/api/') || path === '/media' || path === '/art') {
+      if (path === '/config.js' && request.method === 'GET') {
+        const guest = await invites.session(cookie(request, COOKIE));
+        const config = { guest: guest ? { name: guest.name, rating: guest.rating } : { signedOut: true } };
+        response.writeHead(200, { 'Content-Type': STATIC['.js'], 'Cache-Control': 'no-store', ...SECURITY });
+        return response.end(`window.ONTO_CONFIG = ${JSON.stringify(config).replace(/</g, '\\u003c')};\n`);
+      }
+
+      if (path.startsWith('/api/') || path === '/media' || path === '/art' || path === '/subs') {
         const guest = await invites.session(cookie(request, COOKIE));
         if (!guest) return send(response, 401, { error: 'Open your invite link again.' });
         if (request.method === 'POST') {
@@ -117,19 +131,24 @@ export function createGuestServer({ videos, invites, dataDir, uiRoot, artwork = 
         const viewers = VIEWERS_FOR[guest.rating] || 'sam';
 
         if (path === '/api/me' && request.method === 'GET') return send(response, 200, { name: guest.name, rating: guest.rating, expires: guest.expires });
+        if (path === '/api/health' && request.method === 'GET') return send(response, 200, { ok: true });
+        if (path === '/api/watch' && request.method === 'POST') { await readJson(request); return send(response, 200, { ok: true }); }
+        if (path === '/api/scenes' && request.method === 'GET') return send(response, 200, { cuts: [], thumbs: [], segments: [] });
         if (path === '/api/home' && request.method === 'GET') {
           const home = state.library.home(viewers);
           for (const channel of home.channels) {
             const src = new URLSearchParams(channel.now.art.split('?')[1]).get('src');
             if (src) deal(state, src);
           }
-          return send(response, 200, { ceiling: home.ceiling, channels: home.channels });
+          return send(response, 200, { ceiling: home.ceiling, viewers: [], channels: home.channels });
         }
         if (path === '/api/next' && request.method === 'POST') {
           const body = await readJson(request);
           const item = state.library.next(String(body.channel || ''), { viewers, current: body.current ? String(body.current) : undefined });
           deal(state, item.src);
-          return send(response, 200, { src: item.src, title: item.title, show: item.show, duration: item.duration, resume: item.resume });
+          // Decade channels interleave ads: deal those too, so the player may fetch them.
+          for (const entry of item.queue || []) if (entry && entry.src) deal(state, entry.src);
+          return send(response, 200, item);
         }
         if (path === '/api/progress' && request.method === 'POST') {
           const body = await readJson(request);
@@ -138,6 +157,15 @@ export function createGuestServer({ videos, invites, dataDir, uiRoot, artwork = 
             durationSeconds: Number(body.durationSeconds), completed: body.completed === true });
           if (saved) state.history.flush().catch(error => log(`guest history: ${error.message}`));
           return send(response, 200, { ok: true, saved });
+        }
+        if ((path === '/api/subs' || path === '/subs') && request.method === 'GET') {
+          const src = url.searchParams.get('src') || '';
+          if (!state.dealt.has(src) || !state.library.allowed(src, viewers)) return send(response, 404, { error: 'Not found.' });
+          const file = state.library.file(src);
+          if (path === '/api/subs') return send(response, 200, { tracks: await listSidecars(file) });
+          const vtt = await readSubtitle(file, url.searchParams.get('name') || '');
+          response.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'private, max-age=3600', ...SECURITY });
+          return response.end(vtt);
         }
         if ((path === '/media' || path === '/art') && (request.method === 'GET' || request.method === 'HEAD')) {
           const src = url.searchParams.get('src') || '';
@@ -168,7 +196,8 @@ export function createGuestServer({ videos, invites, dataDir, uiRoot, artwork = 
       }
 
       if (request.method !== 'GET' && request.method !== 'HEAD') return send(response, 405, { error: 'Not allowed.' });
-      const name = path === '/' ? '/index.html' : path;
+      let name = path === '/' ? '/index.html' : path;
+      if (name.endsWith('/')) name += 'index.html';
       const file = normalize(join(uiRoot, name));
       if (!file.startsWith(uiRoot + '/') || !STATIC[extname(file)]) return send(response, 404, { error: 'Not found.' });
       const content = await readFile(file).catch(() => null);

@@ -464,6 +464,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (index === undefined) return false;
     const item = videos[index];
     const { ceiling, blocked } = audience(viewerIds(viewers));
+    // Ads belong to no channel; buildPlayQueue already filtered them by this ceiling.
+    if (isAdSrc(item.src)) return !blocked;
     return channelsOf(item).some(id => ratingAllowed(item, ceiling, blocked, id));
   }
 

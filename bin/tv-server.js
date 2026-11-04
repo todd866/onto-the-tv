@@ -73,7 +73,11 @@ async function rebuild(settings, force) {
 }
 
 const settings = await readSettings(join(appData, 'settings.json'));
-await rebuild(settings, args.includes('--refresh'));
+// Serve the last catalogue at once and rebuild it in the background: a restart (a deploy)
+// should not take the TV off air while every video is probed. Build first only when there
+// is no catalogue yet or --refresh asks for one.
+const haveCatalogue = await stat(catalogue).then(() => true, () => false);
+if (!haveCatalogue || args.includes('--refresh')) await rebuild(settings, args.includes('--refresh'));
 // Places saved by the Mac app are laid over the TV's own, so either picks up where the other stopped.
 const appHistoryFile = join(appData, 'playback-history.json');
 let appHistory = null, appHistoryStamp = '';
@@ -141,7 +145,7 @@ server.listen(port, host, () => log(`serving ${library.home().channels.length} c
 // Invited guests: a separate server with no route to the TV's controls (src/guest-server.js).
 const invites = await createGuestInvites(join(data, 'guests.json'));
 const guestServer = guestPort ? createGuestServer({ videos: () => catalogueHolder.videos, invites, dataDir: join(data, 'guests'),
-  uiRoot: join(root, 'guest'), artwork, mediaCache, log }) : null;
+  uiRoot: join(root, 'tv'), artwork, mediaCache, log }) : null;
 guestServer?.on('error', error => log(`guest app not started: ${error.code || error.message}`));
 guestServer?.listen(guestPort, '127.0.0.1', () => log(`guest app on http://127.0.0.1:${guestPort}/`));
 
@@ -151,7 +155,7 @@ setInterval(() => { reloadAppHistory().catch(() => {}); }, APP_HISTORY_MS).unref
 
 // Pick up shows added to (or removed from) the drive without a restart.
 let scanning = false;
-setInterval(async () => {
+async function rescan() {
   if (scanning) return;
   scanning = true;
   try {
@@ -165,7 +169,9 @@ setInterval(async () => {
       log(`catalogue reloaded: ${library.home().channels.length} channels`);
     }
   } catch (error) { log(`rescan failed: ${error.message}`); } finally { scanning = false; }
-}, RESCAN_MS).unref();
+}
+setInterval(rescan, RESCAN_MS).unref();
+if (haveCatalogue) setTimeout(rescan, 5_000).unref();
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => { log(`${signal}: saving and stopping`); warmPending = null; warmGeneration++; guestServer?.close(); server.close(async () => { await mediaCache?.close(); process.exit(0); });

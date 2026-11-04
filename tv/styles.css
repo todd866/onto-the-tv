@@ -370,3 +370,21 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
   .channel .num { font-size:36px; }
   .channel .now { font-size:26px; }
 }
+
+/* Guest phone app (served by src/guest-server.js): back key on the player, guest name where the viewers sit. */
+#osd-keys > #osd-back { display: none; }
+.guest #osd-keys > #osd-back { display: block; }
+.guest .guest-name { font-size: 22px; font-weight: 800; color: #ffb547; padding: 6px 2px; }
+.guest #osd-track { height: 12px; cursor: pointer; }
+/* Guests see the whole title: wrap rather than ellipsis (no truncation on a phone). */
+.guest .channel .now { white-space: normal; align-items: flex-start; }
+.guest .now-title { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.guest .mini-play { margin-top: 4px; }
+@media (max-width: 600px) {
+  .guest .channel { height: 300px; }
+  .guest .bezel { border-width: 10px; border-radius: 48px; }
+  .guest .channel-copy { padding: 48px 18px 18px; }
+  .guest .channel .num { font-size: 34px; }
+  .guest .channel .name { font-size: 32px; }
+  .guest .channel .now { font-size: 22px; }
+}

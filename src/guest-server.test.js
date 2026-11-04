@@ -77,8 +77,12 @@ test('the TV server\'s controls are not reachable from the guest app', async () 
   const { base, code, close } = await setup();
   try {
     const cookie = await signIn(base, code);
-    for (const path of ['/api/tv-command', '/api/diagnostics', '/api/game/state', '/api/console/launch', '/api/media-cache', '/api/watch', '/api/scenes'])
-      assert.equal((await post(base, path, cookie, {})).status, 404, path);
+    for (const path of ['/api/tv-command', '/api/diagnostics', '/api/game/state', '/api/console/launch', '/api/media-cache', '/api/progress-all', '/scene-thumb', '/uke/audio/x', '/api/tv-command?x=1'])
+    {
+      const status = (await post(base, path, cookie, {})).status;
+      assert.ok(status === 404 || status === 405, `${path} → ${status}`);
+      assert.equal((await fetch(base + path, { headers: { cookie } })).status, 404, `GET ${path}`);
+    }
     assert.equal((await fetch(`${base}/../tv-server.js`, { headers: { cookie } })).status, 404);
   } finally { await close(); }
 });
@@ -293,5 +297,32 @@ test('a client that leaves while artwork is being made leaves no file open', asy
     assert.ok(served, 'artwork was prepared');
     const last = responses.at(-1);
     assert.equal(last.headersSent, false, 'nothing was piped to the departed client');
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('the guest page is the TV interface in guest mode', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-guest-'));
+  const videos = [];
+  const invites = await createGuestInvites(join(dir, 'guests.json'));
+  const tv = join(new URL('.', import.meta.url).pathname, '..', 'tv');
+  const server = createGuestServer({ videos: () => videos, invites, dataDir: join(dir, 'g'), uiRoot: tv, secureCookie: false });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const page = await (await fetch(`${base}/`)).text();
+    assert.match(page, /id="channels"/);
+    assert.match(page, /id="osd-back"/);
+    assert.equal((await fetch(`${base}/app.js`)).status, 200);
+    assert.equal((await fetch(`${base}/fonts/Nunito-Bold.woff`)).status, 200);
+    assert.match(await (await fetch(`${base}/config.js`)).text(), /"signedOut":true/);
+    const { code } = await invites.invite('Robin', { rating: 'PG' });
+    const cookie = await signIn(base, code);
+    const config = await (await fetch(`${base}/config.js`, { headers: { cookie } })).text();
+    assert.match(config, /"name":"Robin"/);
+    assert.equal(config.includes('token'), false, 'no pairing token in guest config');
+    assert.equal((await post(base, '/api/watch', cookie, { src: 'x' })).status, 200);
+    assert.deepEqual(await (await fetch(`${base}/api/scenes?src=x`, { headers: { cookie } })).json(), { cuts: [], thumbs: [], segments: [] });
+    assert.equal((await fetch(`${base}/api/subs?src=x`, { headers: { cookie } })).status, 404);
+    assert.equal((await fetch(`${base}/subs?src=x&name=a.srt`, { headers: { cookie } })).status, 404);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
