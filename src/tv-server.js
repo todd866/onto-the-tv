@@ -113,10 +113,10 @@ export const TV_CHANNELS = [
     shows: /^(?:(?:couples )?come dine with me|grand designs|gogglebox|masterchef|the block|location|escape to)/i },
   { id: 'formum', number: 34, name: 'For Mum', person: 'mum', audience: 'adult' },
 ];
-// Fran's own mix: reality, sitcoms, cosy mysteries, true crime and comedy. She does not like
-// animation or graphic violence (the acquisition brief), so those stay off her channel.
+// Fran's own mix, from Ian (4 Nov 2026): her top three are Come Dine With Me, Friends and The
+// Big Bang Theory, and she is a big fan of British reality TV. No animation, no violence.
 const MUM_TIERS = new Set(['grownup', 'couple', 'sitcom', 'comedy', 'bbc', 'standup', 'docs']);
-const MUM_SKIPS = /^(?:mobland|snatch|lock stock|the gentlemen|in bruges)\b/i;
+const FRAN_SHOWS = /^(?:(?:couples )?come dine with me|friends\b|the big bang theory|big bang theory|gogglebox|first dates|four in a bed|the great british bake off|great british bake off|bake off|escape to the country|a place in the sun|location,? location|the hotel inspector|24 hours in a&e|married at first sight uk|love island|the apprentice|dragons.? den|grand designs|bargain hunt|homes under the hammer|the traitors|race across the world|the repair shop)/i;
 const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]));
 
 const RIDES_SHOWS = /\b(?:knight rider|the a[- ]team|the dukes of hazzard|airwolf|chips|baywatch|top gear)\b/i;
@@ -131,7 +131,7 @@ export function inTvGenre(item, channelId) {
     if (!defined.kids && KID_TIERS.has(item.tier)) return false;
     return !isFilm(item) && defined.shows.test(String(item.channel || '').replace(/^[^\w]+/, ''));
   }
-  if (defined?.person === 'mum') return MUM_TIERS.has(item.tier) && !isFilm(item) && !MUM_SKIPS.test(String(item.channel || ''));
+  if (defined?.person === 'mum') return MUM_TIERS.has(item.tier) && !isFilm(item) && FRAN_SHOWS.test(String(item.channel || ''));
   if (defined?.person) return PERSONAL_TIERS.has(item.tier) && !isFilm(item);
   if (channelId === 'sitcoms') return item.tier === 'sitcom' || item.tier === 'bbc';
   if (channelId === 'adultanim') return item.tier === 'adultanim' && !isFilm(item);

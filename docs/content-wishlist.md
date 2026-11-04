@@ -18,6 +18,17 @@ RÜFÜS DU SOL (6) → `/Volumes/Stash/Movies/music-videos/<series or artist>`;
 Come Dine With Me (20) → `grown-ups`; Hop Hop the Owl (12) → `preschool`.
 The runner is idempotent (`archive.txt`) and stops on YouTube bot-checks; re-run it to resume.
 
+## Priority (Ian, 4 Nov 2026)
+
+Fran's top three are **Come Dine With Me, Friends and The Big Bang Theory**, and she is a big fan
+of **British reality TV**. We have Friends and some Come Dine. Get **The Big Bang Theory** (full
+series, torrent via the M2's qBittorrent pattern) into `/Volumes/Stash/Movies/sitcoms/The Big Bang
+Theory (2007)`, more **Come Dine With Me** (UK, Couples, Ireland), and British reality: Gogglebox,
+First Dates, Four in a Bed, The Great British Bake Off, A Place in the Sun, Escape to the Country,
+The Traitors, Race Across the World, The Repair Shop, The Apprentice, Dragons' Den, Bargain Hunt,
+Homes Under the Hammer → `/Volumes/Stash/Movies/grown-ups/<Show>`. Folder names must match the
+show name: the "For Fran" channel picks these shows by folder name.
+
 ## Wanted — YouTube, downloadable (next runs)
 
 | For | What | Why (evidence) |
@@ -27,7 +38,7 @@ The runner is idempotent (`archive.txt`) and stops on YouTube bot-checks; re-run
 | Ian | Aviation: Air Safety Institute, EAA, cockpit and airshow films | subscribed; ex-pilot |
 | Ian (+Jake) | Mark Rober, Johnny Harris, Outdoor Boys, abandoned-places and restoration docs | subscribed; ~22 urbex/resto watches |
 | Ian (+Jake) | Car restoration and Top Gear / Grand Tour-style long-form | ~15 car watches; Jake loves cars |
-| Fran | Come Dine With Me full episodes and omnibuses (UK, Ireland, Couples) | 41 watches |
+| Fran | Come Dine With Me full episodes and omnibuses (UK, Ireland, Couples) | 41 watches; her top show |
 | Fran | Christmas carol and Christmas songs playlists (seasonal) | 21 watches |
 | Sam | Hop Hop the Owl full episodes; The Wiggles; Ms Rachel | 32 Hop Hop, 74 nursery-song watches |
 | Jake | Long, calm gaming content: Minecraft builds, LEGO, BeckBroPlays long plays | 40 Minecraft watches; keep the YTP/"try not to laugh" edits off |
@@ -39,7 +50,7 @@ The runner is idempotent (`archive.txt`) and stops on YouTube bot-checks; re-run
 | Sam, Jake | **Real Bluey episodes** (beyond what iview carries) | History shows 41 Bluey watches, almost all YTP edits; give them the real thing |
 | Fran, Ian | Muster Dogs, Gruen (have), Hard Quiz (have), Have You Been Paying Attention?, Taskmaster, QI | Top-rated AU comedy / factual; ABC iview may carry some (check before buying) |
 | Fran | The Block, Grand Designs, Location Location Location, Escape to the Country | 9Life / 7two lifestyle anchors; Fran likes reality |
-| Fran, Ian | Cosy British mysteries: Father Brown, Midsomer Murders, Foyle's War, Vera (have a little), Death in Paradise (have a little) | 7two's "Best of British"; matches the together-folder brief |
+| Ian (+together) | Cosy British mysteries: Father Brown, Midsomer Murders, Foyle's War, Vera (have a little), Death in Paradise (have a little) | 7two's "Best of British"; not Fran's thing (Ian, 4 Nov) |
 | Fran | True crime series: Snapped, Australian Story, Four Corners episodes on cases | 7Bravo / ABC; Fran likes real cases |
 | Family | RFDS, The Family Next Door, Austin | top AU drama/comedy 2025 |
 | Sam | ABC Kids staples: Play School (have), In the Night Garden, Teletubbies, Bananas in Pyjamas, Peppa Pig (have), Paddington, Peter Rabbit | ABC Kids morning and wind-down blocks |
