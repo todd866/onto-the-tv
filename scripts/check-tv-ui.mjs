@@ -159,6 +159,14 @@ try {
   await page.locator('.seg.rating-m.on').waitFor();
   assert.equal(homeRatings.at(-1), 'M');
 
+  // A rating pressed before the new audience's lineup arrives is still an override.
+  homeDelay = 350;
+  await page.locator('.seg[data-who="sam"]').click();
+  await page.locator('.seg[data-rating="M"]').click();
+  homeDelay = 0;
+  await page.locator('.seg.rating-m.on').waitFor();
+  assert.equal(homeQueries.at(-1), 'sam,jake,mum,dad');
+  assert.equal(homeRatings.at(-1), 'M');
   // Picking who's watching resets the rating to theirs.
   await page.locator('.seg[data-who="adults"]').click();
   await page.locator('.seg.rating-m.on.default').waitFor();

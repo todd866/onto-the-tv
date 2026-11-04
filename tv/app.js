@@ -212,6 +212,9 @@
     });
     data.channels = [];
     data.ceiling = null;
+    // The new audience's default is unknown until the server answers; a stale one
+    // would make a quick rating press clear the override instead of setting it.
+    data.defaultCeiling = null;
     data.rating = rating || null;
     render();
     var keep = { row: focus.row, col: focus.col };
