@@ -113,6 +113,20 @@ export const TV_CHANNELS = [
     shows: /^(?:(?:couples )?come dine with me|grand designs|gogglebox|masterchef|the block|location|escape to)/i },
   { id: 'formum', number: 34, name: 'For Fran', person: 'mum', audience: 'adult' },
   { id: 'forjake', number: 36, name: 'For Jake', person: 'jake', audience: 'kid' },
+  // Ian's shelf (6 Nov 2026): channels a 40-year-old ex-RAAF pilot reaches for. Each appears
+  // once a folder matching it lands on the drive; folder names must start with the show's name.
+  { id: 'thrillers', number: 37, name: 'Spy & Crime', audience: 'adult',
+    shows: /^(?:mobland|slow horses|reacher|line of duty|the night manager|jack ryan|peaky blinders|the sopranos|the wire\b|breaking bad|ozark|narcos|the bureau|bodyguard|gangs of london|the gentlemen (?!\()|the day of the jackal|the terminal list|tom clancy|bosch|sherlock|jack irish|rake\b)/i },
+  { id: 'military', number: 38, name: 'War & Military', audience: 'adult',
+    shows: /^(?:band of brothers|the pacific|generation kill|das boot|masters of the air|chernobyl|the world at war|world war|ww ?(?:1|2|i|ii)\b|vietnam|the operations room|task (?:&|and) purpose|forces news|warographics|the last kingdom|sas rogue heroes|sas:? rogue heroes|our war|the war that changed us)/i },
+  { id: 'aviation', number: 39, name: 'Aviation', audience: 'adult',
+    shows: /^(?:mayday|air crash investigation|air disasters|mentour|air safety institute|eaa\b|blancolirio|juan browne|74 gear|ward carroll|cargospotter|dutchpilotgirl|top gun|the right stuff|airshow|red bull air race|nasa)/i },
+  { id: 'motoring', number: 40, name: 'Cars & Motoring', audience: 'adult',
+    shows: /^(?:top gear|the grand tour|clarkson|wheeler dealers|car sos|doug ?demuro|hoovie|jay leno|vehicle virgins|cleetus|engineering explained|grand tour)/i },
+  { id: 'makers', number: 41, name: 'Makers & Explainers', audience: 'adult',
+    shows: /^(?:mark rober|johnny harris|veritasium|smarter every ?day|real engineering|wendover|practical engineering|stuff made here|colin furze|kurzgesagt|half as interesting|tom scott|the b1m|outdoor boys|abandoned|restoration|my mechanics|hand tool rescue)/i },
+  { id: 'livesets', number: 42, name: 'Live Sets', audience: 'adult',
+    shows: /^(?:tiny desk|like a version|cercle|kexp|boiler room|from the basement|bbc live|colors|mahogany|audiotree|live at)/i },
 ];
 // Fran's own mix, from Ian (4 Nov 2026): her top three are Come Dine With Me, Friends and The
 // Big Bang Theory, and she is a big fan of British reality TV; she likes Kath & Kim too. No animation, no violence.
@@ -136,24 +150,26 @@ const LIMITED_SHOWS = new RegExp(['billy.s aviation', 'if planes could talk', 'p
 const LIMITED_WEIGHT = 0.05;
 // Ian (5 Nov 2026: "think about what a 40 year old ex-military dude might want"): ex-RAAF
 // pilot. British crime and gangster films, Mobland-style drama, Star Trek, Futurama and South
-// Park, dry Aussie comedy (Utopia, Hard Quiz, Gruen), Blackadder, cosy British mysteries, and
-// the wishlist's aviation, military, motoring, maker and live-music long-form as it lands.
+// Park, dry Aussie comedy (Utopia, Hard Quiz, Gruen), Blackadder, and the wishlist's aviation,
+// military, motoring, maker and live-music long-form as it lands. No cosy murder mysteries.
 const IAN_SHOWS = new RegExp('^(?:' + ['mobland', 'the gentlemen', 'snatch', 'lock,? stock', 'in bruges', 'rocknrolla',
   'star trek', 'the orville', 'the expanse', 'futurama', 'south park', 'utopia', 'fisk', 'hard quiz', 'gruen', 'blackadder',
-  'taskmaster', 'have you been paying attention', 'qi\\b', 'would i lie to you', 'shetland', 'vera', 'death in paradise',
-  'foyle', 'father brown', 'midsomer', 'bald and bankrupt', 'top gear', 'the grand tour', 'band of brothers', 'the pacific',
+  'taskmaster', 'have you been paying attention', 'qi\\b', 'would i lie to you', 'bald and bankrupt', 'top gear', 'the grand tour', 'band of brothers', 'the pacific',
   'generation kill', 'chernobyl', 'das boot', 'slow horses', 'line of duty', 'reacher', 'jack ryan', 'the night manager',
   'mayday', 'air crash investigation', 'top gun', 'black hawk down', 'dunkirk', 'apollo 13', 'master and commander',
-  'heat\\b', 'sicario', 'mark rober', 'johnny harris', 'tiny desk', 'like a version', 'cercle'].join('|') + ')', 'i');
+  'heat\\b', 'sicario', 'mark rober', 'johnny harris', 'tiny desk', 'like a version', 'cercle', 'mentour', 'air safety institute',
+  'peaky blinders', 'the sopranos', 'veritasium', 'smarter every ?day', 'real engineering', 'wendover', 'kexp'].join('|') + ')', 'i');
 // Fran's lifestyle and reality shows: hers, not his (they share Bald and Bankrupt).
-const IAN_SKIPS = /^(?:(?:couples )?come dine with me|first dates|a place in the sun|escape to the country|homes under the hammer|the hotel inspector|grand designs|dragons.? den|the repair shop|gogglebox|four in a bed|(?:the )?(?:great british )?bake off|bargain hunt|location,? location|love island|married at first sight|the apprentice)/i;
+// Plus the cosy, old-person British murder mysteries (Ian, 6 Nov 2026: "keep that off my channel").
+const IAN_SKIPS = /^(?:shetland|vera\b|death in paradise|miss fisher|midsomer|father brown|foyle|poirot|marple|agatha christie|lewis\b|endeavour|inspector|grantchester|murder,? she wrote|death on the nile|the madame blanc|whitstable pearl|the brokenwood|rosemary (?:&|and) thyme|bergerac|dalgliesh|ludwig|(?:couples )?come dine with me|first dates|a place in the sun|escape to the country|homes under the hammer|the hotel inspector|grand designs|dragons.? den|the repair shop|gogglebox|four in a bed|(?:the )?(?:great british )?bake off|bargain hunt|location,? location|love island|married at first sight|the apprentice)/i;
 // Each person's favourites lead their own channel; the rest of its pool are discoveries.
 const FAVOURITES = { mum: FRAN_SHOWS, jake: JAKE_SHOWS, dad: IAN_SHOWS };
 // A grown-up on their own sees channels in the order they would reach for them; unlisted
 // channels follow in catalogue order. Learned taste breaks ties within the rest.
 const PERSON_LINEUP = {
-  dad: ['fordad', 'movies', 'crime', 'scifi', 'adultanim', 'comedy', 'docs', 'sports', 'rides', 'music', 'sitcoms', 'seinfeld',
-    'classic', 'd80', 'd90', 'd70', 'grownups', 'truecrime', 'friends', 'reality'],
+  dad: ['fordad', 'movies', 'thrillers', 'military', 'aviation', 'motoring', 'makers', 'scifi', 'adultanim', 'comedy',
+    'livesets', 'music', 'docs', 'sports', 'rides', 'sitcoms', 'seinfeld', 'classic', 'd80', 'd90', 'd70', 'truecrime',
+    'grownups', 'crime', 'friends', 'reality'],
   mum: ['formum', 'reality', 'friends', 'sitcoms', 'grownups', 'truecrime', 'crime', 'comedy', 'music', 'seinfeld', 'movies'],
 };
 const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]));
@@ -395,13 +411,16 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (!personPresent(channel, ids)) return [];
     const adults = grownOnly(ids, rating);
     if (adults && channel.audience === 'kid') return [];
+    // Ian on his own: Fran's reality and the cosy mysteries stay off his whole tab.
+    const ianAlone = ids.length === 1 && ids[0] === 'dad' && adults;
     const { ceiling, blocked } = audience(ids, rating);
     // Christmas episodes wait for December (to 6 January) outside the Christmas channel.
     const date = new Date(now()), festive = date.getMonth() === 11 || (date.getMonth() === 0 && date.getDate() <= 6);
     const seasonal = item => !festive && channelId !== 'christmas' &&
       /\b(?:christmas|xmas|santa|no[eë]l)\b/i.test(String(item.title || '') + ' ' + String(item.src || '').replace(/[._]/g, ' '));
     return videos.map((item, index) => (inGenre(item, channelId) && ratingAllowed(item, ceiling, blocked, channelId) &&
-      !(adults && CARTOON_TIERS.has(item.tier)) && !seasonal(item) ? index : -1))
+      !(adults && CARTOON_TIERS.has(item.tier)) && !seasonal(item) &&
+      !(ianAlone && IAN_SKIPS.test(String(item.channel || '').replace(/^[^\w]+/, ''))) ? index : -1))
       .filter(index => index >= 0);
   }
 
@@ -589,7 +608,14 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     }
     let weights = weightsFor(key);
     const favourites = FAVOURITES[CHANNEL_BY_ID.get(channelId)?.person];
-    const limited = pool.filter(index => LIMITED_SHOWS.test(String(videos[index].channel || '') + ' ' + String(videos[index].title || '')));
+    // Rationed shows are the kids' favourites the parents tire of; grown-ups alone are not rationed.
+    const limited = grownOnly(ids, ratingOf(options.rating)) ? [] : pool.filter(index => LIMITED_SHOWS.test(String(videos[index].channel || '') + ' ' + String(videos[index].title || '')));
+    // A card's "now on" is a real episode: not a Season 0 special, interview or featurette.
+    if (options.billing) {
+      const extra = /\bS0+\s?E\d|\bseason 0+\b|\bspecials?\b\/|interview|behind the scenes|featurette|deleted scenes?|bloopers|gag reel|trailer|alternative pilot/i;
+      const real = pool.filter(index => !extra.test(String(videos[index].title || '') + ' ' + String(videos[index].src || '')));
+      if (real.length) pool = real;
+    }
     if (options.billing && limited.length && limited.length < pool.length) {
       const keep = new Set(limited);
       pool = pool.filter(index => !keep.has(index));

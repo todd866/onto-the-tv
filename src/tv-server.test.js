@@ -514,3 +514,22 @@ test("Ian alone gets his own running order, one show per card, and no Christmas 
   assert.ok(!JSON.stringify(home.channels.filter(channel => channel.id !== 'christmas')).includes('Xmas'), 'no Christmas episodes in November outside the Christmas channel');
   for (let i = 0; i < 20; i++) assert.notEqual(library.next('fordad', { viewers: 'dad' }).show, 'Come Dine With Me', "Fran's shows stay off For Ian");
 });
+
+test("Ian's tab: no cosy mysteries or Fran's reality, his own channels, real episodes billed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  const make = (src, channel, tier, title = src) => ({ src, file: '/m/' + src, title, channel, tier, duration: 1300 });
+  const library = createTvLibrary({ videos: [
+    make('Shetland/1.mp4', 'Shetland', 'couple', 'S1 E1'), make('Vera/1.mp4', 'Vera', 'couple', 'S1 E1'),
+    make('Come Dine/1.mp4', 'Come Dine With Me', 'grownup'), make('Line of Duty/1.mp4', 'Line of Duty', 'grownup', 'S1 E1'),
+    make('Mayday/1.mp4', 'Mayday', 'grownup', 'S1 E1'), make('Top Gear/1.mp4', 'Top Gear', 'grownup', 'S1 E1'),
+    make('Seinfeld/0.mp4', 'Seinfeld (1989)', 'sitcom', 'S0 E1 Alternative pilot'), make('Seinfeld/1.mp4', 'Seinfeld (1989)', 'sitcom', 'S1 E1'),
+  ], history: await loadPlaybackHistory(join(dir, 'history.json')), storage: await createFileStorage(join(dir, 'taste.json')), random: () => 0 });
+  const ian = library.home('dad');
+  const ids = ian.channels.map(channel => channel.id);
+  assert.ok(!JSON.stringify(ian.channels).match(/Shetland|Vera|Come Dine/), JSON.stringify(ian.channels.map(c => c.now.show)));
+  for (const id of ['thrillers', 'aviation', 'motoring']) assert.ok(ids.includes(id), id);
+  assert.ok(ids.indexOf('aviation') < ids.indexOf('seinfeld'), JSON.stringify(ids));
+  assert.equal(ian.channels.find(channel => channel.id === 'seinfeld').now.title.includes('pilot'), false, 'billing skips Season 0 extras');
+  const together = library.home('mum,dad');
+  assert.ok(JSON.stringify(together.channels).includes('Shetland') || together.channels.some(channel => channel.id === 'crime'), 'Fran and Ian together still get the mysteries');
+});
