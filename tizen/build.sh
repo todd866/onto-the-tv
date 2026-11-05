@@ -45,7 +45,7 @@ PYPROBE
 COUCH_SOURCE="$ROOT/../guns-only/web/wwwroot/rc"
 COUCH_ADDRESS="${ONTO_COUCH_ADDRESS:-http://192.168.20.20:8690}"
 COUCH_TOKEN=$(cat "$ROOT/../.tv-couch-plan/couch-token")
-cp "$HERE/icon.png" "$APP/onto-icon-v3.png"
+cp "$HERE/icon.png" "$APP/onto-icon-v4.png"
 cp "$COUCH_SOURCE/couch.js" "$APP/rc-couch.js"
 cp "$COUCH_SOURCE/couch.css" "$APP/rc-couch.css"
 python3 - "$COUCH_SOURCE/couch.html" "$APP/rc-couch.html" <<'PYHTML'
