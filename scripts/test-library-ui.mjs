@@ -26,6 +26,7 @@ try {
       libraryArtwork:async path=>{window.calls.push(['artwork',path]);await new Promise(r=>setTimeout(r,60));return fixture.artwork[path] || null;},
       openFiles:async paths=>{window.calls.push(['open',paths]);return state;},
       addLibraryFolder:async()=>fixture,pathFor:()=>'',recordHistory:async()=>{},
+      setPlayOn:async value=>{window.calls.push(['playOn',value]);return value;},recordMacHistory:async input=>{window.calls.push(['macHistory',input]);},
     };
   },fixture);
   await page.goto(pathToFileURL(resolve('ui/index.html')).href);
@@ -44,12 +45,24 @@ try {
   assert.ok(item);
   await page.locator('#library-search').fill(item.title);
   await page.waitForTimeout(100);
-  const tile=page.locator('#library-list').getByRole('button',{name:`Resume on TV ${item.title}`,exact:true});
+  const tile=page.locator('#library-list').getByRole('button',{name:`Resume on the TV: ${item.title}`,exact:true});
   await tile.focus(); await page.evaluate(()=>window.updateTv());
   assert.equal(await tile.evaluate(el=>el===document.activeElement),true);
   await tile.click();
   assert.deepEqual(await page.evaluate(()=>window.calls.filter(x=>x[0]==='open')), [['open',[item.path]]]);
+  // Switching Play on to Mac relabels the tile and opens the in-app player instead.
   await page.getByRole('button',{name:'Library',exact:true}).click();
+  await page.locator('[data-play-on="mac"]').click();
+  const macTile=page.locator('#library-list').getByRole('button',{name:`Resume on this Mac: ${item.title}`,exact:true});
+  assert.equal(await macTile.locator('.library-item-action').textContent(),'Resume · Mac');
+  await macTile.click();
+  assert.equal(await page.locator('#mac-player').isVisible(),true);
+  assert.equal(await page.locator('#mac-title').textContent(),item.title);
+  assert.deepEqual(await page.evaluate(()=>window.calls.filter(x=>x[0]==='open').length),1);
+  assert.deepEqual(await page.evaluate(()=>window.calls.filter(x=>x[0]==='playOn')),[['playOn','mac']]);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#mac-player').isVisible(),false);
+  await page.locator('[data-play-on="tv"]').click();
   await page.locator('#library-search').fill('No title matches this string');
   assert.equal(await page.locator('#library-list .library-card').count(),0);
   assert.equal(await page.locator('#library-empty').isVisible(),true);

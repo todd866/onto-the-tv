@@ -8,7 +8,7 @@ import { DEFAULT_AMBIENT_OPTIONS, validateAmbientOptions } from './ambient-sourc
 export function defaults(home = homedir()) {
   const library = join(home, 'Movies', 'kids-holiday');
   return { tvHost: '', avTransportUrl: '', bindHost: '', library,
-    playerPath: join(library, 'kids-shuffler.html'), tiersPath: '', sourcesPath: '', mediaFolders: [],
+    playerPath: join(library, 'kids-shuffler.html'), tiersPath: '', sourcesPath: '', mediaFolders: [], playOn: '',
     ambient: { ...DEFAULT_AMBIENT_OPTIONS } };
 }
 
@@ -44,6 +44,7 @@ export async function readSettings(path, home) {
     }
     if (Array.isArray(data.mediaFolders)) result.mediaFolders = [...new Set(data.mediaFolders.filter(path =>
       typeof path === 'string' && path.length <= 4096 && !path.includes('\0') && isAbsolute(path)))].slice(0, 128);
+    if (data.playOn === 'mac' || data.playOn === 'tv') result.playOn = data.playOn;
     if (data.ambient) result.ambient = validateAmbientOptions(data.ambient);
   } catch (error) {
     if (error.code !== 'ENOENT') throw new Error(`Cannot read settings: ${error.message}`);

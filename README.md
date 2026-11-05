@@ -25,7 +25,10 @@ History starts recording with this version; existing channel taste/bookmarks sta
 separate. The Mac stays awake and on the same network while it serves the TV.
 
 **Library** is a visual browser: Continue watching, film tiles, search and show
-filters. Click a tile to play or resume on the TV. Artwork comes from local video
+filters. Click a tile to play or resume it where the toolbar's **Play on** switch
+points: **Mac** plays in the app (the default on a laptop), **TV** sends it to the
+Samsung. The Mac player's **Onto the TV** button carries on from the same spot on the
+TV. History and dropped files follow the same switch. Artwork comes from local video
 frames and is cached privately; browsing does not start playback. Add more video
 folders through Library settings. These additions are for browsing and do not
 change the children's channel groups.

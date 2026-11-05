@@ -4,10 +4,11 @@ import { createReportService } from './report-service.js';
 import { createStateTrace, shortArgs } from './report-trace.js';
 import { loadPlaybackHistory } from './playback-history.js';
 import { createTasteWriter } from './taste.js';
-import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, shell } from 'electron';
+import { execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile } from 'node:fs/promises';
-import { dirname, join, isAbsolute } from 'node:path';
+import { dirname, join, isAbsolute, extname } from 'node:path';
 import { createLiveSession } from './live.js';
 import { loadConfig } from '../casting/src/config.js';
 import { createFileOpenBatcher } from './file-open-batch.js';
@@ -15,7 +16,7 @@ import { filesFromArgv } from './launch-files.js';
 import { defaults, readSettings, writeSettings, validateTvSettings, preserveUnreadableSettings } from './settings.js';
 import { playerExists, buildPlayer, prepareChannels, readCatalogue } from './shuffler.js';
 import { playOnTv, queueOnTv, tvNotice, recordLocalHistory } from './channel-cast.js';
-import { buildLibrary, scanMediaLibrary } from './library.js';
+import { buildLibrary, scanMediaLibrary, MEDIA_EXTENSIONS } from './library.js';
 import { createArtworkCache, pruneArtwork } from './library-artwork.js';
 import { createAmbientSources, validateAmbientOptions } from './ambient-sources.js';
 import { createAmbientPlayer } from './ambient-player.js';
@@ -143,8 +144,15 @@ function takeOverFromChannel(reason = 'Playing a dropped file on the TV.') {
   return true;
 }
 
+// A Mac with a battery is a laptop: it plays here unless told otherwise.
+let laptop;
+function isLaptop() {
+  laptop ||= new Promise(resolve => execFile('/usr/bin/pmset', ['-g', 'batt'], { timeout: 3000 },
+    (error, out) => resolve(!error && /InternalBattery/.test(out))));
+  return laptop;
+}
 async function snapshot() {
-  return { ...settings, hasPlayer: await playerExists(settings), building, tv: session.getState() };
+  return { ...settings, playOn: settings.playOn || (await isLaptop() ? 'mac' : 'tv'), hasPlayer: await playerExists(settings), building, tv: session.getState() };
 }
 
 // Writes run one at a time and each saves the settings as they are when it runs.
@@ -305,6 +313,32 @@ handle('channel:queue-next', (src, currentSrc) => {
   return queueOnTv(session, catalogue, src, currentSrc);
 });
 handle('library:get', () => libraryIndex());
+function macVideo(path) {
+  if (typeof path !== 'string' || path.length > 4096 || path.includes('\0') || !isAbsolute(path) ||
+      !MEDIA_EXTENSIONS.has(extname(path).toLowerCase())) throw new Error('Choose a local video file.');
+  return path;
+}
+handle('settings:play-on', async value => {
+  if (value !== 'mac' && value !== 'tv') throw new Error('Play on the Mac or the TV.');
+  settings.playOn = value;
+  await persist();
+  return value;
+});
+handle('mac:history', async input => {
+  const path = macVideo(input?.path);
+  const { positionSeconds, durationSeconds, completed } = input;
+  if (!Number.isFinite(positionSeconds) || positionSeconds < 0 || !Number.isFinite(durationSeconds) ||
+      durationSeconds < 0 || typeof completed !== 'boolean' || !playbackHistory) return;
+  // Channel surfing is not watching: start an entry only after half a minute.
+  if (!completed && positionSeconds < 30 && !playbackHistory.has(path)) return;
+  playbackHistory.set(path, { positionSeconds, durationSeconds, completed, reset: input.reset === true });
+  await playbackHistory.flush();
+  sendState(session.getState());
+});
+handle('mac:open-external', async path => {
+  const error = await shell.openPath(macVideo(path));
+  if (error) throw new Error(error);
+});
 handle('ambient:get', input => ambientSnapshot(input));
 handle('ambient:save', async input => {
   settings.ambient = validateAmbientOptions({ ...input, photoFolder: settings.ambient.photoFolder });

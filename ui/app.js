@@ -14,6 +14,8 @@ let libraryTruncated = false;
 let libraryLoaded = false;
 let libraryLoading;
 let libraryFilter = 'home';
+let playOn = 'tv';
+const outputName = () => playOn === 'mac' ? 'Mac' : 'TV';
 const libraryArtwork = new Map();
 const libraryCards = new Set();
 const artworkObserver = new IntersectionObserver(entries => {
@@ -124,8 +126,8 @@ function updateLibraryProgress(history) {
 function updateLibraryCard(card, item) {
   const resume = !item.completed && item.positionSeconds > 5;
   const action = item.completed ? 'Replay' : resume ? 'Resume' : 'Play';
-  card.setAttribute('aria-label', `${action} on TV ${item.title}`);
-  card.querySelector('.library-item-action').textContent = action;
+  card.setAttribute('aria-label', `${action} on ${playOn === 'mac' ? 'this Mac' : 'the TV'}: ${item.title}`);
+  card.querySelector('.library-item-action').textContent = `${action} · ${outputName()}`;
   const progress = card.querySelector('.library-progress');
   progress.hidden = !resume || !item.durationSeconds;
   progress.style.width = `${Math.min(100, 100 * (item.positionSeconds || 0) / (item.durationSeconds || 1))}%`;
@@ -144,7 +146,7 @@ function libraryTile(item) {
   art.append(image, progress); card.append(art, title, action); li.append(card);
   card.onclick = () => void act(async () => {
     card.disabled = true;
-    try { setMode('tv'); renderTv(await api.openFiles([item.path])); }
+    try { await play(item.path, item.title); }
     finally { card.disabled = false; }
   });
   libraryCards.add(card); updateLibraryCard(card, item); artworkObserver.observe(card);
@@ -229,7 +231,7 @@ function renderHistory(entries) {
       const title = document.createElement('p'); title.className = 'history-title';
       const detail = document.createElement('p'); detail.className = 'history-detail';
       const button = document.createElement('button');
-      button.onclick = () => act(() => api.openFiles([entry.path]));
+      button.onclick = () => act(() => play(entry.path, entry.title));
       info.append(title, detail); row.append(info, button); historyRows.set(entry.path, row);
     }
     row.querySelector('.history-title').textContent = entry.title;
@@ -238,7 +240,7 @@ function renderHistory(entries) {
     const progress = entry.completed ? 'Finished' : `${clock(entry.positionSeconds)} / ${clock(entry.durationSeconds)}`;
     row.querySelector('.history-detail').textContent = `${progress} · ${time}`;
     const button = row.querySelector('button');
-    button.textContent = entry.completed ? 'Replay on TV' : entry.positionSeconds > 5 ? 'Resume on TV' : 'Play on TV';
+    button.textContent = `${entry.completed ? 'Replay' : entry.positionSeconds > 5 ? 'Resume' : 'Play'} on ${outputName()}`;
     button.setAttribute('aria-label', `${button.textContent} ${entry.title}`);
     const atIndex = $('history-list').children[index];
     if (atIndex !== row) $('history-list').insertBefore(row, atIndex || null);
@@ -264,7 +266,94 @@ function scheduleSeek(target) {
   }, 200);
 }
 
+// Library, History and dropped files go wherever the Play-on switch says.
+async function play(path, title) {
+  if (playOn === 'mac') { openMacPlayer(path, title); return; }
+  setMode('tv'); renderTv(await api.openFiles([path]));
+}
+
+function renderPlayOn() {
+  for (const button of document.querySelectorAll('[data-play-on]')) button.setAttribute('aria-pressed', String(button.dataset.playOn === playOn));
+  for (const card of libraryCards) updateLibraryCard(card, card.libraryItem);
+  if (latestTv) renderHistory(latestTv.history || []);
+}
+for (const button of document.querySelectorAll('[data-play-on]')) button.onclick = () => {
+  const previous = playOn;
+  playOn = button.dataset.playOn; renderPlayOn();
+  void act(async () => { try { await api.setPlayOn(playOn); } catch (error) { playOn = previous; renderPlayOn(); throw error; } });
+};
+
+let macPath = null;
+let macSaved = 0;
+let macReturnFocus = null;
+const macVideo = $('mac-video');
+function saveMac({ completed = false } = {}) {
+  if (!macPath || !api?.recordMacHistory) return;
+  const duration = Number.isFinite(macVideo.duration) ? macVideo.duration : 0;
+  const position = completed ? duration : macVideo.currentTime || 0;
+  if (!duration || (!completed && position < 1)) return;
+  macSaved = Date.now();
+  void api.recordMacHistory({ path:macPath, positionSeconds:Math.round(position), durationSeconds:Math.round(duration), completed }).catch(() => {});
+}
+function openMacPlayer(path, title) {
+  if (macPath) { saveMac(); }
+  window.channelView?.stop();
+  macReturnFocus = document.activeElement;
+  macPath = path;
+  const saved = (latestTv?.history || []).find(entry => entry.path === path);
+  const start = saved && !saved.completed && saved.positionSeconds > 5 ? saved.positionSeconds : 0;
+  $('mac-title').textContent = title || saved?.title || path.split('/').pop();
+  $('mac-title').title = path;
+  $('mac-error').hidden = true;
+  macVideo.src = 'file://' + path.split('/').map(encodeURIComponent).join('/');
+  macVideo.addEventListener('loadedmetadata', () => { if (start && start < macVideo.duration - 5) macVideo.currentTime = start; }, { once:true });
+  $('mac-player').hidden = false;
+  macVideo.focus();
+  void macVideo.play().catch(() => {});
+}
+function closeMacPlayer() {
+  if (!macPath) return;
+  saveMac();
+  macVideo.pause(); macVideo.removeAttribute('src'); macVideo.load();
+  macPath = null;
+  $('mac-player').hidden = true;
+  if (mode === 'local') window.channelView?.enter();
+  macReturnFocus?.focus?.();
+}
+macVideo.addEventListener('timeupdate', () => { if (Date.now() - macSaved > 15000) saveMac(); });
+macVideo.addEventListener('pause', () => { if (!macVideo.ended) saveMac(); });
+macVideo.addEventListener('ended', () => saveMac({ completed:true }));
+macVideo.addEventListener('error', () => { if (macPath) $('mac-error').hidden = false; });
+window.addEventListener('beforeunload', () => saveMac());
+$('mac-close').onclick = closeMacPlayer;
+$('mac-external').onclick = () => { const path = macPath; closeMacPlayer(); void act(() => api.openExternally(path)); };
+$('mac-to-tv').onclick = () => {
+  const path = macPath;
+  // Save the place first so the TV picks up from it.
+  const duration = Number.isFinite(macVideo.duration) ? macVideo.duration : 0;
+  const position = Math.round(macVideo.currentTime || 0);
+  closeMacPlayer();
+  void act(async () => {
+    if (duration && position > 0) await api.recordMacHistory({ path, positionSeconds:position, durationSeconds:Math.round(duration), completed:false });
+    setMode('tv'); renderTv(await api.openFiles([path]));
+  });
+};
+window.addEventListener('keydown', event => {
+  if (!macPath || document.fullscreenElement) return;
+  const handled = ['Escape', ' ', 'ArrowLeft', 'ArrowRight', 'f'].includes(event.key) &&
+    (event.key === 'Escape' || !event.target.closest('button, input'));
+  if (handled) event.stopImmediatePropagation();
+  if (event.key === 'Escape') { event.preventDefault(); closeMacPlayer(); return; }
+  if (!handled) return;
+  if (event.key === ' ') { event.preventDefault(); if (macVideo.paused) void macVideo.play(); else macVideo.pause(); }
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    event.preventDefault(); macVideo.currentTime = Math.max(0, macVideo.currentTime + (event.key === 'ArrowLeft' ? -10 : 30));
+  }
+  if (event.key === 'f') { event.preventDefault(); void macVideo.requestFullscreen?.().catch(() => {}); }
+}, true);
+
 function renderSettings(state) {
+  if (state.playOn === 'mac' || state.playOn === 'tv') { playOn = state.playOn; renderPlayOn(); }
   $('tv-host').value = state.tvHost;
   $('av-transport').value = state.avTransportUrl;
   $('bind-host').value = state.bindHost;
@@ -354,6 +443,7 @@ window.addEventListener('keydown', event => {
 for (const action of ['pause', 'resume', 'stop']) $(action).onclick = () => act(() => api[action]());
 window.addEventListener('dragover', event => {
   event.preventDefault();
+  if (playOn === 'mac') return;
   if (mode !== 'tv') setMode('tv');
   $('gate').classList.add('over');
 });
@@ -361,8 +451,10 @@ window.addEventListener('dragleave', event => {
   if (event.target === document.documentElement) $('gate').classList.remove('over');
 });
 window.addEventListener('drop', event => {
-  event.preventDefault(); $('gate').classList.remove('over'); setMode('tv');
+  event.preventDefault(); $('gate').classList.remove('over');
   const paths = [...(event.dataTransfer?.files || [])].map(file => api.pathFor(file)).filter(Boolean);
+  if (playOn === 'mac' && mode !== 'tv') { if (paths[0]) openMacPlayer(paths[0]); return; }
+  setMode('tv');
   if (paths.length) void act(async () => renderTv(await api.openFiles(paths)));
 });
 

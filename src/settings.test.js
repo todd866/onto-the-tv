@@ -139,3 +139,15 @@ test('unreadable settings are kept aside before defaults can overwrite them', as
     assert.equal(await preserveUnreadableSettings(join(dir, 'missing.json')), null);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('play-on choice persists and unknown values fall back to automatic', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-settings-'));
+  try {
+    const path = join(dir, 'settings.json');
+    assert.equal(defaults('/example').playOn, '');
+    await writeSettings(path, { ...defaults('/example'), playOn: 'mac' });
+    assert.equal((await readSettings(path, '/example')).playOn, 'mac');
+    await writeFile(path, JSON.stringify({ playOn: 'phone' }));
+    assert.equal((await readSettings(path, '/example')).playOn, '');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

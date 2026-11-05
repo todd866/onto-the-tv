@@ -11,7 +11,7 @@ button { background:var(--panel); border:2px solid var(--line); border-radius:9p
 button:hover,button[aria-pressed="true"],button.selected { border-color:var(--amber); }
 button:disabled { cursor:wait; opacity:.5; }
 button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
-.toolbar { min-height:58px; padding:9px 16px 9px 76px; display:flex; align-items:center; gap:14px; background:var(--panel); border-bottom:2px solid var(--line); -webkit-app-region:drag; }
+.toolbar { flex-wrap:wrap; min-height:58px; padding:9px 16px 9px 76px; display:flex; align-items:center; gap:14px; background:var(--panel); border-bottom:2px solid var(--line); -webkit-app-region:drag; }
 .brand { display:flex; align-items:center; gap:9px; flex:1; min-width:130px; } .brand img { width:30px; height:30px; object-fit:contain; }
 h1 { margin:0; color:var(--amber); font-size:21px; font-weight:800; letter-spacing:-.04em; white-space:nowrap; } h1 span { margin-left:4px; color:var(--text); font-size:.54em; letter-spacing:.1em; vertical-align:top; }
 .modes { display:flex; gap:3px; padding:3px; background:var(--bg); border:2px solid var(--line); border-radius:10px; }
@@ -186,3 +186,10 @@ label { display:flex; flex-direction:column; gap:6px; margin-top:13px; font-size
 #channel-hero { grid-template-columns:auto minmax(0,1fr); }
 .hero-picture { height:min(34vh,20em); width:auto; }
 #channel-home > #channel-hero { flex:none; }
+
+.play-on button { min-height:30px; padding:4px 10px; font-size:12px; } .play-on button span { font-size:14px; line-height:1; }
+#mac-player { position:fixed; inset:0; z-index:50; display:flex; flex-direction:column; background:#000; }
+.mac-player-bar { display:flex; align-items:center; gap:12px; padding:9px 16px 9px 76px; background:var(--panel); border-bottom:2px solid var(--line); -webkit-app-region:drag; }
+#mac-title { flex:1; min-width:0; margin:0; font-size:15px; overflow-wrap:anywhere; }
+#mac-video { flex:1; min-height:0; width:100%; background:#000; }
+#mac-error { margin:0; padding:10px 16px; background:var(--panel); color:var(--danger); }

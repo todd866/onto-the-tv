@@ -20,6 +20,10 @@
         <button id="mode-tv" aria-pressed="false">TV</button>
         <button id="mode-history" aria-pressed="false">History</button>
       </nav>
+      <div id="play-on" class="seg-group play-on" role="group" aria-label="Play on">
+        <button type="button" data-play-on="mac" aria-label="Play on Mac" aria-pressed="false" title="Library and History play on this Mac"><span aria-hidden="true">▭</span>Mac</button>
+        <button type="button" data-play-on="tv" aria-label="Play on TV" aria-pressed="false" title="Library and History play on the TV"><span aria-hidden="true">▣</span>TV</button>
+      </div>
       <button id="library-toggle" title="Library settings" aria-label="Library settings">⚙</button>
     </header>
     <section id="local-view" aria-label="Channels">
@@ -130,6 +134,15 @@
         <p id="history-empty" class="small quiet">Videos you watch in the app or on the TV appear here.</p>
         <ol id="history-list" aria-label="Previously watched files"></ol>
       </section>
+    <section id="mac-player" hidden aria-label="Playing on this Mac">
+      <div class="mac-player-bar">
+        <button type="button" id="mac-close" aria-label="Close player" title="Close (Esc)">←</button>
+        <p id="mac-title"></p>
+        <button type="button" id="mac-to-tv" title="Carry on from here on the TV"><span aria-hidden="true">▣</span> Onto the TV</button>
+      </div>
+      <video id="mac-video" controls autoplay></video>
+      <p id="mac-error" role="alert" hidden><span>This Mac can’t play this file’s format.</span> <button type="button" id="mac-external">Open in default player</button></p>
+    </section>
     <p class="status" id="status" role="status" aria-live="polite"></p>
   </main>
   <script src="ambient-slide.js"></script>
