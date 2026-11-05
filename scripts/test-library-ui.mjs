@@ -27,6 +27,8 @@ try {
       openFiles:async paths=>{window.calls.push(['open',paths]);return state;},
       addLibraryFolder:async()=>fixture,pathFor:()=>'',recordHistory:async()=>{},
       setPlayOn:async value=>{window.calls.push(['playOn',value]);return value;},recordMacHistory:async input=>{window.calls.push(['macHistory',input]);},
+      macOpen:async path=>({durationSeconds:1800,direct:true,convert:'',audio:[{n:0,label:'English · stereo',isDefault:true}],subtitles:[],next:null}),
+      macPrepare:async path=>({path,direct:true}),macCancel:async()=>{},macSubtitle:async()=>'WEBVTT\n',
     };
   },fixture);
   await page.goto(pathToFileURL(resolve('ui/index.html')).href);

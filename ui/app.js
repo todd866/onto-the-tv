@@ -284,9 +284,15 @@ for (const button of document.querySelectorAll('[data-play-on]')) button.onclick
 };
 
 let macPath = null;
+let macInfo = null;
+let macToken = 0;
 let macSaved = 0;
 let macReturnFocus = null;
+let macSpeed = 1;
+let macCcLabel = '';
+let macSubtitleUrl = null;
 const macVideo = $('mac-video');
+const fileUrl = path => 'file://' + path.split('/').map(encodeURIComponent).join('/');
 function saveMac({ completed = false } = {}) {
   if (!macPath || !api?.recordMacHistory) return;
   const duration = Number.isFinite(macVideo.duration) ? macVideo.duration : 0;
@@ -295,37 +301,122 @@ function saveMac({ completed = false } = {}) {
   macSaved = Date.now();
   void api.recordMacHistory({ path:macPath, positionSeconds:Math.round(position), durationSeconds:Math.round(duration), completed }).catch(() => {});
 }
-function openMacPlayer(path, title) {
-  if (macPath) { saveMac(); }
+function macPreparing(text, fraction) {
+  $('mac-preparing').hidden = !text;
+  $('mac-preparing-text').textContent = text || '';
+  $('mac-meter-fill').style.width = `${Math.round(100 * (fraction || 0))}%`;
+  $('mac-preparing-pct').textContent = fraction > 0 ? `${Math.round(100 * fraction)}%` : '';
+}
+function macFail(error) {
+  macPreparing('');
+  $('mac-error-text').textContent = error?.message?.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') || 'This Mac can’t play this file.';
+  $('mac-error').hidden = false;
+}
+function fillSelect(select, options, value) {
+  select.replaceChildren(...options.map(([key, label]) => Object.assign(document.createElement('option'), { value:key, textContent:label })));
+  select.value = value;
+  select.title = select.selectedOptions[0]?.textContent || '';
+}
+// Loads the chosen audio track: natively when Chromium can, otherwise via a converted copy.
+async function loadMacSource(audio, at, token) {
+  const slow = setTimeout(() => { if (token === macToken) macPreparing(macInfo?.convert === 'video' ? 'Converting video for this Mac' : 'Preparing audio for this Mac', 0); }, 300);
+  try {
+    const ready = await api.macPrepare(macPath, audio);
+    if (token !== macToken) return;
+    const url = fileUrl(ready.path);
+    const pick = () => {
+      const tracks = macVideo.audioTracks;
+      if (ready.direct && tracks?.length > 1) for (let i = 0; i < tracks.length; i++) tracks[i].enabled = i === audio;
+    };
+    if (macVideo.src !== url) {
+      macVideo.src = url;
+      macVideo.addEventListener('loadedmetadata', () => {
+        if (at > 0 && at < macVideo.duration - 5) macVideo.currentTime = at;
+        macVideo.playbackRate = macSpeed; pick();
+      }, { once:true });
+      void macVideo.play().catch(() => {});
+    } else pick();
+  } catch (error) { if (token === macToken && !String(error?.message).includes('Stopped.')) macFail(error); }
+  finally { clearTimeout(slow); if (token === macToken) macPreparing(''); }
+}
+async function chooseSubtitle(id) {
+  for (const track of macVideo.querySelectorAll('track')) track.remove();
+  if (macSubtitleUrl) { URL.revokeObjectURL(macSubtitleUrl); macSubtitleUrl = null; }
+  macCcLabel = id ? $('mac-cc').selectedOptions[0]?.textContent || '' : '';
+  $('mac-cc').title = $('mac-cc').selectedOptions[0]?.textContent || '';
+  $('mac-cc-wrap').classList.toggle('on', Boolean(id));
+  if (!id) return;
+  const path = macPath;
+  const text = await api.macSubtitle(path, id);
+  if (path !== macPath || $('mac-cc').value !== id) return;
+  macSubtitleUrl = URL.createObjectURL(new Blob([text], { type:'text/vtt' }));
+  const track = Object.assign(document.createElement('track'), { kind:'subtitles', src:macSubtitleUrl, default:true, label:macCcLabel });
+  macVideo.append(track);
+  track.track.mode = 'showing';
+}
+async function openMacPlayer(path, title) {
+  if (macPath) saveMac();
+  void api.macCancel?.().catch(() => {});
+  const token = ++macToken;
   window.channelView?.stop();
-  macReturnFocus = document.activeElement;
-  macPath = path;
+  if ($('mac-player').hidden) macReturnFocus = document.activeElement;
+  macPath = path; macInfo = null;
   const saved = (latestTv?.history || []).find(entry => entry.path === path);
   const start = saved && !saved.completed && saved.positionSeconds > 5 ? saved.positionSeconds : 0;
   $('mac-title').textContent = title || saved?.title || path.split('/').pop();
   $('mac-title').title = path;
   $('mac-error').hidden = true;
-  macVideo.src = 'file://' + path.split('/').map(encodeURIComponent).join('/');
-  macVideo.addEventListener('loadedmetadata', () => { if (start && start < macVideo.duration - 5) macVideo.currentTime = start; }, { once:true });
+  for (const id of ['mac-cc-wrap', 'mac-audio-wrap', 'mac-next']) $(id).hidden = true;
+  for (const track of macVideo.querySelectorAll('track')) track.remove();
+  macVideo.pause(); macVideo.removeAttribute('src'); macVideo.load();
   $('mac-player').hidden = false;
   macVideo.focus();
-  void macVideo.play().catch(() => {});
+  let info;
+  try { info = await api.macOpen(path); } catch (error) { if (token === macToken) macFail(error); return; }
+  if (token !== macToken) return;
+  macInfo = info;
+  const audio = info.audio.find(track => track.isDefault)?.n ?? -1;
+  fillSelect($('mac-audio'), info.audio.map(track => [String(track.n), track.label]), String(audio));
+  $('mac-audio-wrap').hidden = info.audio.length < 2;
+  fillSelect($('mac-cc'), [['', 'Off'], ...info.subtitles.map(track => [track.id, track.label])], '');
+  $('mac-cc-wrap').hidden = !info.subtitles.length;
+  $('mac-cc-wrap').classList.remove('on');
+  $('mac-next').hidden = !info.next;
+  $('mac-next').title = info.next ? `Next: ${info.next.title}` : '';
+  $('mac-next').setAttribute('aria-label', info.next ? `Next episode: ${info.next.title}` : 'Next episode');
+  const keep = macCcLabel && info.subtitles.find(track => track.label === macCcLabel);
+  if (keep) { $('mac-cc').value = keep.id; void chooseSubtitle(keep.id).catch(macFail); }
+  await loadMacSource(audio, start, token);
 }
 function closeMacPlayer() {
   if (!macPath) return;
   saveMac();
+  macToken++;
+  void api.macCancel?.().catch(() => {});
   macVideo.pause(); macVideo.removeAttribute('src'); macVideo.load();
-  macPath = null;
+  macPath = null; macInfo = null;
+  macPreparing('');
   $('mac-player').hidden = true;
   if (mode === 'local') window.channelView?.enter();
   macReturnFocus?.focus?.();
 }
+function playNextEpisode() {
+  if (macInfo?.next) void openMacPlayer(macInfo.next.path, macInfo.next.title);
+}
 macVideo.addEventListener('timeupdate', () => { if (Date.now() - macSaved > 15000) saveMac(); });
 macVideo.addEventListener('pause', () => { if (!macVideo.ended) saveMac(); });
-macVideo.addEventListener('ended', () => saveMac({ completed:true }));
-macVideo.addEventListener('error', () => { if (macPath) $('mac-error').hidden = false; });
+macVideo.addEventListener('ended', () => { saveMac({ completed:true }); playNextEpisode(); });
+macVideo.addEventListener('error', () => { if (macPath && macVideo.getAttribute('src')) macFail(); });
 window.addEventListener('beforeunload', () => saveMac());
+api?.onMacProgress?.(({ path, fraction }) => { if (path === macPath && !$('mac-preparing').hidden) macPreparing($('mac-preparing-text').textContent, fraction); });
 $('mac-close').onclick = closeMacPlayer;
+$('mac-next').onclick = () => { saveMac(); playNextEpisode(); };
+$('mac-cc').onchange = () => void chooseSubtitle($('mac-cc').value).catch(macFail);
+$('mac-audio').onchange = () => {
+  $('mac-audio').title = $('mac-audio').selectedOptions[0]?.textContent || '';
+  void loadMacSource(Number($('mac-audio').value), macVideo.currentTime || 0, macToken);
+};
+$('mac-speed').onchange = () => { macSpeed = Number($('mac-speed').value) || 1; macVideo.playbackRate = macSpeed; };
 $('mac-external').onclick = () => { const path = macPath; closeMacPlayer(); void act(() => api.openExternally(path)); };
 $('mac-to-tv').onclick = () => {
   const path = macPath;
@@ -341,7 +432,7 @@ $('mac-to-tv').onclick = () => {
 window.addEventListener('keydown', event => {
   if (!macPath || document.fullscreenElement) return;
   const handled = ['Escape', ' ', 'ArrowLeft', 'ArrowRight', 'f'].includes(event.key) &&
-    (event.key === 'Escape' || !event.target.closest('button, input'));
+    (event.key === 'Escape' || !event.target.closest('button, input, select'));
   if (handled) event.stopImmediatePropagation();
   if (event.key === 'Escape') { event.preventDefault(); closeMacPlayer(); return; }
   if (!handled) return;

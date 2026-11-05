@@ -28,7 +28,14 @@ separate. The Mac stays awake and on the same network while it serves the TV.
 filters. Click a tile to play or resume it where the toolbar's **Play on** switch
 points: **Mac** plays in the app (the default on a laptop), **TV** sends it to the
 Samsung. The Mac player's **Onto the TV** button carries on from the same spot on the
-TV. History and dropped files follow the same switch. Artwork comes from local video
+TV. History and dropped files follow the same switch.
+The Mac player picks **CC** subtitles (sidecar `.srt`/`.vtt` or text tracks inside the
+file), the **♪** audio track and the speed, and **⏭ Next** plays the next file in the
+show's folder (then the next season folder); it also follows on when an episode ends.
+Files the app's Chromium cannot play (AVI, MPEG-TS, AC3/E-AC3/DTS audio, older video
+codecs) are converted once with ffmpeg into a cache (`mac-ready` in the app's data
+folder, capped at 10 GB): audio-only fixes take seconds, video conversion uses the
+Mac's hardware encoder and shows its progress. Artwork comes from local video
 frames and is cached privately; browsing does not start playback. Add more video
 folders through Library settings. These additions are for browsing and do not
 change the children's channel groups.

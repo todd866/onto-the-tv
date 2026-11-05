@@ -17,6 +17,7 @@ import { defaults, readSettings, writeSettings, validateTvSettings, preserveUnre
 import { playerExists, buildPlayer, prepareChannels, readCatalogue } from './shuffler.js';
 import { playOnTv, queueOnTv, tvNotice, recordLocalHistory } from './channel-cast.js';
 import { buildLibrary, scanMediaLibrary, MEDIA_EXTENSIONS } from './library.js';
+import { createMacMedia, nextEpisode } from './mac-media.js';
 import { createArtworkCache, pruneArtwork } from './library-artwork.js';
 import { createAmbientSources, validateAmbientOptions } from './ambient-sources.js';
 import { createAmbientPlayer } from './ambient-player.js';
@@ -27,6 +28,8 @@ import { readIsobarProgramme } from './weather-channel.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, '..');
 const uiUrl = pathToFileURL(join(appRoot, 'ui/index.html')).href;
+// Lets the Mac player switch between a file's audio tracks without converting it.
+app.commandLine.appendSwitch('enable-blink-features', 'AudioVideoTracks');
 // Finder does not inherit a shell's Homebrew PATH.
 process.env.PATH = [...new Set([process.env.PATH || '', '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])].join(':');
 const pendingFiles = [];
@@ -43,6 +46,8 @@ let playbackHistory;
 let channelCasting = false;
 let sentFinished = false;
 let libraryPaths = new Set();
+let lastLibrary = null;
+let macMedia;
 let artwork;
 let ambient, blackbox, reports;
 let reportMode = 'local';
@@ -88,7 +93,7 @@ async function libraryIndex() {
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   const scanned = await scanMediaLibrary([...(settings.mediaFolders || []), ...history.map(item => item.path)]);
   libraryPaths = new Set([...videos.map(item => item.file), ...scanned.map(item => item.path)]);
-  return { ...buildLibrary(videos, history.filter(item => libraryPaths.has(item.path)), scanned),
+  return lastLibrary = { ...buildLibrary(videos, history.filter(item => libraryPaths.has(item.path)), scanned),
     truncated: Boolean(scanned.truncated) };
 }
 
@@ -335,6 +340,21 @@ handle('mac:history', async input => {
   await playbackHistory.flush();
   sendState(session.getState());
 });
+function macPlayer() {
+  const { ffmpeg, ffprobe } = loadConfig(process.env, settings);
+  macMedia ||= createMacMedia({ ffmpeg, ffprobe, directory: join(app.getPath('userData'), 'mac-ready') });
+  return macMedia;
+}
+handle('mac:open', async path => {
+  macVideo(path);
+  const items = (lastLibrary || await libraryIndex()).items;
+  const next = nextEpisode(items, path);
+  return { ...await macPlayer().open(path), next: next && { path: next.path, title: next.title } };
+});
+handle('mac:prepare', (path, audio) => macPlayer().prepare(macVideo(path), audio,
+  fraction => send('mac:progress', { path, fraction })));
+handle('mac:subtitle', (path, id) => macPlayer().subtitle(macVideo(path), id));
+handle('mac:cancel', () => macMedia?.cancel());
 handle('mac:open-external', async path => {
   const error = await shell.openPath(macVideo(path));
   if (error) throw new Error(error);

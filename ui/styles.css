@@ -189,7 +189,14 @@ label { display:flex; flex-direction:column; gap:6px; margin-top:13px; font-size
 
 .play-on button { min-height:30px; padding:4px 10px; font-size:12px; } .play-on button span { font-size:14px; line-height:1; }
 #mac-player { position:fixed; inset:0; z-index:50; display:flex; flex-direction:column; background:#000; }
-.mac-player-bar { display:flex; align-items:center; gap:12px; padding:9px 16px 9px 76px; background:var(--panel); border-bottom:2px solid var(--line); -webkit-app-region:drag; }
+.mac-player-bar { flex-wrap:wrap; display:flex; align-items:center; gap:12px; padding:9px 16px 9px 76px; background:var(--panel); border-bottom:2px solid var(--line); -webkit-app-region:drag; }
 #mac-title { flex:1; min-width:0; margin:0; font-size:15px; overflow-wrap:anywhere; }
+.mac-stage { position:relative; flex:1; min-height:0; display:flex; }
 #mac-video { flex:1; min-height:0; width:100%; background:#000; }
+#mac-video::cue { font-size:1.15em; background:rgba(0,0,0,.6); }
+#mac-preparing { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:#f4f1ea; font-size:15px; background:rgba(0,0,0,.6); pointer-events:none; } #mac-preparing-pct { font-variant-numeric:tabular-nums; color:var(--amber); }
+.mac-meter { width:min(320px,60%); height:4px; border-radius:2px; background:rgba(255,255,255,.2); overflow:hidden; } #mac-meter-fill { display:block; height:100%; width:0; background:var(--amber); transition:width .3s; }
+.mac-pick { display:inline-flex; flex-direction:row; margin:0; align-items:center; gap:5px; padding:0 4px 0 9px; border:2px solid var(--line); border-radius:9px; background:var(--panel); color:var(--muted); font-size:12px; -webkit-app-region:no-drag; }
+.mac-pick.on { border-color:var(--amber); color:var(--amber); }
+.mac-pick select { width:auto; max-width:170px; min-height:30px; padding:4px 2px; border:0; background:transparent; color:var(--text); font-size:13px; }
 #mac-error { margin:0; padding:10px 16px; background:var(--panel); color:var(--danger); }

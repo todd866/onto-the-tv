@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' file: http://localhost:8686 https://iantodds-macbook-air.tail8cd07b.ts.net:8443; media-src file:; connect-src 'none'; frame-src file: about: http://localhost:8686 https://iantodds-macbook-air.tail8cd07b.ts.net:8443; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' file: http://localhost:8686 https://iantodds-macbook-air.tail8cd07b.ts.net:8443; media-src file: blob:; connect-src 'none'; frame-src file: about: http://localhost:8686 https://iantodds-macbook-air.tail8cd07b.ts.net:8443; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Onto the TV</title>
   <link rel="icon" href="../brand/onto-the-tv-icon.png">
   <link rel="stylesheet" href="ambient.css">
@@ -138,10 +138,17 @@
       <div class="mac-player-bar">
         <button type="button" id="mac-close" aria-label="Close player" title="Close (Esc)">←</button>
         <p id="mac-title"></p>
+        <label class="mac-pick" id="mac-cc-wrap" hidden><span aria-hidden="true">CC</span><select id="mac-cc" aria-label="Subtitles"></select></label>
+        <label class="mac-pick" id="mac-audio-wrap" hidden><span aria-hidden="true">♪</span><select id="mac-audio" aria-label="Audio track"></select></label>
+        <label class="mac-pick"><select id="mac-speed" aria-label="Playback speed" title="Playback speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+        <button type="button" id="mac-next" hidden><span aria-hidden="true">⏭</span> Next</button>
         <button type="button" id="mac-to-tv" title="Carry on from here on the TV"><span aria-hidden="true">▣</span> Onto the TV</button>
       </div>
-      <video id="mac-video" controls autoplay></video>
-      <p id="mac-error" role="alert" hidden><span>This Mac can’t play this file’s format.</span> <button type="button" id="mac-external">Open in default player</button></p>
+      <div class="mac-stage">
+        <video id="mac-video" controls autoplay></video>
+        <div id="mac-preparing" role="status" hidden><span><span id="mac-preparing-text"></span> <span id="mac-preparing-pct"></span></span><span class="mac-meter"><span id="mac-meter-fill"></span></span></div>
+      </div>
+      <p id="mac-error" role="alert" hidden><span id="mac-error-text"></span> <button type="button" id="mac-external">Open in default player</button></p>
     </section>
     <p class="status" id="status" role="status" aria-live="polite"></p>
   </main>
