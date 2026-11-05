@@ -61,7 +61,7 @@ test('home is channel-first and the youngest viewer sets the ceiling', async () 
   const dad = library.home('dad');
   assert.equal(dad.ceiling, 'M');
   assert.deepEqual(dad.viewers.map(person => person.on), [false, false, false, true]);
-  assert.deepEqual(dad.channels.map(channel => channel.id), ['movies'], 'kids\' channels live on the kids\' tabs, not a grown-up\'s');
+  assert.equal(dad.channels.some(channel => ['cartoons', 'littleones', 'bluey'].includes(channel.id)), false, 'kids\' channels live on the kids\' tabs, not a grown-up\'s');
   assert.equal(dad.channels.find(channel => channel.id === 'movies').now.show, 'D', 'a film card names the film');
 
   const withSam = library.home('sam,dad');
@@ -477,18 +477,40 @@ test('cards carry the episode in words, its length and what comes next', async (
   assert.equal(library.home('dad').channels.find(channel => channel.id === 'sitcoms').now.title, 'S3 E2 · Party', 'next becomes the card');
 });
 
-test("a grown-up's own taste orders their channels", async () => {
+test("a grown-up audience's taste orders the channels outside a solo running order", async () => {
   const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
   const storage = await createFileStorage(join(dir, 'taste.json'));
   const library = createTvLibrary({ videos: [
     { src: 'Sitcom/s.mp4', file: '/m/Sitcom/s.mp4', title: 'Sitcom', channel: 'The Sitcom', tier: 'sitcom', duration: 1300 },
     { src: 'Anim/a.mp4', file: '/m/Anim/a.mp4', title: 'Adult Cartoon', channel: 'Adult Cartoon', tier: 'adultanim', duration: 1300 },
   ], history: await loadPlaybackHistory(join(dir, 'history.json')), storage, random: () => 0 });
-  const ids = () => library.home('dad').channels.map(channel => channel.id);
+  const ids = () => library.home('mum,dad').channels.map(channel => channel.id);
   const before = ids();
   assert.ok(before.indexOf('sitcoms') >= 0 && before.indexOf('sitcoms') < before.indexOf('adultanim'), JSON.stringify(before));
   // Ian likes the grown-up cartoons and skips the sitcom.
-  storage.setItem('kidshuffle.weights.v2.sgrown', JSON.stringify({ 'Anim/a.mp4': 3, 'Sitcom/s.mp4': 0.5 }));
+  storage.setItem('kidshuffle.weights.v2.sboth', JSON.stringify({ 'Anim/a.mp4': 3, 'Sitcom/s.mp4': 0.5 }));
   const after = ids();
   assert.ok(after.indexOf('adultanim') < after.indexOf('sitcoms'), JSON.stringify(after));
+});
+
+test("Ian alone gets his own running order, one show per card, and no Christmas in November", async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  const make = (src, channel, tier, title = src) => ({ src, file: '/m/' + src, title, channel, tier, duration: 1300 });
+  const library = createTvLibrary({ videos: [
+    make('Seinfeld/1.mp4', 'Seinfeld (1989)', 'sitcom'), make('Seinfeld/2.mp4', 'Seinfeld (1989)', 'sitcom'),
+    make('Utopia/1.mp4', 'Utopia', 'sitcom'), make('Star Trek/1.mp4', 'Star Trek The Next Generation (1987)', 'scifi'),
+    make('Futurama/x.mp4', 'Futurama (1999)', 'adultanim', 'S2 E8 Xmas Story'), make('Futurama/1.mp4', 'Futurama (1999)', 'adultanim'),
+    make('Fisk/1.mp4', 'Fisk', 'sitcom'), make('Come Dine/1.mp4', 'Come Dine With Me', 'grownup'), make('Snatch/s.mp4', 'Snatch (2000)', 'grownup', 'Snatch (2000)'),
+  ], history: await loadPlaybackHistory(join(dir, 'history.json')), storage: await createFileStorage(join(dir, 'taste.json')),
+  random: () => 0, now: () => Date.parse('2026-11-05T14:00:00Z') });
+  const home = library.home('dad');
+  const ids = home.channels.map(channel => channel.id);
+  assert.equal(ids[0], 'fordad');
+  assert.ok(ids.indexOf('scifi') < ids.indexOf('sitcoms') && ids.indexOf('adultanim') < ids.indexOf('sitcoms'), JSON.stringify(ids));
+  // Come Dine With Me is the only show on both Ian & Fran and Reality here; everything else is distinct.
+  const shows = home.channels.filter(channel => !['grownups', 'reality'].includes(channel.id)).map(channel => channel.now.show);
+  assert.equal(new Set(shows).size, shows.length, 'each show billed once: ' + JSON.stringify(shows));
+  assert.equal(home.channels.find(channel => channel.id === 'seinfeld').now.show, 'Seinfeld');
+  assert.ok(!JSON.stringify(home.channels.filter(channel => channel.id !== 'christmas')).includes('Xmas'), 'no Christmas episodes in November outside the Christmas channel');
+  for (let i = 0; i < 20; i++) assert.notEqual(library.next('fordad', { viewers: 'dad' }).show, 'Come Dine With Me', "Fran's shows stay off For Ian");
 });

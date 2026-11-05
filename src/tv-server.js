@@ -134,8 +134,28 @@ const LIMITED_SHOWS = new RegExp(['billy.s aviation', 'if planes could talk', 'p
   'brent rivera', 'ben azelart', 'stephen sharer', 'carter sharer', 'unspeakable', 'stokes twins', 'beck ?bro', 'vlad and niki',
   'kids diana', 'waffloos', 'lincoln.s super', 'mrbeast', 'try not to laugh', 'ytp'].join('|'), 'i');
 const LIMITED_WEIGHT = 0.05;
+// Ian (5 Nov 2026: "think about what a 40 year old ex-military dude might want"): ex-RAAF
+// pilot. British crime and gangster films, Mobland-style drama, Star Trek, Futurama and South
+// Park, dry Aussie comedy (Utopia, Hard Quiz, Gruen), Blackadder, cosy British mysteries, and
+// the wishlist's aviation, military, motoring, maker and live-music long-form as it lands.
+const IAN_SHOWS = new RegExp('^(?:' + ['mobland', 'the gentlemen', 'snatch', 'lock,? stock', 'in bruges', 'rocknrolla',
+  'star trek', 'the orville', 'the expanse', 'futurama', 'south park', 'utopia', 'fisk', 'hard quiz', 'gruen', 'blackadder',
+  'taskmaster', 'have you been paying attention', 'qi\\b', 'would i lie to you', 'shetland', 'vera', 'death in paradise',
+  'foyle', 'father brown', 'midsomer', 'bald and bankrupt', 'top gear', 'the grand tour', 'band of brothers', 'the pacific',
+  'generation kill', 'chernobyl', 'das boot', 'slow horses', 'line of duty', 'reacher', 'jack ryan', 'the night manager',
+  'mayday', 'air crash investigation', 'top gun', 'black hawk down', 'dunkirk', 'apollo 13', 'master and commander',
+  'heat\\b', 'sicario', 'mark rober', 'johnny harris', 'tiny desk', 'like a version', 'cercle'].join('|') + ')', 'i');
+// Fran's lifestyle and reality shows: hers, not his (they share Bald and Bankrupt).
+const IAN_SKIPS = /^(?:(?:couples )?come dine with me|first dates|a place in the sun|escape to the country|homes under the hammer|the hotel inspector|grand designs|dragons.? den|the repair shop|gogglebox|four in a bed|(?:the )?(?:great british )?bake off|bargain hunt|location,? location|love island|married at first sight|the apprentice)/i;
 // Each person's favourites lead their own channel; the rest of its pool are discoveries.
-const FAVOURITES = { mum: FRAN_SHOWS, jake: JAKE_SHOWS };
+const FAVOURITES = { mum: FRAN_SHOWS, jake: JAKE_SHOWS, dad: IAN_SHOWS };
+// A grown-up on their own sees channels in the order they would reach for them; unlisted
+// channels follow in catalogue order. Learned taste breaks ties within the rest.
+const PERSON_LINEUP = {
+  dad: ['fordad', 'movies', 'crime', 'scifi', 'adultanim', 'comedy', 'docs', 'sports', 'rides', 'music', 'sitcoms', 'seinfeld',
+    'classic', 'd80', 'd90', 'd70', 'grownups', 'truecrime', 'friends', 'reality'],
+  mum: ['formum', 'reality', 'friends', 'sitcoms', 'grownups', 'truecrime', 'crime', 'comedy', 'music', 'seinfeld', 'movies'],
+};
 const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]));
 
 const RIDES_SHOWS = /\b(?:knight rider|the a[- ]team|the dukes of hazzard|airwolf|chips|baywatch|top gear)\b/i;
@@ -152,6 +172,7 @@ export function inTvGenre(item, channelId) {
   }
   if (defined?.person === 'jake') return JAKE_TIERS.has(item.tier) && !isFilm(item);
   if (defined?.person === 'mum') return MUM_TIERS.has(item.tier) && !isFilm(item) && !MUM_SKIPS.test(String(item.channel || ''));
+  if (defined?.person === 'dad') return PERSONAL_TIERS.has(item.tier) && !isFilm(item) && !IAN_SKIPS.test(String(item.channel || ''));
   if (defined?.person) return PERSONAL_TIERS.has(item.tier) && !isFilm(item);
   if (channelId === 'sitcoms') return item.tier === 'sitcom' || item.tier === 'bbc';
   if (channelId === 'adultanim') return item.tier === 'adultanim' && !isFilm(item);
@@ -375,8 +396,12 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const adults = grownOnly(ids, rating);
     if (adults && channel.audience === 'kid') return [];
     const { ceiling, blocked } = audience(ids, rating);
+    // Christmas episodes wait for December (to 6 January) outside the Christmas channel.
+    const date = new Date(now()), festive = date.getMonth() === 11 || (date.getMonth() === 0 && date.getDate() <= 6);
+    const seasonal = item => !festive && channelId !== 'christmas' &&
+      /\b(?:christmas|xmas|santa|no[eë]l)\b/i.test(String(item.title || '') + ' ' + String(item.src || '').replace(/[._]/g, ' '));
     return videos.map((item, index) => (inGenre(item, channelId) && ratingAllowed(item, ceiling, blocked, channelId) &&
-      !(adults && CARTOON_TIERS.has(item.tier)) ? index : -1))
+      !(adults && CARTOON_TIERS.has(item.tier)) && !seasonal(item) ? index : -1))
       .filter(index => index >= 0);
   }
 
@@ -468,23 +493,17 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const channels = [];
     for (const channel of TV_CHANNELS) {
       const count = poolFor(channel.id, ids, rating).length;
-      if (!count) continue;
-      const key = stageKey(channel.id, ids, rating);
-      if (!staged.has(key)) staged.set(key, chooseIndex(channel.id, ids, { rating, billing: true }));
-      // What comes after the card's pick, for the guide and the "now on" panel; it becomes the
-      // card's pick once this one is played.
-      if (!staged.has(key + '\nnext') && count > 1) staged.set(key + '\nnext', chooseIndex(channel.id, ids, { rating, billing: true, current: videos[staged.get(key)].src, peek: true }));
-      const following = staged.has(key + '\nnext') && staged.get(key + '\nnext') !== staged.get(key) ? videos[staged.get(key + '\nnext')] : null;
-      // count: videos on this channel at this audience's ceiling (the morning acceptance gate reads it).
-      channels.push({ id: channel.id, number: channel.number, name: channel.name, count, now: nowPlaying(videos[staged.get(key)], following) });
+      if (count) channels.push({ id: channel.id, number: channel.number, name: channel.name, count });
     }
     // Grown-ups see their channels first, children theirs; the numbers stay put.
     const order = AUDIENCE_ORDER[ceiling === 'M' ? 'grown' : 'child'];
     const position = new Map(TV_CHANNELS.map((channel, index) => [channel.id, index]));
     // A person's own channel leads their lineup.
     const rank = id => (CHANNEL_BY_ID.get(id).person ? -1 : order[CHANNEL_BY_ID.get(id).audience]);
-    // Within each group, an adult audience sees the channels it actually likes first: the
-    // sum of its stored taste (likes above 1, skips below) over each channel's pool.
+    // One grown-up alone gets their own running order (PERSON_LINEUP).
+    const solo = ids.length === 1 && PERSON_LINEUP[ids[0]] && grownOnly(ids, rating) ? PERSON_LINEUP[ids[0]] : null;
+    const placed = id => (solo && solo.includes(id) ? solo.indexOf(id) : (solo ? solo.length : 0));
+    // Then an adult audience's learned taste: likes above 1, skips below, over each pool.
     const key = tasteKey(ids);
     const liking = new Map();
     if (key) {
@@ -495,7 +514,25 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       }
     }
     const liked = id => liking.get(id) || 0;
-    channels.sort((a, b) => rank(a.id) - rank(b.id) || liked(b.id) - liked(a.id) || position.get(a.id) - position.get(b.id));
+    channels.sort((a, b) => placed(a.id) - placed(b.id) || rank(a.id) - rank(b.id) || liked(b.id) - liked(a.id) ||
+      position.get(a.id) - position.get(b.id));
+    // Bill each show once: channels with the fewest shows claim theirs first (Seinfeld, Sci-Fi),
+    // so a broad channel like For Ian picks around them.
+    const billed = new Set();
+    const variety = new Map(channels.map(channel => [channel.id,
+      new Set(poolFor(channel.id, ids, rating).map(index => videos[index].channel || 'Other')).size]));
+    const staging = channels.slice().sort((a, b) => variety.get(a.id) - variety.get(b.id));
+    for (const channel of staging) {
+      const stage = stageKey(channel.id, ids, rating);
+      if (!staged.has(stage)) staged.set(stage, chooseIndex(channel.id, ids, { rating, billing: true, avoid: billed }));
+      billed.add(videos[staged.get(stage)].channel || 'Other');
+      // What comes after the card's pick, for the guide and the "now on" panel; it becomes the
+      // card's pick once this one is played.
+      if (!staged.has(stage + '\nnext') && channel.count > 1) staged.set(stage + '\nnext', chooseIndex(channel.id, ids, { rating, billing: true, current: videos[staged.get(stage)].src, peek: true }));
+      const following = staged.has(stage + '\nnext') && staged.get(stage + '\nnext') !== staged.get(stage) ? videos[staged.get(stage + '\nnext')] : null;
+      // count: videos on this channel at this audience's ceiling (the morning acceptance gate reads it).
+      channel.now = nowPlaying(videos[staged.get(stage)], following);
+    }
     // Channels are numbered in the order this audience sees them, so the guide reads 1, 2, 3.
     channels.forEach((channel, index) => { channel.number = index + 1; });
     return {
@@ -556,6 +593,11 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (options.billing && limited.length && limited.length < pool.length) {
       const keep = new Set(limited);
       pool = pool.filter(index => !keep.has(index));
+    }
+    // The home billing shows each show once: a card avoids shows earlier cards took.
+    if (options.billing && options.avoid?.size) {
+      const fresh = pool.filter(index => !options.avoid.has(videos[index].channel || 'Other'));
+      if (fresh.length) pool = fresh;
     }
     if (favourites || limited.length) {
       const learned = weights, rationed = new Set(limited);

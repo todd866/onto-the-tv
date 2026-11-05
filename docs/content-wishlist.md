@@ -37,6 +37,25 @@ The Traitors, Race Across the World, The Repair Shop, The Apprentice, Dragons' D
 Homes Under the Hammer → `/Volumes/Stash/Movies/grown-ups/<Show>`. Folder names must match the
 show name: the "For Fran" channel picks these shows by folder name.
 
+## Ian's shelf (5 Nov 2026) — the biggest gap
+
+Ian: "think about what a 40 year old ex-military dude might want for channels and picks and start
+from there." He is an ex-RAAF pilot. Today his whole grown-up shelf is Mobland (finished, cleared), four
+Guy Ritchie-style crime films, Star Trek TNG, Futurama/South Park, Utopia, Hard Quiz, Gruen and
+Blackadder; everything else grown-up is Fran's reality. "For Ian" picks by `IAN_SHOWS` in
+`src/tv-server.js` (folder names must start with the show's name). Get, in this order:
+
+| Kind | Titles | Folder |
+|---|---|---|
+| War and military drama | Band of Brothers, The Pacific, Generation Kill, Das Boot (1981 + series), Chernobyl, Masters of the Air | `grown-ups/<Show>` |
+| Aviation | Top Gun + Maverick, Mayday / Air Crash Investigation (grown-up only; the kids' crash cartoons stay rationed), Apollo 13, The Right Stuff, Twelve O'Clock High | films → `films`, series → `grown-ups/<Show>` |
+| Action and thriller films | Heat, Sicario, Black Hawk Down, Dunkirk, Master and Commander, Ronin, The Hunt for Red October, Collateral, Zero Dark Thirty | `films` |
+| Spy and crime series | Slow Horses, Reacher, Line of Duty, The Night Manager, Jack Ryan, Peaky Blinders, The Sopranos | `grown-ups/<Show>` |
+| Motoring | Top Gear (Clarkson era), The Grand Tour | `grown-ups/<Show>` |
+| Comedy panel | Taskmaster, Have You Been Paying Attention?, QI, Would I Lie to You? | `comedy/<Show>` |
+| Sci-fi | The Expanse, The Orville, Battlestar Galactica (2004) | `scifi/<Show>` |
+| YouTube long-form | Mark Rober, Johnny Harris, Air Safety Institute, EAA, restoration builds, Tiny Desk / Like A Version / Cercle (see below) | `grown-ups/<Creator>`, music → `music-videos` |
+
 ## Wanted — YouTube, downloadable (next runs)
 
 | For | What | Why (evidence) |
