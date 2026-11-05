@@ -125,7 +125,7 @@ function updateLibraryProgress(history) {
 
 function updateLibraryCard(card, item) {
   const resume = !item.completed && item.positionSeconds > 5;
-  const action = item.completed ? 'Replay' : resume ? 'Resume' : 'Play';
+  const action = item.completed ? 'Replay' : resume ? 'Resume' : item.upNext ? 'Next' : 'Play';
   card.setAttribute('aria-label', `${action} on ${playOn === 'mac' ? 'this Mac' : 'the TV'}: ${item.title}`);
   card.querySelector('.library-item-action').textContent = `${action} · ${outputName()}`;
   const progress = card.querySelector('.library-progress');
@@ -153,24 +153,69 @@ function libraryTile(item) {
   return li;
 }
 
+const watchedSizes = new Map();
+const gigabytes = bytes => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
+function renderWatched(list) {
+  $('library-watched').hidden = !list.length || !api?.trashLibraryFiles;
+  if ($('library-watched').hidden) { $('library-watched-list').replaceChildren(); return; }
+  const missing = list.flatMap(entry => entry.paths).filter(path => !watchedSizes.has(path));
+  if (missing.length) void api.librarySizes(missing).then(sizes => {
+    for (const [path, size] of Object.entries(sizes)) watchedSizes.set(path, size);
+    renderWatched(watchedList(libraryItems));
+  }).catch(() => {});
+  $('library-watched-list').replaceChildren(...list.map(entry => {
+    const li = document.createElement('li');
+    const name = document.createElement('span'); name.className = 'watched-title'; name.textContent = entry.title; name.title = entry.paths.join('\n');
+    const bytes = entry.paths.reduce((sum, path) => sum + (watchedSizes.get(path) || 0), 0);
+    const meta = document.createElement('span'); meta.className = 'watched-meta';
+    meta.textContent = [entry.episodes ? `${entry.episodes} ep` : '', bytes ? gigabytes(bytes) : ''].filter(Boolean).join(' · ');
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Trash';
+    button.setAttribute('aria-label', `Move ${entry.title} to the Trash`);
+    let armed = 0;
+    button.onclick = () => {
+      if (!armed) {
+        button.textContent = 'Confirm'; button.classList.add('armed');
+        armed = setTimeout(() => { armed = 0; button.textContent = 'Trash'; button.classList.remove('armed'); }, 4000);
+        return;
+      }
+      clearTimeout(armed); button.disabled = true; button.textContent = 'Trashing…';
+      void act(async () => {
+        const result = await api.trashLibraryFiles(entry.paths);
+        libraryItems = result.items; libraryTruncated = Boolean(result.truncated);
+        renderLibrary();
+      }).finally(() => { button.disabled = false; });
+    };
+    li.append(name, meta, button);
+    return li;
+  }));
+}
+
 function renderLibrary() {
   artworkObserver.disconnect(); libraryCards.clear();
   const query = $('library-search').value.trim().toLocaleLowerCase();
   const matches = item => !query || `${item.title} ${item.channel}`.toLocaleLowerCase().includes(query);
   const sorted = [...libraryItems].sort((a,b) => a.title.localeCompare(b.title, undefined, {numeric:true}));
-  const continued = libraryItems.filter(item => !item.completed && item.positionSeconds > 5).sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  const continued = continueRow(libraryItems);
   const films = sorted.filter(item => item.kind === 'film');
   const home = !query && libraryFilter === 'home';
   $('library-home').hidden = !home;
   $('library-list').hidden = home;
   $('library-continue').hidden = !continued.length;
-  $('library-films').hidden = !films.length;
   $('library-continue-list').replaceChildren(...(home ? continued.slice(0, 8).map(libraryTile) : []));
-  $('library-films-list').replaceChildren(...(home ? films.map(libraryTile) : []));
+  // Shows already on the Up next row are not repeated in their collection row.
+  const rows = home ? collectionRows(libraryItems, new Set(continued.map(libraryShowKey))) : [];
+  $('library-collections').replaceChildren(...rows.map(row => {
+    const section = document.createElement('section'); section.className = 'library-row';
+    const heading = document.createElement('h3'); heading.textContent = row.items.length > 30 ? `${row.title} · 30 of ${row.items.length}` : row.title;
+    const list = document.createElement('ul'); list.setAttribute('aria-label', row.title);
+    list.append(...row.items.slice(0, 30).map(libraryTile)); section.append(heading, list);
+    return section;
+  }));
   const selected = (libraryFilter === 'continue' ? continued : libraryFilter === 'film' ? films :
     libraryFilter === 'show' ? sorted.filter(item => item.kind === 'show' || item.kind === 'episode') : sorted).filter(matches);
   $('library-list').replaceChildren(...(home ? [] : selected.map(libraryTile)));
-  $('library-empty').hidden = home ? continued.length + films.length > 0 : selected.length > 0;
+  renderWatched(home ? watchedList(libraryItems) : []);
+  $('library-empty').hidden = home ? continued.length + rows.length > 0 : selected.length > 0;
   $('library-empty').textContent = !libraryItems.length ? 'Add a folder to start your library.' : 'No videos found.';
   $('library-count').textContent = query ? `${selected.length} ${selected.length === 1 ? 'video' : 'videos'}`
     : libraryTruncated ? `First ${libraryItems.length.toLocaleString()} videos` : '';

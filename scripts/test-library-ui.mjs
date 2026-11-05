@@ -25,7 +25,7 @@ try {
       getLibrary:async()=>{window.calls.push(['library']);await new Promise(r=>setTimeout(r,80));return fixture;},
       libraryArtwork:async path=>{window.calls.push(['artwork',path]);await new Promise(r=>setTimeout(r,60));return fixture.artwork[path] || null;},
       openFiles:async paths=>{window.calls.push(['open',paths]);return state;},
-      addLibraryFolder:async()=>fixture,pathFor:()=>'',recordHistory:async()=>{},
+      addLibraryFolder:async()=>fixture,librarySizes:async paths=>Object.fromEntries(paths.map(p=>[p,9.4e8])),trashLibraryFiles:async paths=>{window.calls.push(['trash',paths]);return fixture;},pathFor:()=>'',recordHistory:async()=>{},
       setPlayOn:async value=>{window.calls.push(['playOn',value]);return value;},recordMacHistory:async input=>{window.calls.push(['macHistory',input]);},
       macOpen:async path=>({durationSeconds:1800,direct:true,convert:'',audio:[{n:0,label:'English · stereo',isDefault:true}],subtitles:[],next:null}),
       macPrepare:async path=>({path,direct:true}),macCancel:async()=>{},macSubtitle:async()=>'WEBVTT\n',

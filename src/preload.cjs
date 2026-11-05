@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('tv', {
   getLibrary: () => ipcRenderer.invoke('library:get'),
   libraryArtwork: path => ipcRenderer.invoke('library:artwork', path),
   addLibraryFolder: () => ipcRenderer.invoke('library:add-folder'),
+  librarySizes: paths => ipcRenderer.invoke('library:sizes', paths),
+  trashLibraryFiles: paths => ipcRenderer.invoke('library:trash', paths),
   getAmbient: options => ipcRenderer.invoke('ambient:get', options),
   saveAmbient: options => ipcRenderer.invoke('ambient:save', options),
   chooseAmbientPhotos: () => ipcRenderer.invoke('ambient:photos'),

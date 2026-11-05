@@ -200,3 +200,10 @@ label { display:flex; flex-direction:column; gap:6px; margin-top:13px; font-size
 .mac-pick.on { border-color:var(--amber); color:var(--amber); }
 .mac-pick select { width:auto; max-width:170px; min-height:30px; padding:4px 2px; border:0; background:transparent; color:var(--text); font-size:13px; }
 #mac-error { margin:0; padding:10px 16px; background:var(--panel); color:var(--danger); }
+
+.watched-list { display:grid !important; grid-auto-flow:row !important; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:4px 12px !important; }
+.watched-list li { display:flex; align-items:center; gap:8px; min-width:0; padding:3px 0; border-bottom:1px solid var(--line, #cfd6e4); font-size:13px; }
+.watched-title { flex:1; min-width:0; overflow-wrap:anywhere; font-weight:600; }
+.watched-meta { color:var(--muted, #667); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.watched-list button { padding:2px 8px; font-size:12px; }
+.watched-list button.armed { background:#c0392b; color:#fff; border-color:#c0392b; }

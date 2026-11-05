@@ -7,8 +7,8 @@ import { createTasteWriter } from './taste.js';
 import { app, BrowserWindow, ipcMain, dialog, Menu, shell } from 'electron';
 import { execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readFile } from 'node:fs/promises';
-import { dirname, join, isAbsolute, extname } from 'node:path';
+import { readFile, stat, readdir } from 'node:fs/promises';
+import { basename, dirname, join, isAbsolute, extname } from 'node:path';
 import { createLiveSession } from './live.js';
 import { loadConfig } from '../casting/src/config.js';
 import { createFileOpenBatcher } from './file-open-batch.js';
@@ -91,6 +91,9 @@ async function libraryIndex() {
   let videos = [];
   try { videos = readCatalogue(await readFile(settings.playerPath, 'utf8'), settings.playerPath, settings.playerPath); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
+  // The generated catalogue can outlive its files (watched shows get trashed).
+  const present = await Promise.all(videos.map(item => stat(item.file).then(() => true, () => false)));
+  videos = videos.filter((_, index) => present[index]);
   const scanned = await scanMediaLibrary([...(settings.mediaFolders || []), ...history.map(item => item.path)]);
   libraryPaths = new Set([...videos.map(item => item.file), ...scanned.map(item => item.path)]);
   return lastLibrary = { ...buildLibrary(videos, history.filter(item => libraryPaths.has(item.path)), scanned),
@@ -391,6 +394,31 @@ handle('library:artwork', async path => {
   }
   const file = await artwork.get(path);
   return file ? pathToFileURL(file).href : null;
+});
+// Watched list: sizes, and move-to-Trash (recoverable). Only indexed library
+// files are accepted; a show folder left with nothing but dotfiles goes too,
+// unless it is one of the chosen media folders.
+const libraryFiles = paths => {
+  if (!Array.isArray(paths) || paths.length > 500) throw new TypeError('Expected a list of library files.');
+  for (const path of paths) if (!libraryPaths.has(path)) throw new Error('That file is not in the library.');
+  return paths;
+};
+handle('library:sizes', async paths => {
+  const sizes = {};
+  for (const path of libraryFiles(paths)) sizes[path] = await stat(path).then(info => info.size, () => 0);
+  return sizes;
+});
+handle('library:trash', async paths => {
+  const folders = new Set();
+  for (const path of libraryFiles(paths)) { await shell.trashItem(path); folders.add(dirname(path)); }
+  const roots = new Set(settings.mediaFolders || []);
+  for (const folder of folders) {
+    // Never a chosen root, a top-level collection (~/Movies/grown-ups) or above.
+    if (roots.has(folder) || basename(dirname(folder)) === 'Movies' || basename(folder) === 'Movies') continue;
+    const left = await readdir(folder).catch(() => null);
+    if (left && left.every(name => name.startsWith('.'))) await shell.trashItem(folder);
+  }
+  return libraryIndex();
 });
 handle('library:add-folder', async () => {
   const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Add videos to your library' });
