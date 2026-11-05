@@ -61,7 +61,7 @@ test('home is channel-first and the youngest viewer sets the ceiling', async () 
   const dad = library.home('dad');
   assert.equal(dad.ceiling, 'M');
   assert.deepEqual(dad.viewers.map(person => person.on), [false, false, false, true]);
-  assert.deepEqual(dad.channels.map(channel => channel.id), ['movies', 'cartoons', 'littleones', 'bluey'], 'grown-ups see their channels first');
+  assert.deepEqual(dad.channels.map(channel => channel.id), ['movies'], 'kids\' channels live on the kids\' tabs, not a grown-up\'s');
   assert.equal(dad.channels.find(channel => channel.id === 'movies').now.show, 'D', 'a film card names the film');
 
   const withSam = library.home('sam,dad');
@@ -114,7 +114,8 @@ test('adults use the existing taste keys and hidden genres stay hidden', async (
   assert.equal(library.next('cartoons', { viewers: 'jake' }).tier === 'older', false);
   const adults = library.home('mum,dad');
   assert.equal(adults.ceiling, 'M');
-  for (const id of ['cartoons', 'movies', 'sitcoms', 'music', 'christmas']) assert.ok(adults.channels.some(channel => channel.id === id), id);
+  for (const id of ['movies', 'sitcoms', 'music']) assert.ok(adults.channels.some(channel => channel.id === id), id);
+  assert.equal(adults.channels.some(channel => channel.id === 'cartoons'), false, 'no kids\' channels without a child');
 
   library.next('movies', { viewers: 'dad', current: 'Films/d.mkv', reason: 'skip', time: 120, watched: 120, duration: 6000 });
   assert.ok(JSON.parse(storage.getItem('kidshuffle.weights.v2.sgrown'))['Films/d.mkv'] < 1);
@@ -211,7 +212,7 @@ test('server streams only catalogue files and serves the UI', async () => {
     assert.equal(dadHome.ceiling, 'M');
     assert.equal(dadHome.viewers.find(person => person.id === 'dad').on, true);
     assert.equal(dadHome.viewers.find(person => person.id === 'sam').on, false);
-    assert.ok(dadHome.channels.some(channel => channel.id === 'cartoons' && channel.now.show === 'Bluey'));
+    assert.equal(dadHome.channels.some(channel => channel.id === 'cartoons'), false);
     const narrowed = await (await fetch(`${base}/api/home?viewers=sam`)).json();
     assert.equal(narrowed.ceiling, 'G');
     assert.equal(narrowed.channels.some(channel => channel.id === 'movies'), false);
@@ -429,7 +430,8 @@ test('the lineup splits shows into their own channels and each adult gets a pers
   assert.equal(ids('dad').includes('formum'), false);
   assert.ok(ids('mum,dad').includes('fordad') && ids('mum,dad').includes('formum'));
   assert.equal(ids('sam,dad').includes('fordad'), false, 'no personal channel with a child in the room');
-  assert.equal(ids('mum,dad').length >= 16, true);
+  assert.equal(ids('mum,dad').length >= 11, true);
+  assert.equal(ids('mum,dad').some(id => ['cartoons', 'hophop', 'littleones', 'bluey', 'forjake'].includes(id)), false, 'kids\' channels stay on the kids\' tabs');
   assert.equal(new Set(TV_NUMBERS()).size, TV_NUMBERS().length, 'channel numbers are unique');
   assert.deepEqual(library.home('mum,dad').channels.map(channel => channel.number), library.home('mum,dad').channels.map((_, i) => i + 1));
   const shows = library.home('mum,dad').channels.map(channel => channel.now.show);
@@ -473,4 +475,20 @@ test('cards carry the episode in words, its length and what comes next', async (
   assert.deepEqual(now.next, { show: 'Kath & Kim', title: 'S3 E2 · Party' });
   library.next('sitcoms', { viewers: 'dad' });
   assert.equal(library.home('dad').channels.find(channel => channel.id === 'sitcoms').now.title, 'S3 E2 · Party', 'next becomes the card');
+});
+
+test("a grown-up's own taste orders their channels", async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  const library = createTvLibrary({ videos: [
+    { src: 'Sitcom/s.mp4', file: '/m/Sitcom/s.mp4', title: 'Sitcom', channel: 'The Sitcom', tier: 'sitcom', duration: 1300 },
+    { src: 'Anim/a.mp4', file: '/m/Anim/a.mp4', title: 'Adult Cartoon', channel: 'Adult Cartoon', tier: 'adultanim', duration: 1300 },
+  ], history: await loadPlaybackHistory(join(dir, 'history.json')), storage, random: () => 0 });
+  const ids = () => library.home('dad').channels.map(channel => channel.id);
+  const before = ids();
+  assert.ok(before.indexOf('sitcoms') >= 0 && before.indexOf('sitcoms') < before.indexOf('adultanim'), JSON.stringify(before));
+  // Ian likes the grown-up cartoons and skips the sitcom.
+  storage.setItem('kidshuffle.weights.v2.sgrown', JSON.stringify({ 'Anim/a.mp4': 3, 'Sitcom/s.mp4': 0.5 }));
+  const after = ids();
+  assert.ok(after.indexOf('adultanim') < after.indexOf('sitcoms'), JSON.stringify(after));
 });

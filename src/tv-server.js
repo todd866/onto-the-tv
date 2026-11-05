@@ -363,10 +363,20 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return ids.includes(channel.person) && !TV_VIEWERS.some(person => person.ceiling && ids.includes(person.id));
   }
 
+  // Kids' things live on the kids' channels. With no child in the audience the kids'
+  // channels drop out and shared channels (Christmas, Rides) leave out cartoon tiers.
+  // A rating lowered on purpose (G, PG) means children are watching too.
+  const grownOnly = (ids, rating) => ids.length > 0 && (!rating || rating === 'M') &&
+    !TV_VIEWERS.some(person => person.ceiling && ids.includes(person.id));
+
   function poolFor(channelId, ids, rating = null) {
-    if (!personPresent(CHANNEL_BY_ID.get(channelId), ids)) return [];
+    const channel = CHANNEL_BY_ID.get(channelId);
+    if (!personPresent(channel, ids)) return [];
+    const adults = grownOnly(ids, rating);
+    if (adults && channel.audience === 'kid') return [];
     const { ceiling, blocked } = audience(ids, rating);
-    return videos.map((item, index) => (inGenre(item, channelId) && ratingAllowed(item, ceiling, blocked, channelId) ? index : -1))
+    return videos.map((item, index) => (inGenre(item, channelId) && ratingAllowed(item, ceiling, blocked, channelId) &&
+      !(adults && CARTOON_TIERS.has(item.tier)) ? index : -1))
       .filter(index => index >= 0);
   }
 
@@ -473,7 +483,19 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const position = new Map(TV_CHANNELS.map((channel, index) => [channel.id, index]));
     // A person's own channel leads their lineup.
     const rank = id => (CHANNEL_BY_ID.get(id).person ? -1 : order[CHANNEL_BY_ID.get(id).audience]);
-    channels.sort((a, b) => rank(a.id) - rank(b.id) || position.get(a.id) - position.get(b.id));
+    // Within each group, an adult audience sees the channels it actually likes first: the
+    // sum of its stored taste (likes above 1, skips below) over each channel's pool.
+    const key = tasteKey(ids);
+    const liking = new Map();
+    if (key) {
+      const weights = weightsFor(key);
+      for (const channel of channels) {
+        liking.set(channel.id, poolFor(channel.id, ids, rating)
+          .reduce((sum, index) => sum + player.weightFor(weights, videos[index].src) - 1, 0));
+      }
+    }
+    const liked = id => liking.get(id) || 0;
+    channels.sort((a, b) => rank(a.id) - rank(b.id) || liked(b.id) - liked(a.id) || position.get(a.id) - position.get(b.id));
     // Channels are numbered in the order this audience sees them, so the guide reads 1, 2, 3.
     channels.forEach((channel, index) => { channel.number = index + 1; });
     return {
