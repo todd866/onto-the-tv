@@ -29,6 +29,7 @@ if [[ $trusted != "$m2ip" ]]; then
   exit 2
 fi
 
-scp -q "$WGT" "$M2:/tmp/onto.wgt"
+# Stage in the private install folder (user-only), not the shared /tmp.
+scp -q "$WGT" "$M2:.local/state/onto-tv-install/onto.wgt"
 # Always disconnect: a connection left open makes the TV show an 'RWI mapping info' dialog at launch.
-ssh "$M2" "$SDB connect $TV:26101 >/dev/null; $SDB -s $TV:26101 install /tmp/onto.wgt 2>&1 | tail -3; rc=\$?; $SDB disconnect $TV:26101 >/dev/null; $SDB kill-server >/dev/null 2>&1; rm -f /tmp/onto.wgt; exit \$rc"
+ssh "$M2" "$SDB connect $TV:26101 >/dev/null; $SDB -s $TV:26101 install ~/.local/state/onto-tv-install/onto.wgt 2>&1 | tail -3; rc=\$?; $SDB disconnect $TV:26101 >/dev/null; $SDB kill-server >/dev/null 2>&1; rm -f ~/.local/state/onto-tv-install/onto.wgt; exit \$rc"
