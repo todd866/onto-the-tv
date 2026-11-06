@@ -14,6 +14,7 @@ import { createConsoleLauncher } from './console-launcher.js';
 import { createConfiguredUkeHandler } from './uke-handler.js';
 import { adDecade, buildPlayQueue, isAdSrc } from './ads.js';
 import { listSidecars, readSubtitle } from './subtitles.js';
+import { libraryView } from './tv-library-api.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
 // episode with the same picker and learning rules as the app's player, and streams
@@ -863,7 +864,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return channelsOf(item).some(id => ratingAllowed(item, ceiling, blocked, id));
   }
 
-  return { home, show, next, progress, allowed, file: src => video(src).video.file, video: src => video(src).video };
+  return { home, show, next, progress, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
 }
 
 async function readBody(request, limit = 16 * 1024) {
@@ -1026,6 +1027,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         return response.end(vtt);
       }
       if (path === '/api/home') return send(response, 200, library.home(url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, url.searchParams.get('rating')));
+      if (path === '/api/library') return send(response, 200, libraryView({ videos: library.catalogue(), history: history.list(), viewers: url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, rating: url.searchParams.get('rating') }));
       if (path === '/api/show') return send(response, 200, library.show(url.searchParams.get('name') || ''));
       if (path === '/api/next' && request.method === 'POST') {
         const params = await readBody(request);

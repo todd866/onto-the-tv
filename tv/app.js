@@ -21,6 +21,13 @@
   var GAME_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="20" width="172" height="74" rx="30"/><path d="M62 40v32M46 56h32"/><circle cx="138" cy="48" r="8" fill="currentColor" stroke="none"/><circle cx="160" cy="70" r="8" fill="currentColor" stroke="none"/></svg>';
   var UKE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 230"><rect x="32" y="4" width="56" height="28" rx="7" fill="currentColor"/><rect x="51" y="26" width="18" height="62" fill="currentColor"/><ellipse cx="60" cy="108" rx="30" ry="28" fill="currentColor"/><ellipse cx="60" cy="160" rx="44" ry="40" fill="currentColor"/><circle cx="46" cy="18" r="3.5" fill="#0b1428"/><circle cx="56" cy="18" r="3.5" fill="#0b1428"/><circle cx="66" cy="18" r="3.5" fill="#0b1428"/><circle cx="76" cy="18" r="3.5" fill="#0b1428"/><circle cx="60" cy="162" r="11" fill="#0b1428"/></svg>';
   var CONSOLE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 110" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="26" width="180" height="66" rx="33"/><path d="M56 44v30M41 59h30"/><path d="M128 59h24M140 47v24"/></svg>';
+  function appGlyph(id) {
+    if (id === 'games') return GAME_SVG;
+    if (id === 'uke') return UKE_SVG;
+    if (id === 'console') return CONSOLE_SVG;
+    var extra = window.ontoAppGlyphs && window.ontoAppGlyphs[id];
+    return extra || '';
+  }
   var SAVE_EVERY = 15000, OSD_MS = 4000;
   var FALLBACK_VIEWERS = [
     { id: 'sam', name: 'Sam', on: true }, { id: 'jake', name: 'Jake', on: true },
@@ -246,6 +253,7 @@
       cards.push({ id: 'games', number: last + 1, name: 'Games', app: 'games' });
       cards.push({ id: 'uke', number: last + 2, name: 'Uke', app: 'uke' });
       cards.push({ id: 'console', number: last + 3, name: 'Console', app: 'console' });
+      if (window.ontoLibraryCard) cards.push(window.ontoLibraryCard(last));
     }
     // The server orders the lineup for this audience; the app tiles follow it.
     return cards;
@@ -502,7 +510,7 @@
         var glyphP = document.createElement('span');
         glyphP.className = 'app-glyph';
         glyphP.setAttribute('aria-hidden', 'true');
-        glyphP.innerHTML = item.app === 'games' ? GAME_SVG : item.app === 'uke' ? UKE_SVG : CONSOLE_SVG;
+        glyphP.innerHTML = appGlyph(item.app);
         bezelP.appendChild(glyphP);
       } else if (item.now && item.now.art) {
         var imgP = document.createElement('img');
@@ -520,11 +528,11 @@
       button.appendChild(antennaEl());
       var bezel = document.createElement('span');
       bezel.className = 'bezel';
-      if (item.app === 'games' || item.app === 'uke' || item.app === 'console') {
+      if (item.app) {
         var glyph = document.createElement('span');
         glyph.className = 'app-glyph';
         glyph.setAttribute('aria-hidden', 'true');
-        glyph.innerHTML = item.app === 'games' ? GAME_SVG : item.app === 'uke' ? UKE_SVG : CONSOLE_SVG;
+        glyph.innerHTML = appGlyph(item.app);
         bezel.appendChild(glyph);
       }
       if (item.now && item.now.art) {
@@ -716,6 +724,7 @@
   }
   function activate(item) {
     if (!item) return;
+    if (item.app === 'library' && window.ontoLibrary) return window.ontoLibrary.open({ from: 'home' });
     if (item.app === 'games') return openGames();
     if (item.app === 'console') return openConsole();
     if (item.app === 'uke') {
@@ -1474,14 +1483,26 @@
     if (KEY.SUBT && code === KEY.SUBT) return 'subt';
     return '';
   }
+  function optionRows() { return document.querySelectorAll('#options .opt'); }
+  function activateOption(index) {
+    var button = optionRows()[index];
+    if (button && button.getAttribute('data-opt') === 'library') {
+      closeOptions();
+      if (!media.paused()) media.pause();
+      if (window.ontoLibrary) window.ontoLibrary.open({ from: 'player' });
+      return;
+    }
+    if (index === 0) cycleSubs();
+    else if (index === 1) cycleAudio();
+    else cycleAds();
+  }
   function handleOptionKey(name) {
+    var last = optionRows().length - 1;
+    if (last < 0) last = 0;
     if (name === 'up') optionRow = Math.max(0, optionRow - 1);
-    else if (name === 'down') optionRow = Math.min(2, optionRow + 1);
-    else if (name === 'ok') {
-      if (optionRow === 0) cycleSubs();
-      else if (optionRow === 1) cycleAudio();
-      else cycleAds();
-    } else if (name === 'subt') { optionRow = 0; cycleSubs(); }
+    else if (name === 'down') optionRow = Math.min(last, optionRow + 1);
+    else if (name === 'ok') activateOption(optionRow);
+    else if (name === 'subt') { optionRow = 0; cycleSubs(); }
     else return;
     paintOptions();
   }
@@ -1761,6 +1782,7 @@
     $('player').hidden = true;
     $('home').hidden = false;
     loadHome();
+    if (window.ontoLibrary && window.ontoLibrary.resume()) return;
   }
 
   function togglePause() {
@@ -1855,10 +1877,8 @@
     (function (index) {
       optionButtons[index].addEventListener('click', function () {
         optionRow = index;
-        if (index === 0) cycleSubs();
-        else if (index === 1) cycleAudio();
-        else cycleAds();
-        paintOptions();
+        activateOption(index);
+        if (optionButtons[index].getAttribute('data-opt') !== 'library') paintOptions();
       });
     })(optionIndex);
   }
@@ -1901,6 +1921,7 @@
   document.addEventListener('keydown', function (event) {
     var key = event.keyCode;
     if (window.ontoUke && window.ontoUke.isOpen()) { if (window.ontoUke.key(key)) event.preventDefault(); return; }
+    if (window.ontoLibrary && window.ontoLibrary.isOpen()) { window.ontoLibrary.key(key); event.preventDefault(); return; }
     if (window.ontoGames && window.ontoGames.isOpen()) {
       event.preventDefault();
       if (!event.repeat && window.ontoGames.handleKey(key, 1)) {
@@ -1966,6 +1987,7 @@
     if ($('player').hidden) return;
     if (window.ontoUke && window.ontoUke.isOpen()) return;
     if (window.ontoGames && window.ontoGames.isOpen()) return;
+    if (window.ontoLibrary && window.ontoLibrary.isOpen()) return;
     if (consoleState) return;
     clearInterval(sweepTimer);
     sweepDir = 0;
@@ -2006,11 +2028,39 @@
   window.ontoHome = function () {
     if (window.ontoUke && window.ontoUke.isOpen()) window.ontoUke.close();
     if (window.ontoGames && window.ontoGames.isOpen()) window.ontoGames.close();
+    if (window.ontoLibrary) window.ontoLibrary.abandon();
     if (play) stopPlayback();
     focus = { row: 0, col: 0 };
     render();
   };
 
+  window.ontoLibraryQuery = function () {
+    var stored = storedViewers(), rating = storedRating();
+    if (stored === null) return '/api/library';
+    return '/api/library?viewers=' + q(stored) + (rating ? '&rating=' + q(rating) : '');
+  };
+  window.ontoLibraryApi = function (path) { return api(path); };
+  window.ontoArtUrl = artUrl;
+  window.ontoLibraryClosed = function (from) {
+    if (from === 'player') showOsd();
+    else moveFocus(0, 0);
+  };
+  window.ontoPlayLibrary = function (item) {
+    if (!item || !item.src) return;
+    tuneRequest++;
+    if (play && play.item) { watchEvent('stop'); saveProgress(false); }
+    var series = item.show && item.title && item.show !== item.title ? item.show : 'Library';
+    var title = item.title || item.show || '';
+    play = { mode: 'single', channel: { id: 'library', number: '', name: series } };
+    load({
+      src: item.src,
+      title: title,
+      show: title,
+      resume: item.resume || 0,
+      duration: item.durationSeconds || item.duration || 0,
+      queue: [{ kind: 'show', src: item.src, breaks: [] }]
+    });
+  };
   loadLayoutStore();
   syncProfileFromStorage();
   paintBodyProfile();

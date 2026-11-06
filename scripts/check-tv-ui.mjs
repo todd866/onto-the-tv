@@ -9,6 +9,42 @@ const root = fileURLToPath(new URL('../tv/', import.meta.url));
 const out = process.env.TV_UI_OUTPUT || '/private/tmp/onto-tv-ui';
 await mkdir(out, { recursive: true });
 const longShow = 'Bluey — The Sign';
+const longEpisode = 'Bluey — The Sign: A Very Long Holiday Special About the Creek and the Beach';
+function libraryFixture() {
+  const ep = (src, title, show, season, episode, resume, duration, art) => ({
+    src, title, show, kind: 'episode', art, season, episode,
+    positionSeconds: resume, durationSeconds: duration, completed: false, resume,
+    updatedAt: '2026-11-05T12:00:00Z',
+  });
+  const film = (src, title, art, resume) => ({
+    src, title, show: title, kind: 'film', art, season: null, episode: null,
+    positionSeconds: resume, durationSeconds: 5400, completed: false, resume, updatedAt: '',
+  });
+  const bluey = [
+    ep('bluey/s01e01.mp4', 'Bluey S01E01', 'Bluey', 1, 1, 0, 420, '/art?src=show0'),
+    ep('bluey/s01e02.mp4', longEpisode, 'Bluey', 1, 2, 754, 1800, '/art?src=show0'),
+    ep('bluey/s02e01.mp4', 'Bluey S02E01', 'Bluey', 2, 1, 0, 420, '/art?src=show1'),
+  ];
+  const hermit = [
+    ep('hermit/s01e04.mp4', 'Hermitcraft S01E04 The Ocean Monument', 'Hermitcraft', 1, 4, 0, 2400, '/art?src=show2'),
+  ];
+  const cars = film('cars.mp4', 'Cars (2006)', '/art?src=show3', 240);
+  const nemo = film('nemo.mp4', 'Finding Nemo', '/art?src=show4', 0);
+  const show = (key, title, art, episodes, resume) => ({
+    key, title, art, resume, positionSeconds: resume, durationSeconds: resume ? 1800 : 0, episodes,
+  });
+  return {
+    ceiling: 'PG',
+    upNext: [Object.assign({ upNext: true }, bluey[1]), hermit[0]],
+    collections: [
+      { key: 'family-films', title: 'Family films', items: [cars, nemo] },
+      { key: 'grown-ups', title: 'Grown ups', items: [hermit[0]] },
+    ],
+    shows: [show('bluey', 'Bluey', '/art?src=show0', bluey, 754), show('hermit', 'Hermitcraft', '/art?src=show2', hermit, 0)],
+    films: [cars, nemo],
+    items: bluey.concat(hermit, [cars, nemo]),
+  };
+}
 function homeFor(viewers, rating = null) {
   const ids = viewers == null ? ['sam', 'jake', 'mum', 'dad'] : String(viewers).split(',').filter(Boolean);
   const on = id => ids.includes(id);
@@ -81,6 +117,7 @@ try {
     if (url.pathname === '/api/subs') return route.fulfill({ json: { tracks: [] } });
     if (url.pathname === '/api/scenes') return route.fulfill({ json: sceneBody });
     if (url.pathname === '/api/progress') return route.fulfill({ json: { ok: true } });
+    if (url.pathname === '/api/library') return route.fulfill({ json: libraryFixture() });
     if (url.pathname === '/api/home') {
       const viewers = url.searchParams.get('viewers');
       homeQueries.push(viewers);
@@ -448,6 +485,127 @@ try {
     await assertViewport(page, { primary: ['#home'], controls: ['.channel.focused'] });
     await page.screenshot({ path: path.join(out, 'home-' + width + 'x' + height + '.png') });
   }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('http://tv.test/');
+  await page.locator('.channel.app-library').waitFor();
+  const polish = fileURLToPath(new URL('../audit/tv-polish/library/', import.meta.url));
+  await mkdir(polish, { recursive: true });
+  await page.locator('.channel.app-library').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(polish, 'library-card-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(polish, 'library-card-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.locator('.channel.app-library').click();
+  await page.locator('#library:visible .lib-card').first().waitFor();
+  await page.evaluate(async () => { if (document.fonts) await document.fonts.ready; });
+  await page.waitForFunction(() => {
+    const imgs = [...document.querySelectorAll('#library .lib-art')];
+    return imgs.length > 0 && imgs.every(img => img.complete && img.naturalWidth);
+  });
+  const libraryArt = () => page.waitForFunction(() => {
+    const imgs = [...document.querySelectorAll('#library .lib-art')];
+    return imgs.length === 0 || imgs.every(img => img.complete && img.naturalWidth);
+  });
+  const libraryFit = () => page.evaluate(() => {
+    const text = [...document.querySelectorAll('#library .lib-title, #library .lib-ep-title, #library .lib-strip-name, #library .lib-q, #library .lib-mode')];
+    const clipped = text.filter(el => el.textContent.trim() && (el.scrollWidth > el.clientWidth + 4 || el.scrollHeight > el.clientHeight + 4)).map(el => {
+      const style = getComputedStyle(el);
+      return el.textContent.slice(0, 48) + ' ' + el.scrollWidth + '/' + el.clientWidth + ' ' + el.scrollHeight + '/' + el.clientHeight + ' ' + style.whiteSpace + ' ' + style.display;
+    });
+    const small = [...document.querySelectorAll('#library button, #library .lib-title, #library .lib-time, #library .lib-strip-name, #library .lib-ep-title, #library .lib-q')]
+      .filter(el => el.textContent.trim() && parseFloat(getComputedStyle(el).fontSize) < 28)
+      .map(el => el.className + ' ' + getComputedStyle(el).fontSize);
+    const focus = document.querySelector('#library .focused');
+    const ring = focus ? getComputedStyle(focus).borderTopColor : '';
+    return { clipped, small, ring, focus: focus ? focus.textContent : '' };
+  });
+  await page.screenshot({ path: path.join(polish, 'library-home-dark.png') });
+  let fit = await libraryFit();
+  assert.deepEqual(fit.clipped, [], 'library text is clipped');
+  assert.deepEqual(fit.small, [], 'library text under 28px');
+  assert.equal(fit.ring, 'rgb(255, 181, 71)');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(polish, 'library-home-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.screenshot({ path: path.join(polish, 'library-home-row3-dark.png') });
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await page.locator('#library .lib-card', { hasText: 'Bluey' }).first().waitFor();
+  await libraryArt();
+  fit = await libraryFit();
+  assert.deepEqual(fit.clipped, [], 'shows text is clipped');
+  await page.screenshot({ path: path.join(polish, 'library-shows-dark.png') });
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Enter');
+  await page.locator('#library .lib-ep', { hasText: longEpisode }).waitFor();
+  fit = await libraryFit();
+  assert.deepEqual(fit.clipped, [], 'episode text is clipped');
+  assert.deepEqual(fit.small, []);
+  await page.screenshot({ path: path.join(polish, 'library-episodes-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(polish, 'library-episodes-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.keyboard.press('Escape');
+  await page.locator('#library .lib-mode.on', { hasText: 'Shows' }).waitFor();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await page.locator('#library .lib-key.focused', { hasText: 'A' }).waitFor();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await page.locator('#library .lib-q', { hasText: 'B' }).waitFor();
+  await page.locator('#library .lib-results .lib-ep', { hasText: 'Bluey' }).first().waitFor();
+  await libraryArt();
+  fit = await libraryFit();
+  assert.deepEqual(fit.clipped, [], 'search text is clipped');
+  assert.deepEqual(fit.small, []);
+  await page.screenshot({ path: path.join(polish, 'library-search-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(polish, 'library-search-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.getElementById('library').hidden);
+  await page.locator('.channel.app-library').click();
+  await page.locator('#library:visible .lib-card').first().waitFor();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await page.locator('#player:visible').waitFor();
+  assert.match(await page.locator('#osd-show').textContent(), /Bluey/);
+  await page.keyboard.press('Escape');
+  await page.locator('#library:visible').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('#home:visible').waitFor();
+  await page.keyboard.press('2');
+  await page.locator('#player:visible').waitFor();
+  await page.keyboard.down('Enter');
+  await page.waitForTimeout(750);
+  await page.keyboard.up('Enter');
+  await page.locator('#options:visible [data-opt="library"]').waitFor();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.locator('#options .opt.focused[data-opt="library"]').waitFor();
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(polish, 'library-options-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(polish, 'library-options-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.keyboard.press('Enter');
+  await page.locator('#library:visible').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('#player:visible').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('#home:visible').waitFor();
+
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, screenshots: out, homeQueries: homeQueries.length, shots: ['home-everyone-dark.png', 'home-everyone-light.png', 'home-adults-dark.png', 'home-adults-light.png', 'home-focus-dark.png', 'home-focus-light.png', 'osd-dark.png', 'osd-light.png', 'osd-seek-dark.png', 'osd-seek-light.png', 'options-dark.png', 'options-light.png', 'chips-dark.png', 'chips-light.png', 'resume-dark.png', 'resume-light.png', 'up-next-dark.png', 'up-next-light.png', 'skip-dark.png', 'skip-light.png', 'error-dark.png', 'error-light.png', 'setup-dark.png', 'setup-light.png'] }));
 } finally { await browser.close(); }
