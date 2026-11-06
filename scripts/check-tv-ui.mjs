@@ -96,6 +96,23 @@ try {
     if (!localStorage.getItem('onto.viewers')) localStorage.setItem('onto.viewers', 'sam,jake,mum,dad');
     if (!localStorage.getItem('onto.profile')) localStorage.setItem('onto.profile', 'all');
   });
+  async function pressCode(page, code) {
+    await page.evaluate(code => {
+      function fire(type) {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'keyCode', { get: () => code });
+        Object.defineProperty(event, 'repeat', { get: () => false });
+        document.dispatchEvent(event);
+      }
+      fire('keydown');
+      fire('keyup');
+    }, code);
+  }
+  async function downToChannel(page) {
+    for (let i = 0; i < 6 && await page.locator('.channel.focused').count() === 0; i++) {
+      await page.keyboard.press('ArrowDown');
+    }
+  }
   async function pickProfile(page, id) {
     await page.locator('.profile-chip').click();
     await page.locator('#picker:visible').waitFor();
@@ -289,7 +306,7 @@ try {
   assert.equal(nextRequests.at(-1).channel, 'rides');
   await page.keyboard.press('Escape');
   diagnostics = [];
-  await page.keyboard.press('ArrowDown');
+  await downToChannel(page);
   await page.keyboard.press('Enter');
   await page.locator('#player:visible').waitFor();
   await page.locator('#resume-choice:visible').waitFor();
@@ -362,12 +379,17 @@ try {
   await page.waitForTimeout(100);
   assert.ok(diagnostics.some(event => event.event === 'pause' && event.paused));
   nextRequests = [];
-  await page.keyboard.press('ArrowUp');
+  await pressCode(page, 427);
   await page.waitForTimeout(80);
   assert.equal(nextRequests.at(-1).channel, 'movies');
-  await page.keyboard.press('ArrowDown');
+  assert.equal(nextRequests.at(-1).prefetch, true);
+  assert.equal(await page.locator('#channel-preview').isVisible(), true);
+  assert.equal((await page.locator('#osd-show').textContent() || '').trim(), 'Bluey');
+  await pressCode(page, 428);
   await page.waitForTimeout(80);
-  assert.equal(nextRequests.at(-1).channel, 'cartoons');
+  assert.equal(nextRequests.at(-1).channel, 'rides');
+  assert.equal(await page.locator('#channel-preview').isVisible(), true);
+  assert.equal((await page.locator('#osd-show').textContent() || '').trim(), 'Bluey');
   await page.keyboard.press('Escape');
   await page.locator('#home:visible').waitFor();
   await page.keyboard.press('2');
@@ -480,7 +502,7 @@ try {
   for (const [width, height] of [[1280,720], [960,540], [390,844], [844,390]]) {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(200);
-    await page.keyboard.press('ArrowDown');
+    await downToChannel(page);
     await page.waitForTimeout(200);
     await assertViewport(page, { primary: ['#home'], controls: ['.channel.focused'] });
     await page.screenshot({ path: path.join(out, 'home-' + width + 'x' + height + '.png') });

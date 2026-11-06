@@ -23,6 +23,7 @@
       <time id="clock"></time>
     </div>
   </div>
+  <div id="resume-row" hidden role="group" aria-label="Continue"></div>
   <div id="hero" hidden aria-live="polite"></div>
   <div id="channels"></div>
   <p id="status" role="status"></p>
@@ -35,6 +36,18 @@
     <div id="osd-bar"><div id="osd-keys"><button type="button" id="osd-back" aria-label="Back to channels" title="Channels"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M30 8 L14 24 L30 40"/></svg></button><button type="button" id="osd-play" aria-label="Play or pause"><svg class="icon icon-play" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round" d="M14 8 L38 24 L14 40 Z"/></svg><svg class="icon icon-pause" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M12 8 h8 v32 h-8 z M28 8 h8 v32 h-8 z"/></svg></button><button type="button" id="osd-prev-scene" aria-label="Previous scene"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round" d="M24 10 L6 24 L24 38 Z M42 10 L24 24 L42 38 Z"/></svg></button><button type="button" id="osd-next-scene" aria-label="Next scene"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round" d="M6 10 L24 24 L6 38 Z M24 10 L42 24 L24 38 Z"/></svg></button><button type="button" id="osd-next" aria-label="Next episode"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M8 8 L28 24 L8 40 Z M32 8 h8 v32 h-8 z"/></svg></button><button type="button" id="osd-options" aria-label="Options" title="Options"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true" fill="currentColor"><circle cx="10" cy="24" r="4"/><circle cx="24" cy="24" r="4"/><circle cx="38" cy="24" r="4"/></svg></button></div><span id="osd-elapsed">0:00</span><div id="osd-track"><div id="osd-fill"></div></div><span id="osd-duration">0:00</span></div>
 
   </div>
+  <button id="back-chip" type="button" hidden>
+    <svg class="chev" viewBox="0 0 48 48" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M30 8 L14 24 L30 40"/></svg>
+    <img id="back-chip-art" class="thumb" alt="">
+    <span id="back-chip-title"></span>
+  </button>
+  <button id="channel-preview" type="button" hidden>
+    <img id="channel-preview-art" class="thumb" alt="">
+    <span id="channel-preview-num"></span>
+    <span id="channel-preview-copy"><span id="channel-preview-name"></span><span id="channel-preview-show"></span></span>
+    <span id="channel-preview-spin" hidden></span>
+  </button>
+  <div id="continue-strip" hidden role="group" aria-label="Continue"></div>
   <div id="ad-chip" hidden><span id="ad-label"></span><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 48"><path fill="currentColor" d="M2 6 L30 24 L2 42 Z M36 6 h10 v36 h-10 z"/></svg></span></div>
   <button id="skip-intro" type="button" hidden><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 48"><path fill="currentColor" d="M2 6 L30 24 L2 42 Z M36 6 h10 v36 h-10 z"/></svg></span><span>Skip intro</span></button>
   <div id="jump-strip" hidden></div>
@@ -68,6 +81,8 @@
 <script src="watch-tracker.js"></script>
 <script src="watch-delivery.js"></script>
 <script src="library.js"></script>
+<script src="watch-back.js"></script>
+<script src="channel-arm.js"></script>
 <script src="app.js"></script>
 <script src="gamepad.js"></script>
 </body>

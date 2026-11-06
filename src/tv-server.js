@@ -829,6 +829,15 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const ids = viewerIds(options.viewers);
     const rating = ratingOf(options.rating);
     const key = stageKey(channelId, ids, rating);
+    // A preview may fetch the staged episode without consuming it, so a cancelled
+    // press does not change what the channel plays next.
+    if (options.prefetch === true) {
+      if (!staged.has(key)) return { src: '', title: '', show: '', duration: 0, resume: 0, queue: [], prefetch: true };
+      const item = describe(videos[staged.get(key)]);
+      item.queue = [{ kind: 'show', src: item.src, breaks: [] }];
+      item.prefetch = true;
+      return item;
+    }
     if (!options.current && staged.has(key)) {
       const index = staged.get(key);
       staged.delete(key);
@@ -911,7 +920,9 @@ export async function streamFile(request, response, file, mediaCache) {
  */
 export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), sceneStore = null,
   consoleLauncher = createConsoleLauncher(), log = () => {} }) {
-  const tvCommands = createTvCommands();
+  const tvCommands = createTvCommands({
+    allowSrc(src) { try { library.video(src); return true; } catch { return false; } },
+  });
   let dirty = false;
   const save = () => {
     if (!dirty) return Promise.resolve();

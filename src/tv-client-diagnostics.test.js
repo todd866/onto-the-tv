@@ -46,6 +46,18 @@ test('failed telemetry and faulty samplers cannot throw into playback', () => {
   assert.doesNotThrow(() => h.timers[0]());
 });
 
+test('a play command is delivered with its source and position', async () => {
+  const h = harness();
+  h.window.ontoTVAction = (action, command) => { h.played = { action, command }; return null; };
+  h.requests[0].request.status = 200;
+  h.requests[0].request.responseText = JSON.stringify({ command: { id: 'c1', action: 'play', expiresAt: Date.now() + 60000, src: 'Kids/Timmy.mp4', positionSeconds: 42 } });
+  h.requests[0].request.onloadend();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.played.action, 'play');
+  assert.equal(h.played.command.src, 'Kids/Timmy.mp4');
+  assert.equal(h.played.command.positionSeconds, 42);
+});
+
 test('controller evidence survives subsequent heartbeats without device data loss', () => {
   const h = harness();
   const controller = {supported:true,count:1,devices:[{index:0,id:'USB Gamepad',mapping:'unknown',buttons:12,axes:4}],lastInput:'button-0',error:'none'};

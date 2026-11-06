@@ -1,4 +1,4 @@
-const EVENTS = new Set(['startup', 'connected', 'rendered', 'play_request', 'playing', 'pause', 'ended', 'play_error', 'script_error', 'heartbeat', 'offline', 'game_open', 'game_state', 'game_input', 'game_close', 'controller', 'uke_state']);
+const EVENTS = new Set(['startup', 'connected', 'rendered', 'play_request', 'playing', 'pause', 'ended', 'play_error', 'script_error', 'heartbeat', 'offline', 'game_open', 'game_state', 'game_input', 'game_close', 'controller', 'uke_state', 'key_latency']);
 const PAGES = new Set(['home', 'player', 'setup', 'games']);
 const ENGINES = new Set(['video', 'avplay']);
 const STATES = new Set(['starting', 'connecting', 'ready', 'loading', 'playing', 'paused', 'buffering', 'error', 'offline']);
@@ -24,6 +24,11 @@ const number = (value, name, optional = true) => {
   if (value == null && optional) return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 31536000) throw new DiagnosticsValidationError(`Invalid ${name}.`);
   return value;
+};
+const latencyMs = value => {
+  if (value == null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 60000) throw new DiagnosticsValidationError('Invalid latency.');
+  return Math.round(value);
 };
 
 function controller(value) {
@@ -97,6 +102,7 @@ function sanitize(input) {
     game: choice(input.game, new Set(['menu', 'numbers', 'memory', 'rover']), 'game', true),
     input: choice(input.input, new Set(['arrows', 'ok', 'number', 'back', 'laptop']), 'input', true),
     errorCode: choice(input.errorCode, ERRORS, 'errorCode', true),
+    latencyMs: latencyMs(input.latencyMs),
     controller: controller(input.controller),
     uke: uke(input.uke),
   };
