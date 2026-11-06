@@ -100,7 +100,7 @@ test('collection rows follow what this audience watched most recently and collap
   ];
   const view = libraryView({ videos, history, viewers: 'dad', now: NOW });
   // Mobland is on Up next, so its collection keeps the row's place but not the duplicate card.
-  assert.deepEqual(view.collections.map(row => row.title), ['Grown ups', 'Family shorts', 'Family films']);
+  assert.deepEqual(view.collections.map(row => row.title), ['Grown-ups', 'Shorts', 'Family Films']);
   assert.deepEqual(view.collections[0].items.map(item => item.title), ['Utopia S01E02']);
 });
 
@@ -232,4 +232,16 @@ test('nobody watching gets an empty library, and a missing viewers list is the w
   const house = libraryView({ videos, now: NOW });
   assert.equal(house.ceiling, 'G');
   assert.deepEqual(house.items.map(item => item.title), ['Bluey S01E01']);
+});
+
+test('Fran alone gets no animation, and collections use channel names', async () => {
+  const { libraryView } = await import('./tv-library-api.js');
+  const videos = [
+    { src: 'a/f.mp4', file: '/Volumes/Stash/Movies/adultanim/Futurama (1999)/f.mp4', title: 'Futurama S1E1', channel: 'Futurama (1999)', tier: 'adultanim', duration: 1300 },
+    { src: 'g/c.mp4', file: '/Volumes/Stash/Movies/grown-ups/Come Dine With Me/c.mp4', title: 'Come Dine', channel: 'Come Dine With Me', tier: 'grownup', duration: 1300 },
+  ];
+  const fran = libraryView({ videos, history: [], viewers: 'mum' });
+  assert.equal(fran.items.some(item => /Futurama/.test(item.title)), false);
+  const ian = libraryView({ videos, history: [], viewers: 'dad' });
+  assert.ok(ian.collections.some(row => row.title === 'Grown-up Cartoons'), JSON.stringify(ian.collections.map(row => row.title)));
 });

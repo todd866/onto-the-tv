@@ -74,11 +74,14 @@ function contentRating(item) {
   return tier;
 }
 
-function allowed(item, ids, ceiling, adults, ian) {
+// Fran on her own: no animation (Ian, 4 Nov 2026), as on her channels.
+const FRAN_SKIP_TIERS = new Set(['adultanim']);
+function allowed(item, ids, ceiling, adults, ian, fran) {
   if (!item || typeof item.src !== 'string' || !item.src || AD.test(item.src)) return false;
   if (!ceiling) return false;
   if (adults && CARTOON.has(item.tier)) return false;
   if (ian && IAN_SKIPS.test(String(item.channel || '').replace(/^[^\w]+/, ''))) return false;
+  if (fran && FRAN_SKIP_TIERS.has(item.tier)) return false;
   const rating = contentRating(item);
   return ORDER.indexOf(rating) >= 0 && ORDER.indexOf(rating) <= ORDER.indexOf(ceiling);
 }
@@ -141,7 +144,12 @@ function collectionOf(item) {
   }
   return item.kind === 'film' ? 'films' : 'other';
 }
-const label = key => key.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase());
+// Collection rows are the library's top folders; give them the names the channels use.
+const LABELS = { 'adultanim': 'Grown-up Cartoons', 'bbc': 'BBC', 'grown-ups': 'Grown-ups', 'kids-holiday': 'Kids',
+  'kids': 'Kids', 'music-videos': 'Music', 'family-films': 'Family Films', 'family-shorts': 'Shorts', 'scifi': 'Sci-Fi',
+  'sitcoms': 'Sitcoms', 'together': 'Ian & Fran', 'gaming': 'Gaming', 'preschool': 'Little Ones', 'comedy': 'Comedy',
+  'films': 'Films', 'decades': 'Decades', 'standup': 'Stand-up', 'docs': 'Docs', 'christmas': 'Christmas', 'classic': 'Classics' };
+const label = key => LABELS[key] || key.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase());
 
 function collectionRows(items, skip) {
   const groups = new Map();
@@ -256,7 +264,8 @@ export function libraryView({ videos = [], history = [], viewers, rating = null,
   const ceiling = ceilingFor(ids, chosen);
   const adults = grownOnly(ids, chosen);
   const ian = ids.length === 1 && ids[0] === 'dad' && adults;
-  const items = list.filter(item => allowed(item, ids, ceiling, adults, ian)).map(item => toItem(item, historyMap(history)));
+  const fran = ids.length === 1 && ids[0] === 'mum' && adults;
+  const items = list.filter(item => allowed(item, ids, ceiling, adults, ian, fran)).map(item => toItem(item, historyMap(history)));
   const upNext = continueRow(items, now);
   const collections = collectionRows(items, new Set(upNext.map(showKey))).map(row => ({
     key: row.key,
