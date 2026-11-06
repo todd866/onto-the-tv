@@ -37,6 +37,8 @@
   var osdTimer = 0, gameState = null, tuneRequest = 0, tuneMark = 0, tuneTimer = 0;
   var navState = window.ontoNav.initial();
   var navTimer = 0, stripTimer = 0, optionOpen = false, optionRow = 0;
+  var upNextTimer = 0, errorTimer = 0, sweepTimer = 0, seekPreview = null, resumeIndex = 0, sweepDir = 0;
+  var upNextCard = null, seekCtrl = null, errorCtrl = null;
   var sessionIntro = {}, showStack = [];
   var lastPlayingDiagnostic = 0;
   var mediaState = 'starting', lastProgressAt = 0, previousMediaTime = 0;
@@ -891,11 +893,20 @@
   // ---------- playback ----------
   var media = window.ontoPlayer(video, $('av'));
   if (media.engine === 'avplay') document.body.classList.add('avplay');
+  if (window.ontoPlayerExtras) {
+    window.ontoPlayerExtras.install(document);
+    upNextCard = window.ontoPlayerExtras.upNext();
+    seekCtrl = window.ontoPlayerExtras.seek();
+    errorCtrl = window.ontoPlayerExtras.errorLine();
+  }
 
+  function playerOverlay() {
+    return !!(play && (play.resumePending || play.errorOn)) || (upNextCard && upNextCard.active());
+  }
   function showOsd() {
     osd.classList.remove('hidden');
     clearTimeout(osdTimer);
-    osdTimer = setTimeout(function () { if (!media.paused()) osd.classList.add('hidden'); }, OSD_MS);
+    osdTimer = setTimeout(function () { if (!media.paused() && !playerOverlay()) osd.classList.add('hidden'); }, OSD_MS);
   }
   function updateOsd() {
     if (!play || !play.item) return;
@@ -906,9 +917,17 @@
     $('osd-episode').textContent = '';
     $('osd-show').title = play.item.title || play.item.show || '';
     $('osd-play').setAttribute('aria-label', media.paused() ? 'Play' : 'Pause');
-    $('osd-elapsed').textContent = clock(media.time());
+    var shown = seekPreview != null ? seekPreview : media.time();
+    $('osd-elapsed').textContent = clock(shown);
+    $('osd-elapsed').classList.toggle('is-preview', seekPreview != null);
     $('osd-duration').textContent = clock(duration);
     $('osd-fill').style.width = duration ? Math.min(100, 100 * media.time() / duration) + '%' : '0';
+    var seekMark = $('osd-seek');
+    if (seekMark) {
+      if (seekPreview == null || !duration) seekMark.hidden = true;
+      else { seekMark.hidden = false; seekMark.style.left = Math.min(100, 100 * seekPreview / duration) + '%'; }
+    }
+    paintTrackToggles();
     if (media.paused()) $('osd-play').classList.add('is-paused');
     else $('osd-play').classList.remove('is-paused');
     $('osd-next').hidden = play.mode === 'single';
@@ -971,6 +990,7 @@
   }
   function playbackPosition() {
     if (!play) return 0;
+    if (play.resumePending && play.item) return play.item.resume || 0;
     if (play.airing === 'show') return media.time();
     if (typeof play.showTime === 'number') return play.showTime;
     return play.item ? (play.item.resume || 0) : 0;
@@ -982,7 +1002,35 @@
     else chip.textContent = 'Ad ' + n + '/' + total;
   }
   function hideAdChip() { var chip = $('ad-chip'); if (chip) chip.hidden = true; }
-  function hideIntro() { var button = $('skip-intro'); if (button) button.hidden = true; }
+  function hideIntro() {
+    var button = $('skip-intro');
+    if (!button) return;
+    button.hidden = true;
+    button.classList.remove('focused');
+  }
+  function setSkipLabel(text) {
+    var button = $('skip-intro'), spans, i, node;
+    if (!button) return;
+    spans = button.getElementsByTagName('span');
+    for (i = 0; i < spans.length; i++) {
+      node = spans[i];
+      if (node.className.indexOf('glyph') === -1) node.textContent = text;
+    }
+    button.setAttribute('aria-label', text);
+    button.classList.add('focused');
+  }
+  function hideUpNext() {
+    clearTimeout(upNextTimer);
+    var box = $('up-next');
+    if (box) box.hidden = true;
+  }
+  function hideResume() { var box = $('resume-choice'); if (box) box.hidden = true; }
+  function hideError() {
+    clearTimeout(errorTimer);
+    var box = $('play-error');
+    if (box) box.hidden = true;
+    osd.classList.remove('has-error');
+  }
   function rememberShow() {
     if (!play || !play.item || !play.channel) return;
     var channelId = play.channel.id;
@@ -1036,12 +1084,29 @@
     if (play && audio.length) play.audioIndex = Math.max(0, play.audioIndex || 0) % audio.length;
     $('opt-audio').textContent = audioLabel;
     $('opt-ads').textContent = adsMode() === 'skip' ? 'Skip' : 'Play';
+    paintTrackToggles();
     var rows = document.querySelectorAll('#options .opt');
     for (i = 0; i < rows.length; i++) {
       rows[i].classList.toggle('focused', i === optionRow);
       var value = rows[i].querySelector('.v');
       rows[i].setAttribute('aria-label', rows[i].querySelector('.k').textContent + ' ' + (value ? value.textContent : ''));
     }
+  }
+  function paintTrackToggles() {
+    var ccBtn = $('osd-cc'), audioBtn = $('osd-audio'), subs, choice, label, i, audio, audioLabel;
+    if (!ccBtn || !audioBtn || !play) return;
+    subs = textChoices();
+    choice = resolveSubs(subsChoice());
+    label = 'Off';
+    for (i = 0; i < subs.length; i++) if (subs[i].id === choice) label = subs[i].label;
+    ccBtn.hidden = !subs.length;
+    $('osd-cc-value').textContent = label;
+    ccBtn.setAttribute('aria-label', 'Subtitles ' + label);
+    audio = audioChoices();
+    audioBtn.hidden = audio.length < 2;
+    audioLabel = audio.length ? audio[Math.max(0, play.audioIndex || 0) % audio.length].label : '';
+    $('osd-audio-value').textContent = audioLabel;
+    audioBtn.setAttribute('aria-label', 'Audio ' + audioLabel);
   }
   function closeOptions() { optionOpen = false; var panel = $('options'); if (panel) panel.hidden = true; }
   function openOptions() {
@@ -1226,6 +1291,14 @@
     hideIntro();
     showOsd();
   }
+  function skipCredits() {
+    if (!play || !play.pendingCredits) return;
+    play.skipUntil = play.pendingCredits.end;
+    media.seek(play.pendingCredits.end);
+    play.pendingCredits = null;
+    hideIntro();
+    showOsd();
+  }
   function followSegments() {
     var t, segments, intro, outro, recorded, i, seg, channelId, ads, n, breaks;
     if (!play || play.airing !== 'show') return;
@@ -1244,14 +1317,26 @@
       else if (seg.kind === 'ad') recorded = seg;
     }
     channelId = play.channel ? play.channel.id : '';
-    if (outro && !play.rollingCredits) { play.rollingCredits = true; next('ended'); return; }
+    if (outro && !play.rollingCredits) {
+      play.rollingCredits = true;
+      if (!(window.ontoPlayerExtras && window.ontoPlayerExtras.isSerial(play.item))) { next('ended'); return; }
+    }
     if (intro) {
       if (sessionIntro[channelId]) { play.skipUntil = intro.end; media.seek(intro.end); return; }
       play.pendingIntro = intro;
+      play.pendingCredits = null;
+      setSkipLabel('Skip intro');
       if (!optionOpen) $('skip-intro').hidden = false;
+    } else if (outro && window.ontoPlayerExtras && window.ontoPlayerExtras.isSerial(play.item) && !(upNextCard && upNextCard.active())) {
+      play.pendingCredits = outro;
+      setSkipLabel('Skip credits');
+      if (!optionOpen && (!$('up-next') || $('up-next').hidden)) $('skip-intro').hidden = false;
     } else if (play.pendingIntro) {
       sessionIntro[channelId] = true;
       play.pendingIntro = null;
+      hideIntro();
+    } else if (play.pendingCredits) {
+      play.pendingCredits = null;
       hideIntro();
     }
     if (recorded && adsMode() === 'skip') {
@@ -1301,20 +1386,67 @@
     load(previous.item, true);
   }
   function inAd() { return !!(play && (play.airing === 'ad' || play.inRecorded)); }
+  function durationNow() { return media.duration() || (play && play.item && play.item.duration) || 0; }
+  function applySeek(target) {
+    seekPreview = null;
+    if (seekCtrl) seekCtrl.clear();
+    media.seek(target);
+    if (play && play.airing === 'show') play.showTime = target;
+    if (play) play.ignoreUntil = Date.now() + 1200;
+    if (watchTracker) watchTracker.rebase(target, Date.now());
+    updateOsd();
+    showOsd();
+  }
+  function previewSeekSteps(delta) {
+    var duration = durationNow(), dir, steps, at, i;
+    if (!seekCtrl || !delta) { seekPreview = null; updateOsd(); return; }
+    seekCtrl.clear();
+    dir = delta < 0 ? -1 : 1;
+    steps = Math.abs(delta);
+    at = media.time();
+    for (i = 0; i < steps; i++) at = seekCtrl.tap(media.time(), duration, dir);
+    seekPreview = at;
+    updateOsd();
+    showOsd();
+  }
+  function commitSeekSteps(delta) {
+    var target = seekPreview;
+    if (!play) return;
+    if (target == null && delta && seekCtrl) {
+      var duration = durationNow(), dir = delta < 0 ? -1 : 1, i, at = media.time();
+      seekCtrl.clear();
+      for (i = 0; i < Math.abs(delta); i++) at = seekCtrl.tap(media.time(), duration, dir);
+      target = at;
+    }
+    if (target == null) return;
+    applySeek(target);
+  }
+  function stepSweep() {
+    if (!play || !seekCtrl || !sweepDir) return;
+    applySeek(seekCtrl.hold(media.time(), durationNow(), sweepDir));
+  }
+  function holdSeek(key) {
+    clearInterval(sweepTimer);
+    sweepDir = key === 'left' ? -1 : 1;
+    stepSweep();
+    sweepTimer = setInterval(stepSweep, 350);
+  }
   function applyNav(actions) {
     var i, action;
     for (i = 0; i < actions.length; i++) {
       action = actions[i];
-      if (action.type === 'queue') previewJump(action.delta);
-      else if (action.type === 'commit') commitJump(action.delta);
+      if (action.type === 'queue') previewSeekSteps(action.delta);
+      else if (action.type === 'commit') commitSeekSteps(action.delta);
       else if (action.type === 'skip-break') skipBreak();
       else if (action.type === 'hold') {
-        if (action.key === 'left') previousShow();
-        else if (action.key === 'right' || action.key === 'play') next('skip');
+        if (action.key === 'left' || action.key === 'right') holdSeek(action.key);
+        else if (action.key === 'play') next('skip');
         else if (action.key === 'ok') openOptions();
       } else if (action.type === 'tap') {
         if (action.key === 'ok') {
-          if (!$('skip-intro').hidden && play && play.pendingIntro) skipIntro();
+          if (upNextCard && upNextCard.active()) acceptUpNext();
+          else if (!$('skip-intro').hidden && play && play.pendingIntro) skipIntro();
+          else if (!$('skip-intro').hidden && play && play.pendingCredits) skipCredits();
           else togglePause();
         } else if (action.key === 'up') stepChannel(1);
         else if (action.key === 'down') stepChannel(-1);
@@ -1354,7 +1486,7 @@
     paintOptions();
   }
   function load(item, restoring) {
-    var i, preroll;
+    var i;
     if (!restoring) rememberShow();
     watchSession = 'tv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
     watchSequence = 0;
@@ -1366,7 +1498,17 @@
     play.airing = 'show';
     play.rollingCredits = false;
     play.pendingIntro = null;
+    play.pendingCredits = null;
     play.inRecorded = null;
+    play.advanced = false;
+    play.upNextAsked = false;
+    play.upNextLabel = '';
+    play.upNextDismissed = false;
+    play.resumePending = false;
+    play.errorOn = false;
+    if (upNextCard) upNextCard.reset();
+    seekPreview = null;
+    clearInterval(sweepTimer);
     play.skipUntil = 0;
     play.scenes = null;
     play.sidecars = [];
@@ -1384,18 +1526,175 @@
     document.body.classList.add('playing');
     hideAdChip();
     hideIntro();
+    hideUpNext();
+    hideResume();
+    hideError();
     closeOptions();
     $('jump-strip').hidden = true;
     lastPlayingDiagnostic = 0;
+    if (!restoring && window.ontoPlayerExtras && window.ontoPlayerExtras.resumeOffer(item.resume || 0)) {
+      showResumePrompt(item);
+      return;
+    }
+    startQueued(item);
+  }
+  function startQueued(item) {
+    var i, preroll = [];
+    play.resumePending = false;
+    play.errorOn = false;
+    hideResume();
+    hideError();
     mediaState = 'loading'; lastProgressAt = 0; previousMediaTime = item.resume || 0;
     diag('play_request', { page: 'player', engine: media.engine, state: 'loading', position: item.resume || 0, duration: item.duration || 0, paused: false });
-    preroll = [];
     for (i = 0; i < play.queue.length; i++) {
       if (play.queue[i].kind !== 'ad') break;
       preroll.push(play.queue[i]);
     }
     if (preroll.length && adsMode() !== 'skip') startBreak(preroll, 'preroll');
     else playShowAt(item.resume || 0);
+  }
+  function showResumePrompt(item) {
+    var resumeBtn = $('resume-play'), startBtn = $('resume-start');
+    play.resumePending = true;
+    resumeIndex = 0;
+    if (resumeBtn) resumeBtn.textContent = window.ontoPlayerExtras.resumeLabel(item.resume || 0);
+    if (resumeBtn) resumeBtn.classList.add('focused');
+    if (startBtn) startBtn.classList.remove('focused');
+    if ($('resume-choice')) $('resume-choice').hidden = false;
+    updateOsd();
+    showOsd();
+    if (resumeBtn) resumeBtn.focus();
+  }
+  function focusResume(direction) {
+    var resumeBtn = $('resume-play'), startBtn = $('resume-start');
+    resumeIndex = window.ontoPlayerExtras.resumeMove(resumeIndex, direction);
+    if (resumeBtn) resumeBtn.classList.toggle('focused', resumeIndex === 0);
+    if (startBtn) startBtn.classList.toggle('focused', resumeIndex === 1);
+    if (resumeIndex === 0 && resumeBtn) resumeBtn.focus();
+    if (resumeIndex === 1 && startBtn) startBtn.focus();
+  }
+  function acceptResume() {
+    var item = play && play.item;
+    if (!item) return;
+    play.resumePending = false;
+    hideResume();
+    if (window.ontoPlayerExtras.resumeAction(resumeIndex) === 'start') {
+      item.resume = 0;
+      play.visitStart = 0;
+      play.showTime = 0;
+    }
+    startQueued(item);
+  }
+  function showUpNext(label) {
+    var box = $('up-next'), text = $('up-next-label'), count = $('up-next-count'), button = $('up-next-play');
+    if (!upNextCard || !upNextCard.arm()) return;
+    if (text) text.textContent = label;
+    if (count) count.textContent = String(upNextCard.read());
+    if (button) {
+      button.className = 'focused';
+      button.setAttribute('aria-label', label + ' ' + upNextCard.read());
+      button.title = 'Plays the next episode. Back cancels.';
+      button.focus();
+    }
+    if (box) box.hidden = false;
+    hideIntro();
+    clearTimeout(upNextTimer);
+    upNextTimer = setTimeout(upNextTick, 1000);
+  }
+  function upNextTick() {
+    var action, count;
+    if (!play || !upNextCard || !upNextCard.active()) return;
+    action = upNextCard.tick();
+    count = $('up-next-count');
+    if (count) count.textContent = String(upNextCard.read());
+    if (action === 'play') acceptUpNext();
+    else upNextTimer = setTimeout(upNextTick, 1000);
+  }
+  function acceptUpNext() {
+    if (upNextCard && upNextCard.active()) upNextCard.ok();
+    finishEpisode();
+  }
+  function cancelUpNext() {
+    if (upNextCard && upNextCard.active()) upNextCard.back();
+    if (play) play.upNextDismissed = true;
+    hideUpNext();
+    showOsd();
+  }
+  function finishEpisode() {
+    if (!play || play.advanced) return;
+    play.advanced = true;
+    hideUpNext();
+    next('ended');
+  }
+  function considerUpNext() {
+    var duration, segments, src, body, viewers, rating;
+    if (!play || !play.item || !upNextCard || play.resumePending || play.errorOn || play.airing !== 'show') return;
+    if (play.upNextDismissed || play.advanced) return;
+    if (!window.ontoPlayerExtras || !window.ontoPlayerExtras.isSerial(play.item)) return;
+    if (!play.channel) return;
+    duration = media.duration() || play.item.duration || 0;
+    segments = (play.scenes && play.scenes.segments) || [];
+    if (!media.ended() && !window.ontoPlayerExtras.upNextDue(media.time(), duration, segments)) return;
+    if (play.upNextLabel) { showUpNext(play.upNextLabel); return; }
+    if (play.upNextAsked) return;
+    play.upNextAsked = true;
+    src = play.item.src;
+    body = { channel: play.channel.id, current: src, peek: true };
+    viewers = storedViewers();
+    rating = storedRating();
+    if (viewers !== null) body.viewers = viewers;
+    if (rating) body.rating = rating;
+    post('/api/next', body).then(function (item) {
+      if (!play || play.advanced || play.upNextDismissed || !play.item || play.item.src !== src) return;
+      play.upNextLabel = window.ontoPlayerExtras.offerUpNext(play.item, item) || '';
+      if (play.upNextLabel) showUpNext(play.upNextLabel);
+      else if (media.ended()) finishEpisode();
+    }).catch(function () {
+      if (!play || play.advanced || !play.item || play.item.src !== src) return;
+      if (media.ended()) finishEpisode();
+    });
+  }
+  function showStreamError(kind) {
+    var box = $('play-error'), label = $('play-error-next'), retry = $('play-retry');
+    if (!play || !errorCtrl) return;
+    play.errorOn = true;
+    play.errorKind = kind || 'media';
+    play.resumePending = false;
+    hideResume();
+    if (upNextCard && upNextCard.active()) upNextCard.back();
+    hideUpNext();
+    osd.classList.add('has-error');
+    errorCtrl.arm();
+    if (label) label.textContent = errorCtrl.text();
+    if (box) box.hidden = false;
+    if (retry) retry.focus();
+    showOsd();
+    clearTimeout(errorTimer);
+    errorTimer = setTimeout(errorTick, 1000);
+  }
+  function errorTick() {
+    var action, label;
+    if (!play || !play.errorOn || !errorCtrl) return;
+    action = errorCtrl.tick(play.mode === 'channel');
+    label = $('play-error-next');
+    if (label) label.textContent = errorCtrl.text();
+    if (action === 'wait') errorTimer = setTimeout(errorTick, 1000);
+    else if (action === 'next' && play.channel) startChannel(play.channel, play.item, 'error');
+  }
+  function retryPlayback() {
+    if (!play || !play.item) return;
+    clearTimeout(errorTimer);
+    if (play.errorKind === 'tune' && play.channel) {
+      play.errorOn = false;
+      hideError();
+      if (errorCtrl) errorCtrl.retry();
+      startChannel(play.channel, play.item, 'error');
+      return;
+    }
+    play.errorOn = false;
+    hideError();
+    if (errorCtrl) errorCtrl.retry();
+    startQueued(play.item);
   }
 
   function startChannel(channel, fromItem, reason) {
@@ -1417,7 +1716,7 @@
       body.watched = Math.floor(Math.max(0, play.watchedSeconds || 0));
       body.duration = Math.floor(fromItem.duration || (play.airing === 'show' ? media.duration() : 0) || 0);
     }
-    return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; stopPlayback(); fail(error); });
+    return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { showStreamError('tune'); return; } stopPlayback(); fail(error); });
   }
 
   function saveProgress(completed) {
@@ -1441,10 +1740,17 @@
     hideTuning();
     clearTimeout(navTimer);
     clearTimeout(stripTimer);
+    clearTimeout(upNextTimer);
+    clearTimeout(errorTimer);
+    clearInterval(sweepTimer);
+    seekPreview = null;
     navState = window.ontoNav.initial();
     closeOptions();
     hideAdChip();
     hideIntro();
+    hideUpNext();
+    hideResume();
+    hideError();
     var strip = $('jump-strip');
     if (strip) { strip.hidden = true; strip.innerHTML = ''; }
     if (play && play.item && play.airing !== 'ad' && !media.ended()) { watchEvent('stop'); saveProgress(false); }
@@ -1464,7 +1770,9 @@
   }
 
   media.on('time', function () {
+    if (play && play.resumePending) return;
     if (play && play.airing === 'show') followSegments();
+    if (play && play.airing === 'show') considerUpNext();
     updateOsd();
     if (!play || play.airing !== 'show') return;
     var at = media.time();
@@ -1486,6 +1794,9 @@
     mediaState = 'playing';
     diag('ended', diagnosticSample());
     if (play && play.airing === 'ad') return advanceAd();
+    if (upNextCard && upNextCard.active()) return;
+    if (play && play.upNextDismissed) { showOsd(); return; }
+    if (play && window.ontoPlayerExtras && window.ontoPlayerExtras.isSerial(play.item)) { considerUpNext(); return; }
     next('ended');
   });
   media.on('error', function () {
@@ -1493,10 +1804,9 @@
     if (play.airing === 'ad') return advanceAd();
     mediaState = 'error';
     diag('play_error', { page: 'player', engine: media.engine || 'video', state: 'error', errorCode: 'media' });
-    status('Could not play ' + (play.item ? play.item.title : 'that video'));
     watchEvent('error');
-    // A file the TV cannot decode teaches nothing; channels move on, single files return home.
-    if (play.mode === 'channel') startChannel(play.channel, null); else stopPlayback();
+    // Stay on the channel. Retry reloads this file; after 5 s the channel moves on.
+    showStreamError('media');
   });
   media.on('pause', function () { mediaState = media.paused() ? 'paused' : 'loading'; if (media.paused()) { watchEvent('pause'); diag('pause', diagnosticSample()); } updateOsd(); showOsd(); });
   // On a phone the first tap brings up the controls; a tap with them showing pauses.
@@ -1530,7 +1840,16 @@
   $('osd-next-scene').addEventListener('click', function () { commitJump(1); });
   $('osd-options').addEventListener('click', openOptions);
   $('osd-next').addEventListener('click', function () { next('skip'); });
-  $('skip-intro').addEventListener('click', skipIntro);
+  $('skip-intro').addEventListener('click', function () {
+    if (play && play.pendingCredits && !play.pendingIntro) skipCredits();
+    else skipIntro();
+  });
+  if ($('up-next-play')) $('up-next-play').addEventListener('click', acceptUpNext);
+  if ($('resume-play')) $('resume-play').addEventListener('click', function () { resumeIndex = 0; acceptResume(); });
+  if ($('resume-start')) $('resume-start').addEventListener('click', function () { resumeIndex = 1; acceptResume(); });
+  if ($('play-retry')) $('play-retry').addEventListener('click', retryPlayback);
+  if ($('osd-cc')) $('osd-cc').addEventListener('click', function () { cycleSubs(); paintOptions(); updateOsd(); });
+  if ($('osd-audio')) $('osd-audio').addEventListener('click', function () { cycleAudio(); paintOptions(); updateOsd(); });
   var optionButtons = document.querySelectorAll('#options .opt');
   for (var optionIndex = 0; optionIndex < optionButtons.length; optionIndex++) {
     (function (index) {
@@ -1609,8 +1928,22 @@
     var playing = !$('player').hidden;
     if (!playing && play && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { stopPlayback(); event.preventDefault(); return; }
     if (playing) {
+      if (upNextCard && upNextCard.active() && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { cancelUpNext(); event.preventDefault(); return; }
       if (optionOpen && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { closeOptions(); event.preventDefault(); return; }
       if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE || key === KEY.STOP) { stopPlayback(); event.preventDefault(); return; }
+      if (play && play.resumePending) {
+        var resumeName = navKey(key);
+        if (resumeName === 'left') { focusResume(-1); event.preventDefault(); return; }
+        if (resumeName === 'right') { focusResume(1); event.preventDefault(); return; }
+        if (resumeName === 'ok') { acceptResume(); event.preventDefault(); return; }
+        if (resumeName !== 'up' && resumeName !== 'down') { event.preventDefault(); return; }
+      }
+      if (play && play.errorOn) {
+        if (navKey(key) === 'ok') retryPlayback();
+        event.preventDefault();
+        return;
+      }
+      if (upNextCard && upNextCard.active() && navKey(key) === 'ok') { acceptUpNext(); event.preventDefault(); return; }
       if (key === KEY.PAUSE) { media.pause(); showOsd(); event.preventDefault(); return; }
       if (key === KEY.NEXT) { next('skip'); event.preventDefault(); return; }
       if (key === KEY.PREV) { previousShow(); event.preventDefault(); return; }
@@ -1634,8 +1967,13 @@
     if (window.ontoUke && window.ontoUke.isOpen()) return;
     if (window.ontoGames && window.ontoGames.isOpen()) return;
     if (consoleState) return;
+    clearInterval(sweepTimer);
+    sweepDir = 0;
     var name = navKey(event.keyCode);
     if (!name) return;
+    if (play && play.errorOn) return;
+    if (play && play.resumePending && name !== 'up' && name !== 'down') return;
+    if (upNextCard && upNextCard.active() && name === 'ok') return;
     onNav({ type: 'up', key: name, time: Date.now(), ad: inAd() });
   });
 

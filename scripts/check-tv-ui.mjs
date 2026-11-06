@@ -41,7 +41,17 @@ function homeFor(viewers, rating = null) {
 }
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 let homeQueries = [], homeRatings = [], diagnostics = [], nextRequests = [], artRequests = 0, artUnavailable = false;
-let homeDelay = 0, failHome = false;
+let homeDelay = 0, failHome = false, serialFixture = false;
+let sceneBody = { cuts: [0, 60, 180, 300], thumbs: [0, 1, 2, 3].map(n => '/art?src=show' + n), segments: [] };
+function nextItem(body) {
+  if (serialFixture) {
+    const follow = body.peek || body.current;
+    return follow
+      ? { src: 'MobLand/MobLand S01E09.mp4', show: 'MobLand', title: 'MobLand S01E09 The Sign Is A Very Long Episode Title', resume: 0, duration: 1800 }
+      : { src: 'MobLand/MobLand S01E08.mp4', show: 'MobLand', title: 'MobLand S01E08 Half', resume: 0, duration: 1800 };
+  }
+  return { src: body.channel + '.mp4', show: 'Bluey', title: 'Channel ' + body.channel, resume: body.resume === 0 ? 0 : 120, duration: 420, channels: [body.channel] };
+}
 try {
   const page = await browser.newPage();
   await page.addInitScript(() => {
@@ -65,11 +75,11 @@ try {
     if (url.pathname === '/api/next') {
       const body = route.request().postDataJSON();
       nextRequests.push(body);
-      return route.fulfill({ json: { src: body.channel + '.mp4', show: 'Bluey', title: 'Channel ' + body.channel, resume: 120, duration: 420, channels: [body.channel] } });
+      return route.fulfill({ json: nextItem(body) });
     }
     if (url.pathname === '/api/watch') return route.fulfill({ json: { accepted: true } });
     if (url.pathname === '/api/subs') return route.fulfill({ json: { tracks: [] } });
-    if (url.pathname === '/api/scenes') return route.fulfill({ json: { cuts: [0, 60, 180, 300], thumbs: [0,1,2,3].map(n => '/art?src=show' + n), segments: [] } });
+    if (url.pathname === '/api/scenes') return route.fulfill({ json: sceneBody });
     if (url.pathname === '/api/progress') return route.fulfill({ json: { ok: true } });
     if (url.pathname === '/api/home') {
       const viewers = url.searchParams.get('viewers');
@@ -231,9 +241,9 @@ try {
   artUnavailable = false;
   await page.emulateMedia({ colorScheme: 'dark' });
 
-  await page.route('http://tv.test/player.js', route => route.fulfill({ contentType: 'text/javascript', body: `
-    window.ontoPlayer=function(){var h={},t=0,p=true; window.testMedia={finish:function(){(h.ended||function(){})();},tick:function(v){t=v;(h.time||function(){})();}};
-    return {engine:'video',on:function(n,f){h[n]=f},time:function(){return t},duration:function(){return 1800},paused:function(){return p},ended:function(){return false},load:function(u,start){t=start||0;p=false},play:function(){p=false},pause:function(){p=true;(h.pause||function(){})();},stop:function(){p=true},seek:function(v){t=v}};};` }));
+  const playerSource = await readFile(path.join(root, 'player.js'), 'utf8');
+  const playerStub = `window.ontoPlayer=function(){var h={},t=0,p=true;window.testMedia={finish:function(){(h.ended||function(){})();},tick:function(v){t=v;(h.time||function(){})();},fail:function(){(h.error||function(){})();}};return {engine:'video',on:function(n,f){h[n]=f},time:function(){return t},duration:function(){return 1800},paused:function(){return p},ended:function(){return false},load:function(u,start){t=start||0;p=false},play:function(){p=false},pause:function(){p=true;(h.pause||function(){})();},stop:function(){p=true},seek:function(v){t=v},tracks:function(){return {audio:[{index:0,label:'Eng'},{index:1,label:'Commentary'}],text:[{index:0,label:'English'}]}},selectAudio:function(){},selectText:function(){}};};`;
+  await page.route('http://tv.test/player.js', route => route.fulfill({ contentType: 'text/javascript', body: playerSource + '\n' + playerStub }));
   await page.goto('http://tv.test/');
   await page.locator('.viewer.focused').waitFor();
   await page.keyboard.press('1');
@@ -245,6 +255,17 @@ try {
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await page.locator('#player:visible').waitFor();
+  await page.locator('#resume-choice:visible').waitFor();
+  await page.waitForFunction(() => document.getElementById('tune-flash').hidden);
+  assert.equal(await page.locator('#resume-play').textContent(), 'Resume 2:00');
+  assert.equal(await page.locator('#resume-start').textContent(), 'Start over');
+  assert.match(await page.locator('#resume-play').getAttribute('class') || '', /focused/);
+  await page.screenshot({ path: path.join(out, 'resume-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(out, 'resume-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.getElementById('resume-choice').hidden);
   await page.waitForTimeout(100);
   assert.ok(diagnostics.some(event => event.event === 'play_request' && event.state === 'loading'));
   assert.match(await page.locator('#osd-channel').textContent(), /^1 Cartoons/);
@@ -252,6 +273,9 @@ try {
   assert.equal(await page.locator('#osd-episode').textContent(), '');
   const hint = await page.locator('#osd-keys').evaluate(el => parseFloat(getComputedStyle(el).fontSize));
   assert.ok(hint >= 28, 'key hints ' + hint);
+  assert.equal(await page.locator('#osd-cc').isHidden(), false);
+  assert.equal(await page.locator('#osd-cc-value').textContent(), 'Off');
+  assert.equal(await page.locator('#osd-audio-value').textContent(), 'Eng');
   await page.waitForFunction(() => document.getElementById('tune-flash').hidden && !document.getElementById('tune-num').hidden);
   assert.equal(await page.locator('#tune-digits').textContent(), '1');
   await page.screenshot({ path: path.join(out, 'osd-dark.png') });
@@ -317,6 +341,11 @@ try {
   var releaseFirst;
   await page.route('http://tv.test/api/next', async route => {
     var body = route.request().postDataJSON();
+    if (serialFixture) {
+      nextRequests.push(body);
+      await route.fulfill({ json: nextItem(body) });
+      return;
+    }
     if (body.channel === 'cartoons') await new Promise(resolve => { releaseFirst = resolve; });
     nextRequests.push(body);
     await route.fulfill({ json: { src: body.channel + '.mp4', show: 'Bluey', title: 'Channel ' + body.channel, resume: 0, duration: 420 } });
@@ -354,6 +383,63 @@ try {
   });
   await page.goto('http://tv.test/');
   await page.locator('.profile-chip.focused').waitFor();
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  serialFixture = true;
+  sceneBody = {
+    cuts: [0, 40, 800],
+    thumbs: [0, 1, 2, 3].map(n => '/art?src=show' + n),
+    segments: [{ start: 0, end: 40, kind: 'intro' }, { start: 1700, end: 1800, kind: 'credits' }],
+  };
+  await page.keyboard.press('2');
+  await page.locator('#player:visible').waitFor();
+  await page.waitForTimeout(1400);
+  await page.evaluate(() => window.testMedia.tick(12));
+  await page.locator('#skip-intro:visible').waitFor();
+  assert.equal((await page.locator('#skip-intro').innerText()).replace(/\s+/g, ' ').trim(), 'Skip intro');
+  await page.screenshot({ path: path.join(out, 'skip-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(out, 'skip-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.evaluate(() => window.testMedia.tick(80));
+  await page.waitForFunction(() => document.getElementById('skip-intro').hidden);
+  await page.keyboard.press('ArrowRight');
+  await page.locator('#osd-elapsed.is-preview').waitFor();
+  await page.screenshot({ path: path.join(out, 'osd-seek-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.keyboard.press('ArrowRight');
+  await page.locator('#osd-elapsed.is-preview').waitFor();
+  await page.screenshot({ path: path.join(out, 'osd-seek-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.evaluate(() => window.testMedia.tick(1792));
+  await page.locator('#up-next:visible').waitFor();
+  assert.match(await page.locator('#up-next-label').innerText(), /^Next · S1E9 · The Sign Is A Very Long Episode Title$/);
+  assert.equal(await page.locator('#up-next-count').textContent(), '10');
+  const wrapped = await page.locator('#up-next-label').evaluate(el => ({
+    ok: el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 2,
+    scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight,
+  }));
+  assert.equal(wrapped.ok, true, 'up-next title is clipped ' + JSON.stringify(wrapped));
+  const smallPlayer = await page.evaluate(() => [...document.querySelectorAll('#up-next-play, #up-next-label, #up-next-count, #resume-play, #play-retry, #play-error-next, #osd-cc, #osd-audio, #skip-intro')]
+    .filter(el => !el.hidden && el.getClientRects().length && parseFloat(getComputedStyle(el).fontSize) < 28)
+    .map(el => el.id + ' ' + getComputedStyle(el).fontSize));
+  assert.deepEqual(smallPlayer, []);
+  await page.screenshot({ path: path.join(out, 'up-next-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(out, 'up-next-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.evaluate(() => window.testMedia.fail());
+  await page.locator('#play-error:visible').waitFor();
+  assert.equal(await page.locator('#play-retry').textContent(), 'Retry');
+  assert.equal(await page.locator('#play-error-next').textContent(), 'next in 5s');
+  await page.screenshot({ path: path.join(out, 'error-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: path.join(out, 'error-light.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.keyboard.press('Escape');
+  await page.locator('#home:visible').waitFor();
+  serialFixture = false;
+  sceneBody = { cuts: [0, 60, 180, 300], thumbs: [0, 1, 2, 3].map(n => '/art?src=show' + n), segments: [] };
   for (const [width, height] of [[1280,720], [960,540], [390,844], [844,390]]) {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(200);
@@ -363,5 +449,5 @@ try {
     await page.screenshot({ path: path.join(out, 'home-' + width + 'x' + height + '.png') });
   }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, screenshots: out, homeQueries: homeQueries.length, shots: ['home-everyone-dark.png', 'home-everyone-light.png', 'home-adults-dark.png', 'home-adults-light.png', 'home-focus-dark.png', 'home-focus-light.png', 'osd-dark.png', 'osd-light.png', 'options-dark.png', 'options-light.png', 'chips-dark.png', 'chips-light.png', 'setup-dark.png', 'setup-light.png'] }));
+  console.log(JSON.stringify({ passed: true, screenshots: out, homeQueries: homeQueries.length, shots: ['home-everyone-dark.png', 'home-everyone-light.png', 'home-adults-dark.png', 'home-adults-light.png', 'home-focus-dark.png', 'home-focus-light.png', 'osd-dark.png', 'osd-light.png', 'osd-seek-dark.png', 'osd-seek-light.png', 'options-dark.png', 'options-light.png', 'chips-dark.png', 'chips-light.png', 'resume-dark.png', 'resume-light.png', 'up-next-dark.png', 'up-next-light.png', 'skip-dark.png', 'skip-light.png', 'error-dark.png', 'error-light.png', 'setup-dark.png', 'setup-light.png'] }));
 } finally { await browser.close(); }

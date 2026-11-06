@@ -1,0 +1,166 @@
+/* Player extras. Chromium 47: no gap, no custom properties. TV is dark. */
+
+#up-next {
+  position: fixed;
+  z-index: 8;
+  left: 48px;
+  bottom: 250px;
+  max-width: 1640px;
+}
+#up-next-play {
+  display: flex;
+  align-items: center;
+  width: 1500px;
+  max-width: 1500px;
+  min-height: 96px;
+  padding: 14px 28px;
+  background: #14213d;
+  color: #f4f1ea;
+  border: 6px solid #ffb547;
+  border-radius: 22px;
+  font-size: 36px;
+  font-weight: 800;
+  text-align: left;
+}
+#up-next-play .glyph { width: 44px; height: 44px; margin-right: 18px; flex: 0 0 auto; color: #ffb547; }
+#up-next-play .glyph svg { width: 44px; height: 44px; display: block; }
+#up-next-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+#up-next-count {
+  margin-left: 28px;
+  min-width: 2.4ch;
+  font-size: 48px;
+  font-weight: 800;
+  font-feature-settings: "tnum" 1;
+  text-align: right;
+  color: #ffb547;
+}
+#up-next-play.focused, #up-next-play:focus {
+  background: #ffb547;
+  color: #14213d;
+}
+#up-next-play.focused .glyph, #up-next-play:focus .glyph,
+#up-next-play.focused #up-next-count, #up-next-play:focus #up-next-count { color: #14213d; }
+
+#resume-choice {
+  position: fixed;
+  z-index: 8;
+  left: 0;
+  right: 0;
+  top: 34%;
+  text-align: center;
+}
+#resume-choice button {
+  display: inline-block;
+  min-width: 440px;
+  min-height: 108px;
+  margin: 0 18px;
+  padding: 18px 32px;
+  background: #14213d;
+  color: #f4f1ea;
+  border: 6px solid #8fa3c8;
+  border-radius: 22px;
+  font-size: 40px;
+  font-weight: 800;
+  text-align: center;
+  font-feature-settings: "tnum" 1;
+}
+#resume-choice button.focused, #resume-choice button:focus {
+  border-color: #ffb547;
+  background: #ffb547;
+  color: #14213d;
+}
+
+#osd.has-error { bottom: 156px; }
+#osd.has-error #osd-bar { display: none; }
+#play-error {
+  position: fixed;
+  z-index: 9;
+  left: 40px;
+  right: 40px;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  min-height: 108px;
+  padding: 14px 28px 14px 16px;
+  background: #14213d;
+  border: 6px solid #ffb547;
+  border-radius: 22px;
+}
+#play-retry {
+  min-width: 240px;
+  min-height: 80px;
+  padding: 8px 28px;
+  border: 6px solid #ffb547;
+  border-radius: 16px;
+  background: #ffb547;
+  color: #14213d;
+  font-size: 36px;
+  font-weight: 800;
+  text-align: center;
+}
+#play-retry.focused, #play-retry:focus { border-color: #f4f1ea; }
+#play-error-next {
+  margin-left: auto;
+  color: #f4f1ea;
+  font-size: 36px;
+  font-weight: 800;
+  font-feature-settings: "tnum" 1;
+}
+
+#osd-track { position: relative; overflow: visible; }
+#osd-seek {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 40px;
+  margin-left: -4px;
+  background: #f4f1ea;
+  border: 3px solid #ffb547;
+  border-radius: 4px;
+}
+#osd-elapsed.is-preview { color: #ffb547; }
+
+#osd-cc, #osd-audio {
+  display: flex;
+  align-items: center;
+  min-height: 64px;
+  margin-right: 16px;
+  padding: 0 16px;
+  border: 4px solid #f4f1ea;
+  border-radius: 14px;
+  font-size: 28px;
+  font-weight: 800;
+}
+#osd-cc .k, #osd-audio .k { margin-right: 12px; }
+#osd-cc .v, #osd-audio .v { color: #ffb547; font-feature-settings: "tnum" 1; }
+#osd-cc.focused, #osd-audio.focused, #osd-cc:focus, #osd-audio:focus {
+  border-color: #ffb547;
+  background: #ffb547;
+  color: #14213d;
+}
+#osd-cc.focused .v, #osd-audio.focused .v, #osd-cc:focus .v, #osd-audio:focus .v { color: #14213d; }
+
+#skip-intro.focused {
+  background: #ffb547;
+  color: #14213d;
+}
+#skip-intro.focused .glyph { color: #14213d; }
+
+.desktop-embedded #up-next { left: 16px; bottom: 140px; max-width: calc(100% - 32px); }
+.desktop-embedded #up-next-play { width: auto; max-width: 100%; min-height: 44px; padding: 6px 12px; border-width: 3px; border-radius: 10px; font-size: 16px; }
+.desktop-embedded #up-next-play .glyph, .desktop-embedded #up-next-play .glyph svg { width: 22px; height: 22px; }
+.desktop-embedded #up-next-label { max-width: 420px; font-size: 16px; }
+.desktop-embedded #up-next-count { margin-left: 12px; font-size: 18px; }
+.desktop-embedded #resume-choice button { min-width: 160px; min-height: 44px; margin: 0 8px; padding: 6px 12px; border-width: 3px; border-radius: 10px; font-size: 16px; }
+.desktop-embedded #play-error { left: 12px; right: 12px; bottom: 12px; min-height: 48px; padding: 6px 10px; border-width: 3px; border-radius: 10px; }
+.desktop-embedded #play-retry { min-width: 88px; min-height: 36px; padding: 4px 10px; border-width: 3px; border-radius: 8px; font-size: 16px; }
+.desktop-embedded #play-error-next { font-size: 16px; }
+.desktop-embedded #osd-cc, .desktop-embedded #osd-audio { min-height: 32px; margin-right: 4px; padding: 0 8px; border-width: 2px; border-radius: 8px; font-size: 14px; }
+.desktop-embedded #osd-seek { top: -4px; height: 14px; }
