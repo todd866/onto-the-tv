@@ -88,9 +88,9 @@ Blackadder; everything else grown-up is Fran's reality. "For Ian" picks by `IAN_
 
 ## Keep, but rationed
 
-Ian: Jake *loves* a bit of YouTube slop, the parents hate it — "use it sparingly". What we already have stays
-and is rationed by the server; never acquire more. Same treatment for Billy's Aviation / "If Planes Could Talk" (air-crash cartoons): Jake loves them, Fran doesn't. Keep
-them (the rotation tops them up), never add more of the kind, and the server plays them rarely
+Ian: Jake *loves* a bit of YouTube slop, the parents hate it — "use it sparingly". What is watched gets acquired
+(Ian, 6 Nov 2026: "still acquire the stuff, we can algorithmically limit it"); the server rations it. Same treatment for Billy's Aviation / "If Planes Could Talk" (air-crash cartoons): Jake loves them, Fran doesn't. Keep
+them and keep acquiring what is watched; the server plays them rarely
 and never bills them as a card's "now on" (LIMITED_SHOWS in `src/tv-server.js`).
 
 ## Keep off the TV
