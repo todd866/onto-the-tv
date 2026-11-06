@@ -923,3 +923,100 @@ body.season-xmas.xmas-heavy.billboard #backdrop::after { background-image: radia
 #saver .sp-sleigh { margin-bottom: 0; }
 #saver .sp-where { margin-top: 44px; }
 #saver .sp-band i b { font-style: normal; }
+/* Tube layout. Flex and margins only: the 2017 TV has no grid and no custom properties. */
+#tube-main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+#tube-rail { display: none; }
+#tube-chips { display: none; }
+body.tube-on #home { flex-direction: row; padding: 0; }
+body.tube-on #tube-main { padding: 12px 28px 16px 12px; }
+body.tube-on #tube-rail { display: block; flex: 0 0 96px; width: 96px; background: #081018; overflow: hidden; }
+body.tube-on.tube-rail-open #tube-rail { flex-basis: 280px; width: 280px; }
+body.tube-on #top { min-height: 72px; margin-bottom: 0; padding: 0 8px; }
+body.tube-on .viewer { min-height: 56px; padding: 6px 16px; font-size: 28px; border-width: 4px; }
+body.tube-on #tube-chips { display: block; white-space: nowrap; overflow-x: auto; overflow-y: hidden; margin: 4px 0 8px; padding-bottom: 4px; }
+#channels.layout-tube { display: block; padding: 4px 18px 24px; overflow-x: hidden; overflow-y: auto; }
+.tube-rail-btn { display: block; width: 100%; min-height: 84px; padding: 18px 0; color: #f4f1ea; text-align: center; }
+.tube-rail-icon { display: inline-block; width: 40px; height: 40px; vertical-align: middle; }
+.tube-rail-icon svg { width: 40px; height: 40px; display: block; }
+.tube-rail-label { display: none; margin-left: 16px; font-size: 28px; font-weight: 800; vertical-align: middle; }
+body.tube-rail-open .tube-rail-btn { text-align: left; padding-left: 28px; }
+body.tube-rail-open .tube-rail-label { display: inline-block; }
+.tube-rail-btn.focused { outline: 4px solid #fff; outline-offset: -4px; }
+.tube-rail-btn.on { color: #ffb547; }
+.tube-chip { display: inline-block; min-height: 56px; margin: 0 12px 0 0; padding: 8px 22px; border-radius: 28px; border: 3px solid transparent; background: #14213d; color: #f4f1ea; font-size: 28px; font-weight: 800; vertical-align: middle; }
+.tube-chip.on { background: #ffb547; color: #14213d; }
+.tube-chip.focused { outline: 4px solid #fff; outline-offset: 2px; }
+.tube-grid { font-size: 0; }
+.tube-card { display: inline-block; vertical-align: top; text-align: left; font-size: 28px; background: transparent; color: inherit; transform-origin: center center; }
+.tube-grid.cols-4 .tube-card { width: 23.5%; margin: 0 2% 20px 0; }
+.tube-grid.cols-4 .tube-card:nth-child(4n) { margin-right: 0; }
+.tube-grid.cols-3 .tube-card { width: 31%; margin: 0 3.5% 18px 0; }
+.tube-grid.cols-3 .tube-card:nth-child(3n) { margin-right: 0; }
+.tube-card.focused { position: relative; z-index: 3; transform: scale(1.08); }
+.tube-card.focused .tube-thumb { outline: 4px solid #fff; outline-offset: 0; }
+.tube-thumb { position: relative; display: block; width: 100%; padding-top: 56.25%; background: #081018; border-radius: 12px; overflow: hidden; }
+.tube-thumb img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+.tube-dur { position: absolute; right: 8px; bottom: 16px; padding: 2px 8px; background: rgba(0, 0, 0, .78); color: #fff; font-family: "Courier New", Courier, monospace; font-size: 26px; font-weight: 700; border-radius: 6px; letter-spacing: 0; }
+.tube-resume { position: absolute; left: 0; bottom: 0; height: 6px; background: #ffb547; }
+.tube-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; margin-top: 8px; font-size: 28px; font-weight: 800; line-height: 1.2; max-height: 2.4em; overflow: hidden; }
+.tube-card.focused .tube-title { display: block; -webkit-line-clamp: unset; max-height: none; }
+.tube-meta { display: block; margin-top: 2px; font-size: 28px; font-weight: 700; line-height: 1.2; color: #c5d0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tube-search { overflow: hidden; }
+.tube-keys { float: left; width: 520px; }
+.tube-results { margin-left: 540px; }
+.tube-query { min-height: 64px; margin-bottom: 12px; padding: 10px 16px; background: #14213d; border-radius: 12px; font-size: 32px; font-weight: 800; line-height: 1.3; overflow: hidden; white-space: nowrap; }
+.tube-key { display: inline-block; width: 64px; height: 64px; margin: 0 6px 6px 0; border-radius: 10px; background: #14213d; color: #f4f1ea; font-size: 30px; font-weight: 800; text-align: center; line-height: 64px; vertical-align: top; }
+.tube-key.wide { width: 136px; }
+.tube-key.focused { outline: 4px solid #fff; outline-offset: 2px; }
+.tube-suggest { margin-top: 8px; }
+.tube-suggestion { display: block; width: 100%; min-height: 48px; margin: 0 0 6px; padding: 6px 8px; font-size: 28px; font-weight: 800; text-align: left; color: #f4f1ea; }
+.tube-suggestion.focused { outline: 4px solid #fff; }
+.tube-avatars { white-space: nowrap; overflow-x: auto; margin: 0 0 16px; }
+.tube-avatar-btn { display: inline-block; width: 148px; margin-right: 18px; text-align: center; vertical-align: top; color: inherit; }
+.tube-avatar { display: block; width: 112px; height: 112px; margin: 0 auto; border-radius: 56px; background: #14213d; object-fit: cover; }
+.tube-avatar-btn.focused .tube-avatar, .tube-avatar-btn.on .tube-avatar { outline: 4px solid #fff; outline-offset: 3px; }
+.tube-avatar-btn.on .tube-avatar { outline-color: #ffb547; }
+.tube-avatar-name { display: block; margin-top: 8px; font-size: 26px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#tube-next { position: absolute; right: 48px; bottom: 220px; z-index: 6; width: 560px; }
+.tube-next-card { display: block; width: 100%; padding: 12px; background: #14213d; color: #f4f1ea; border-radius: 14px; text-align: left; overflow: hidden; }
+.tube-next-card .tube-thumb { width: 168px; padding-top: 94px; float: left; margin-right: 12px; }
+.tube-next-copy { display: block; overflow: hidden; padding: 8px 72px 0 0; }
+.tube-next-card .tube-title { margin-top: 0; font-size: 28px; max-height: 2.4em; color: #f4f1ea; }
+.tube-count { position: absolute; right: 16px; top: 28px; width: 64px; height: 64px; color: #ffb547; }
+.tube-count svg { width: 64px; height: 64px; display: block; }
+#tube-count-num { position: absolute; left: 0; right: 0; top: 16px; text-align: center; font-family: "Courier New", Courier, monospace; font-size: 26px; font-weight: 700; color: #fff; }
+#tube-shelf { position: absolute; left: 0; right: 0; bottom: 0; z-index: 7; height: 34%; padding: 8px 8px 8px 8px; background: #081018; color: #f4f1ea; overflow: hidden; }
+.tube-shelf-row { white-space: nowrap; overflow-x: auto; overflow-y: hidden; padding: 12px 16px 8px 28px; }
+.tube-shelf-row .tube-card { width: 300px; margin-right: 18px; white-space: normal; vertical-align: top; }
+.tube-shelf-row .tube-title, .tube-shelf-row .tube-meta { width: 100%; }
+body.profile-jake .tube-chip.on { background: #7ee081; color: #06213a; }
+body.profile-jake .tube-resume, body.profile-jake .tube-rail-btn.on, body.profile-jake .tube-count { background: transparent; color: #7ee081; }
+body.profile-jake .tube-resume { background: #7ee081; }
+body.profile-fran .tube-chip.on { background: #f4a7b9; color: #2a1834; }
+body.profile-fran .tube-resume { background: #f4a7b9; }
+body.profile-fran .tube-rail-btn.on, body.profile-fran .tube-count { color: #f4a7b9; }
+body.profile-sam .tube-chip.on { background: #ff6b4a; color: #fff; }
+body.profile-sam .tube-resume { background: #ff6b4a; }
+body.profile-sam .tube-rail-btn.on, body.profile-sam .tube-count { color: #ff6b4a; }
+body.profile-all .tube-chip.on { background: #ffd166; color: #0f2b28; }
+body.profile-all .tube-resume { background: #ffd166; }
+body.profile-all .tube-rail-btn.on, body.profile-all .tube-count { color: #ffd166; }
+body.profile-ian .tube-resume { background: #ffb547; }
+@media (prefers-color-scheme: light) {
+  body.tube-on { background: #f4f7fb; color: #102033; }
+  body.tube-on #tube-rail, body.tube-on .tube-chip, body.tube-on .tube-key, body.tube-on .tube-query, body.tube-on .tube-thumb { background: #e7eef6; color: #102033; }
+  body.tube-on #tube-rail { background: #d5e2f0; }
+  body.tube-on .tube-chip.on { background: #ffb547; color: #14213d; }
+  body.profile-jake.tube-on { background: #e7f6ea; color: #06213a; }
+  body.profile-jake.tube-on #tube-rail { background: #d7efdc; }
+  body.profile-jake.tube-on .tube-chip.on { background: #1f8a3b; color: #fff; }
+  body.profile-jake.tube-on #channels .tube-meta { color: #24506a; }
+  body.tube-on .tube-dur { background: rgba(0, 0, 0, .78); color: #fff; }
+  body.tube-on .tube-suggestion { color: #06213a; }
+  body.tube-on #tube-query { color: #06213a; }
+  body.tube-on .tube-card.focused .tube-thumb,
+  body.tube-on .tube-chip.focused,
+  body.tube-on .tube-key.focused,
+  body.tube-on .tube-rail-btn.focused,
+  body.tube-on .tube-suggestion.focused { outline-color: #102033; }
+}

@@ -187,6 +187,9 @@ label { display:flex; flex-direction:column; gap:6px; margin-top:13px; font-size
 .channel-card.layout-pictures { aspect-ratio:4/3; border-radius:26px; border-width:6px; border-color:var(--panel-2); background:var(--panel); justify-content:flex-end; }
 .channel-card.layout-pictures .channel-picture { border-radius:20px; }
 .picture-label { align-self:center; margin:0 0 8px; padding:3px 14px; border-radius:14px; background:var(--panel-2); color:var(--text); font-size:17px; font-weight:800; }
+@media (min-width: 900px) {
+  #channel-list.layout-tube { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 /* Who's watching? */
 #channel-picker { position:absolute; inset:0; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:34px; background:var(--bg); }
 #channel-picker[hidden] { display:none; }

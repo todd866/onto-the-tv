@@ -188,14 +188,15 @@
   var PROFILES = [
     { id: 'ian', name: 'Ian', mark: 'I', viewers: 'dad', layout: 'now' },
     { id: 'fran', name: 'Fran', mark: 'F', viewers: 'mum', layout: 'guide' },
-    { id: 'jake', name: 'Jake', mark: 'J', viewers: 'jake,mum,dad', layout: 'pictures' },
+    { id: 'jake', name: 'Jake', mark: 'J', viewers: 'jake,mum,dad', layout: 'tube' },
     { id: 'sam', name: 'Sam', mark: 'S', viewers: 'sam,jake,mum,dad', layout: 'pictures' },
     { id: 'all', name: 'Everyone', mark: '\u2605', viewers: 'sam,jake,mum,dad', layout: 'now' }
   ];
   var LAYOUTS = [
     { id: 'now', glyph: '\u25A3', title: 'Now on' },
     { id: 'guide', glyph: '\u2630', title: 'Guide' },
-    { id: 'pictures', glyph: '\u25A6', title: 'Pictures' }
+    { id: 'pictures', glyph: '\u25A6', title: 'Pictures' },
+    { id: 'tube', glyph: '\u25A4', title: 'Tube' }
   ];
   var RATINGS = ['G', 'PG', 'M'];
   var profileId = 'all';
@@ -575,7 +576,7 @@
   function clearBackdrop() { document.body.classList.remove('billboard'); clearInterval(poolTimer); poolTimer = 0; backdropKey = ''; }
   function paintHero(item) {
     var hero = $('hero'), mode = layoutMode();
-    if (!item || item.app || mode === 'pictures') { hero.hidden = true; hero.textContent = ''; clearBackdrop(); return; }
+    if (!item || item.app || mode === 'pictures' || mode === 'tube') { hero.hidden = true; hero.textContent = ''; clearBackdrop(); return; }
     hero.hidden = false;
     hero.className = mode === 'guide' ? 'hero-compact' : 'hero-full';
     if (mode === 'guide') clearBackdrop();
@@ -930,6 +931,15 @@
       badge.className = 'rating';
     }
     paintClock();
+    if (layoutMode() === 'tube' && window.ontoTube) {
+      var tubeHero = $('hero');
+      tubeHero.hidden = true;
+      tubeHero.textContent = '';
+      window.ontoTube.paint();
+      diag('rendered', { page: 'home', state: 'ready' });
+      return;
+    }
+    if (window.ontoTube) window.ontoTube.hideChrome();
     $('home').classList.toggle('home-now', nowLayoutActive());
     var resumeEls = [], resumeRow = $('resume-row'), c;
     if (nowLayoutActive()) {
@@ -1004,6 +1014,20 @@
     if (!el) return;
     el.classList.add('focused');
     try { el.focus(); } catch (e) {}
+    if (row.kind === 'chips') {
+      var scroller = $('tube-chips');
+      if (scroller) {
+        if (el.offsetLeft < scroller.scrollLeft) scroller.scrollLeft = el.offsetLeft - 12;
+        else if (el.offsetLeft + el.offsetWidth > scroller.scrollLeft + scroller.clientWidth) {
+          scroller.scrollLeft = el.offsetLeft + el.offsetWidth - scroller.clientWidth + 12;
+        }
+      }
+    }
+    if (row.kind === 'grid' || row.kind === 'avatars') {
+      var tubeHolder = $('channels'), tubeBox = el.getBoundingClientRect(), tubeArea = tubeHolder.getBoundingClientRect();
+      if (tubeBox.top < tubeArea.top + 36) tubeHolder.scrollTop -= tubeArea.top + 36 - tubeBox.top;
+      if (tubeBox.bottom > tubeArea.bottom - 40) tubeHolder.scrollTop += tubeBox.bottom - tubeArea.bottom + 40;
+    }
     if (row.kind === 'resume') {
       // The row holds more tiles than fit: it scrolls sideways inside itself to keep the focused one in view.
       var strip = $('resume-row'), tile = el.getBoundingClientRect(), view = strip.getBoundingClientRect();
@@ -1024,6 +1048,7 @@
       }
       heroForNowEl(el);
     }
+    if (layoutMode() === 'tube' && window.ontoTube && row.kind === 'grid') window.ontoTube.nearEnd();
   }
   function activate(item) {
     if (!item) return;
@@ -1274,8 +1299,14 @@
     if (!play || !play.item) return;
     var duration = media.duration() || play.item.duration || 0;
     var channel = play.channel;
-    paintChannel(channel);
-    paintOsdLabels(play.item);
+    if (play.mode === 'tube') {
+      paintChannel({ name: play.item.show || '' });
+      $('osd-show').textContent = '';
+      $('osd-episode').textContent = play.item.title || '';
+    } else {
+      paintChannel(channel);
+      paintOsdLabels(play.item);
+    }
     $('osd-play').setAttribute('aria-label', media.paused() ? 'Play' : 'Pause');
     var shown = seekPreview != null ? seekPreview : media.time();
     $('osd-elapsed').textContent = clock(shown);
@@ -1821,7 +1852,10 @@
           else if (!$('skip-intro').hidden && play && play.pendingIntro) skipIntro();
           else if (!$('skip-intro').hidden && play && play.pendingCredits) skipCredits();
           else togglePause();
-        }         else if (action.key === 'up' || action.key === 'down') showOsd();
+        } else if (action.key === 'up' || action.key === 'down') {
+          if (play && play.mode === 'tube' && window.ontoTube) { if (action.key === 'up') window.ontoTube.onUp(); else window.ontoTube.onDown(); }
+          else showOsd();
+        }
         else if (action.key === 'play') { media.play(); watchEvent('resume'); showOsd(); }
         else if (action.key === 'subt') { cycleSubs(); if (optionOpen) paintOptions(); }
       }
@@ -1927,12 +1961,13 @@
     closeOptions();
     $('jump-strip').hidden = true;
     lastPlayingDiagnostic = 0;
+    if (play.mode === 'tube' && window.ontoTube) window.ontoTube.onPlayStart();
     closeContinue();
     dismissArm();
     noteCurrent();
     schedulePrefetch();
     paintBackChip();
-    if (!restoring && window.ontoPlayerExtras && window.ontoPlayerExtras.resumeOffer(item.resume || 0)) {
+    if (!restoring && !play.direct && window.ontoPlayerExtras && window.ontoPlayerExtras.resumeOffer(item.resume || 0)) {
       // The choice is made on this page, so the Mac app shows it now.
       tellDesktop('onto:desktop-playing');
       showResumePrompt(item);
@@ -2033,7 +2068,9 @@
   }
   function considerUpNext() {
     var duration, segments, src, body, viewers, rating;
-    if (!play || !play.item || !upNextCard || play.resumePending || play.errorOn || play.airing !== 'show') return;
+    if (!play || !play.item || play.resumePending || play.errorOn || play.airing !== 'show') return;
+    if (play.mode === 'tube') { if (window.ontoTube) window.ontoTube.onTime(); return; }
+    if (!upNextCard) return;
     if (play.upNextDismissed || play.advanced) return;
     if (!window.ontoPlayerExtras || !window.ontoPlayerExtras.isSerial(play.item)) return;
     if (!play.channel) return;
@@ -2101,6 +2138,24 @@
     hideError();
     if (errorCtrl) errorCtrl.retry();
     startQueued(play.item);
+  }
+
+  function startTube(card, fromEnd) {
+    if (!card || !card.src) return;
+    if (window.ontoTube) window.ontoTube.remember(card.src);
+    if (play && play.item && play.item.src !== card.src && !fromEnd) {
+      watchEvent('stop');
+      saveProgress(false);
+    }
+    play = { mode: 'tube', channel: null, direct: true };
+    load({
+      src: card.src,
+      title: card.title || card.src,
+      show: card.creator || card.show || '',
+      duration: card.duration || 0,
+      resume: card.resume || 0,
+      queue: [{ kind: 'show', src: card.src, breaks: [] }]
+    });
   }
 
   function nextBody(channel, fromItem, reason) {
@@ -2213,6 +2268,7 @@
     var queued = play.nextQueue && play.nextQueue[0];
     watchEvent(reason === 'ended' ? 'ended' : 'skip');
     saveProgress(reason === 'ended');
+    if (play.mode === 'tube') { if (window.ontoTube) window.ontoTube.advance(); return; }
     if (queued) {
       showSkipping({ src: queued.src, show: queued.show || queued.title, title: queued.title || basename(queued.src) });
       playResume({
@@ -2262,6 +2318,7 @@
     var strip = $('jump-strip');
     if (strip) { strip.hidden = true; strip.innerHTML = ''; }
     if (play && play.item && play.airing !== 'ad' && !media.ended()) { watchEvent('stop'); saveProgress(false); }
+    if (window.ontoTube) window.ontoTube.onStop();
     tellDesktop('onto:desktop-home');
     play = null; mediaState = 'ready';
     media.stop();
@@ -2326,6 +2383,7 @@
     mediaState = 'playing';
     diag('ended', diagnosticSample());
     if (play && play.airing === 'ad') return advanceAd();
+    if (play && play.mode === 'tube') { if (window.ontoTube) window.ontoTube.onEnded(); return; }
     if (upNextCard && upNextCard.active()) return;
     if (play && play.upNextDismissed) { showOsd(); return; }
     if (play && window.ontoPlayerExtras && window.ontoPlayerExtras.isSerial(play.item)) { considerUpNext(); return; }
@@ -3425,6 +3483,11 @@
     if (!repeat) answer(started, input);
     if (key >= 48 && key <= 57) {
       if (repeat) { event.preventDefault(); return; }
+      if (layoutMode() === 'tube' && $('player').hidden) {
+        if (window.ontoTube) window.ontoTube.digit(String(key - 48));
+        event.preventDefault();
+        return;
+      }
       // Digits tune like a TV: wait briefly for a second digit when one could follow.
       clearTimeout(digitTimer);
       digitBuffer += String(key - 48);
@@ -3442,6 +3505,7 @@
     var playing = !$('player').hidden;
     if (!playing && play && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { stopPlayback(); event.preventDefault(); return; }
     if (playing) {
+      if (window.ontoTube && window.ontoTube.playingKey(key)) { event.preventDefault(); return; }
       var action, optionName, resumeName, armed;
       if (upNextCard && upNextCard.active() && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { cancelUpNext(); event.preventDefault(); return; }
       if (optionOpen && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { closeOptions(); event.preventDefault(); return; }
@@ -3481,6 +3545,7 @@
     } else {
       logRemote('home', key, key === KEY.ENTER ? 'home-select' : (key === KEY.LEFT || key === KEY.RIGHT || key === KEY.UP || key === KEY.DOWN) ? 'home-move' :
         (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) ? 'home-back' : 'none', 'home', !!repeat, pressedAt);
+      if (layoutMode() === 'tube' && window.ontoTube && window.ontoTube.homeKey(key)) { event.preventDefault(); return; }
       if (key === KEY.LEFT) moveFocus(0, -1);
       else if (key === KEY.RIGHT) moveFocus(0, 1);
       else if (key === KEY.UP) moveFocus(-1, 0);
@@ -3614,6 +3679,31 @@
       try { window.ontoTVAction('play', { src: held.src, positionSeconds: held.positionSeconds }); } catch (e) {}
     }());
   }());
+  if (window.ontoTube) window.ontoTube.mount({
+    $: $,
+    api: api,
+    q: q,
+    clock: clock,
+    artUrl: artUrl,
+    loadArt: loadArt,
+    layout: layoutMode,
+    viewers: storedViewers,
+    rating: storedRating,
+    rows: function () { return rows; },
+    setRows: function (next) { rows = next; },
+    focusAt: function () { return focus; },
+    move: function () { moveFocus(0, 0); },
+    playCard: startTube,
+    playing: function () { return play; },
+    mediaTime: function () { return media.time(); },
+    mediaDuration: function () { return media.duration(); },
+    mediaEnded: function () { return media.ended(); },
+    save: saveProgress,
+    watch: watchEvent,
+    showOsd: showOsd,
+    keyName: navKey,
+    KEY: KEY
+  });
   loadLayoutStore();
   syncProfileFromStorage();
   paintBodyProfile();

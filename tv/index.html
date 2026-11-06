@@ -17,6 +17,8 @@
 <body>
 <main id="home">
   <div id="backdrop" aria-hidden="true"><div class="scrim" id="backdrop-scrim"></div></div>
+  <nav id="tube-rail" hidden aria-label="Sections"></nav>
+  <div id="tube-main">
   <div id="top">
     <div id="viewers" role="group" aria-label="Who's watching"></div>
     <div id="top-meta">
@@ -26,9 +28,11 @@
   </div>
   <div id="resume-row" hidden role="group" aria-label="Continue"></div>
   <div id="hero" hidden aria-live="polite"></div>
+  <div id="tube-chips" hidden></div>
   <div id="channels"></div>
   <p id="now-pager" hidden></p>
   <p id="status" role="status"></p>
+  </div>
 </main>
 <div id="player" hidden>
   <object id="av" type="application/avplayer" hidden></object>
@@ -54,6 +58,8 @@
   <div id="ad-chip" hidden><span id="ad-label"></span><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 48"><path fill="currentColor" d="M2 6 L30 24 L2 42 Z M36 6 h10 v36 h-10 z"/></svg></span></div>
   <button id="skip-intro" type="button" hidden><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 48"><path fill="currentColor" d="M2 6 L30 24 L2 42 Z M36 6 h10 v36 h-10 z"/></svg></span><span>Skip intro</span></button>
   <div id="jump-strip" hidden></div>
+  <div id="tube-next" hidden></div>
+  <div id="tube-shelf" hidden></div>
   <div id="options" hidden role="group" aria-label="Options">
     <button type="button" class="opt" data-opt="subs"><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="56" height="36" rx="10"/><path d="M14 54h36"/></svg></span><span class="k">Subtitles</span><span class="v" id="opt-subs">Off</span></button>
     <button type="button" class="opt" data-opt="audio"><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 64"><path fill="currentColor" d="M8 24h14l16-14v44L22 40H8z"/><path fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" d="M46 22c8 6 8 14 0 20"/></svg></span><span class="k">Audio</span><span class="v" id="opt-audio"></span></button>
@@ -89,6 +95,7 @@
 <script src="channel-arm.js"></script>
 <script src="remote-map.js"></script>
 <script src="remote-guide.js"></script>
+<script src="tube.js"></script>
 <script src="app.js"></script>
 <script src="gamepad.js"></script>
 </body>

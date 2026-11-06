@@ -1597,7 +1597,298 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return [...picks(''), ...picks('\nnext')];
   }
 
-  return { home, billing, show, next, progress, like, liked, directions, directionChosen, allowed, skipped, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
+  // Tube (Jake's thumbnail grid) reads the same audience, progress and learned weights.
+  // A child has no adult taste key; Jake's own channel key holds what he has taught.
+  function tubeWeightKey(ids) {
+    const key = tasteKey(ids);
+    if (key) return key;
+    if (ids.includes('jake') && !ids.includes('sam')) return 'forjake';
+    if (ids.includes('sam')) return 'cartoons';
+    return null;
+  }
+
+  function tubeWeights(ids) {
+    const key = tubeWeightKey(ids);
+    return key ? weightsFor(key) : Object.create(null);
+  }
+
+  function tastePerson(ids) {
+    const kids = TV_VIEWERS.filter(person => person.ceiling && ids.includes(person.id))
+      .sort((a, b) => RATING_ORDER.indexOf(a.ceiling) - RATING_ORDER.indexOf(b.ceiling));
+    if (kids.length) return kids[0].id;
+    if (ids.length === 1 && FAVOURITES[ids[0]]) return ids[0];
+    return null;
+  }
+
+  function favouriteShow(item, ids) {
+    const pattern = FAVOURITES[tastePerson(ids)];
+    if (!pattern) return false;
+    return pattern.test(String(item.channel || '').replace(/^[^\w]+/, ''));
+  }
+
+  function creatorName(item) {
+    return showName(item.channel || item.title || 'Show');
+  }
+
+  function creatorSlug(name) {
+    const slug = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return slug || 'show';
+  }
+
+  function historyByFile() {
+    const map = new Map();
+    for (const entry of history.list()) map.set(entry.path, entry);
+    return map;
+  }
+
+  function watchSeconds(entry, item) {
+    if (!entry) return 0;
+    const duration = entry.durationSeconds || item.duration || 0;
+    if (entry.completed || player.nearlyFinished(entry.positionSeconds, duration)) return duration || entry.positionSeconds || 0;
+    return entry.positionSeconds || 0;
+  }
+
+  function tubeCard(index, byFile) {
+    const item = videos[index];
+    const entry = byFile.get(item.file);
+    const duration = item.duration || (entry && entry.durationSeconds) || 0;
+    const finished = !!(entry && (entry.completed || player.nearlyFinished(entry.positionSeconds, entry.durationSeconds || duration)));
+    const position = entry && !finished ? entry.positionSeconds || 0 : 0;
+    const name = creatorName(item);
+    return {
+      src: item.src,
+      title: item.title || item.src,
+      show: name,
+      creator: name,
+      duration,
+      art: '/art?src=' + encodeURIComponent(item.src),
+      resume: position > 5 ? position : 0,
+      watched: finished,
+    };
+  }
+
+  function tubePool(ids, rating) {
+    const pool = [];
+    for (let index = 0; index < videos.length; index++) {
+      const item = videos[index];
+      if (isAdSrc(item.src)) continue;
+      if (!allowed(item.src, ids, rating)) continue;
+      pool.push(index);
+    }
+    return pool;
+  }
+
+  function clampCount(value, fallback, max) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.min(max, parsed);
+  }
+
+  function byLearned(weights) {
+    return (a, b) => player.weightFor(weights, videos[b].src) - player.weightFor(weights, videos[a].src)
+      || String(videos[a].src).localeCompare(String(videos[b].src));
+  }
+
+  // At most two cards from the same show sit next to each other. A run is kept
+  // only when nothing else is left to put between them.
+  function spreadShows(indices) {
+    const queued = indices.slice();
+    const out = [];
+    const showOfIndex = index => videos[index].channel || '';
+    while (queued.length) {
+      let placed = -1;
+      for (let i = 0; i < queued.length; i++) {
+        const show = showOfIndex(queued[i]);
+        const n = out.length;
+        if (n >= 2 && showOfIndex(out[n - 1]) === show && showOfIndex(out[n - 2]) === show) continue;
+        placed = i;
+        break;
+      }
+      if (placed < 0) placed = 0;
+      out.push(queued.splice(placed, 1)[0]);
+    }
+    return out;
+  }
+
+  function creatorGroups(pool, byFile, weights, ids) {
+    const groups = new Map();
+    for (const index of pool) {
+      const item = videos[index];
+      const label = creatorName(item);
+      const id = creatorSlug(label);
+      let group = groups.get(id);
+      if (!group) {
+        group = { id, label, seconds: 0, weight: 0, favourite: false, indices: [] };
+        groups.set(id, group);
+      }
+      const entry = byFile.get(item.file);
+      group.seconds += watchSeconds(entry, item);
+      group.weight += player.weightFor(weights, item.src);
+      if (favouriteShow(item, ids)) group.favourite = true;
+      group.indices.push(index);
+    }
+    return groups;
+  }
+
+  function rankGroups(groups) {
+    return [...groups.values()].sort((a, b) => b.seconds - a.seconds || b.weight - a.weight || a.label.localeCompare(b.label));
+  }
+
+  function chipList(groups) {
+    const ranked = rankGroups(groups);
+    const picked = [];
+    const add = group => {
+      if (picked.length >= 8 || picked.some(item => item.id === group.id)) return;
+      picked.push(group);
+    };
+    for (const group of ranked) if (group.seconds > 0) add(group);
+    if (!picked.length) for (const group of ranked) if (group.favourite) add(group);
+    if (!picked.length) for (const group of ranked) add(group);
+    return [{ id: 'all', label: 'All' }, ...picked.map(group => ({ id: group.id, label: group.label }))];
+  }
+
+  function newestFirst(indices) {
+    return indices.slice().sort((a, b) => {
+      const left = player.episodeNumber(videos[a]);
+      const right = player.episodeNumber(videos[b]);
+      if (left !== null && right !== null && left !== right) return right - left;
+      return b - a;
+    });
+  }
+
+  function nextEpisode(current, pool) {
+    const item = videos[current];
+    const number = player.episodeNumber(item);
+    if (number === null) return -1;
+    const show = item.channel || 'Other';
+    let best = -1;
+    let bestNumber = Infinity;
+    for (const index of pool) {
+      if ((videos[index].channel || 'Other') !== show) continue;
+      const episode = player.episodeNumber(videos[index]);
+      if (episode === null || episode <= number || episode >= bestNumber) continue;
+      best = index;
+      bestNumber = episode;
+    }
+    return best;
+  }
+
+  function feed(options = {}) {
+    const ids = viewerIds(options.viewers);
+    const rating = ratingOf(options.rating);
+    const weights = tubeWeights(ids);
+    const byFile = historyByFile();
+    const pool = tubePool(ids, rating);
+    const groups = creatorGroups(pool, byFile, weights, ids);
+    const chips = chipList(groups);
+    const chip = String(options.chip || '').trim().toLowerCase();
+    const favouriteIds = new Set(chips.filter(item => item.id !== 'all').map(item => item.id));
+    let indices = pool;
+    if (chip && chip !== 'all') indices = pool.filter(index => creatorSlug(creatorName(videos[index])) === chip);
+    const resume = [];
+    const favourites = [];
+    const rest = [];
+    for (const index of indices) {
+      const card = tubeCard(index, byFile);
+      if (card.resume > 5) resume.push(index);
+      else if (!card.watched && (favouriteShow(videos[index], ids) || favouriteIds.has(creatorSlug(creatorName(videos[index]))))) favourites.push(index);
+      else rest.push(index);
+    }
+    resume.sort((a, b) => (Date.parse(byFile.get(videos[b].file)?.updatedAt) || 0) - (Date.parse(byFile.get(videos[a].file)?.updatedAt) || 0));
+    favourites.sort(byLearned(weights));
+    rest.sort(byLearned(weights));
+    const ordered = spreadShows([...resume, ...favourites, ...rest]);
+    const offset = Math.max(0, Number.parseInt(options.offset, 10) || 0);
+    const limit = clampCount(options.limit, 24, 60);
+    return {
+      cards: ordered.slice(offset, offset + limit).map(index => tubeCard(index, byFile)),
+      chips,
+      offset,
+      limit,
+      total: ordered.length,
+    };
+  }
+
+  function related(src, options = {}) {
+    const ids = viewerIds(options.viewers);
+    const rating = ratingOf(options.rating);
+    const current = bySrc.get(src);
+    if (current === undefined) throw Object.assign(new Error('That video is not in this library.'), { status: 404 });
+    if (isAdSrc(src) || !allowed(src, ids, rating)) return { cards: [] };
+    const weights = tubeWeights(ids);
+    const byFile = historyByFile();
+    const pool = tubePool(ids, rating).filter(index => index !== current);
+    const following = nextEpisode(current, pool);
+    const creator = videos[current].channel || '';
+    const tier = videos[current].tier;
+    const categories = new Set(channelsOf(videos[current]));
+    const sameCreator = [];
+    const sameCategory = [];
+    const rest = [];
+    for (const index of pool) {
+      if (index === following) continue;
+      const item = videos[index];
+      if ((item.channel || '') === creator) sameCreator.push(index);
+      else if (item.tier === tier || channelsOf(item).some(id => categories.has(id))) sameCategory.push(index);
+      else rest.push(index);
+    }
+    const order = byLearned(weights);
+    sameCreator.sort(order);
+    sameCategory.sort(order);
+    rest.sort(order);
+    const ordered = [];
+    if (following >= 0) ordered.push(following);
+    ordered.push(...sameCreator, ...sameCategory, ...rest);
+    const limit = clampCount(options.limit, 12, 40);
+    return { cards: ordered.slice(0, limit).map(index => tubeCard(index, byFile)) };
+  }
+
+  function search(query, viewers, ratingValue) {
+    const ids = viewerIds(viewers);
+    const rating = ratingOf(ratingValue);
+    const text = String(query || '').trim().toLowerCase();
+    if (!text) return { cards: [], suggestions: [] };
+    const weights = tubeWeights(ids);
+    const byFile = historyByFile();
+    const hits = [];
+    const names = new Map();
+    for (let index = 0; index < videos.length; index++) {
+      const item = videos[index];
+      if (isAdSrc(item.src) || !allowed(item.src, ids, rating)) continue;
+      const name = creatorName(item);
+      const hay = `${item.title || ''} ${name} ${item.channel || ''}`.toLowerCase();
+      if (name.toLowerCase().includes(text)) names.set(creatorSlug(name), name);
+      if (hay.includes(text)) hits.push(index);
+    }
+    hits.sort(byLearned(weights));
+    return {
+      cards: hits.slice(0, 60).map(index => tubeCard(index, byFile)),
+      suggestions: [...names.values()].slice(0, 8),
+    };
+  }
+
+  function creators(options = {}) {
+    const ids = viewerIds(options.viewers);
+    const rating = ratingOf(options.rating);
+    const weights = tubeWeights(ids);
+    const byFile = historyByFile();
+    const pool = tubePool(ids, rating);
+    const groups = creatorGroups(pool, byFile, weights, ids);
+    let ranked = rankGroups(groups).filter(group => group.seconds > 0 || group.favourite);
+    if (!ranked.length) ranked = rankGroups(groups);
+    ranked = ranked.slice(0, 40);
+    const list = ranked.map(group => {
+      const lead = newestFirst(group.indices)[0];
+      return { id: group.id, name: group.label, art: tubeCard(lead, byFile).art, count: group.indices.length };
+    });
+    const id = String(options.id || '').trim().toLowerCase();
+    if (!id) return { creators: list };
+    const group = groups.get(id);
+    const cards = group ? newestFirst(group.indices).map(index => tubeCard(index, byFile)) : [];
+    return { creators: list, cards };
+  }
+
+  return { home, billing, show, next, progress, like, liked, directions, directionChosen, allowed, feed, related, search, creators, skipped, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
 }
 
 /**
@@ -1889,6 +2180,17 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         // The cards' pictures start now, ahead of the page asking; the next picks' follow.
         void warmArt(viewers, url.searchParams.get('rating'), lineup.channels);
         return;
+      }
+      if (path === '/api/feed' || path === '/api/related' || path === '/api/search' || path === '/api/creators') {
+        if (request.method !== 'GET') return send(response, 405, { error: 'Method not allowed.' });
+        const viewers = url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined;
+        const rating = url.searchParams.get('rating');
+        if (path === '/api/feed') {
+          return send(response, 200, library.feed({ viewers, rating, chip: url.searchParams.get('chip') || '', offset: url.searchParams.get('offset'), limit: url.searchParams.get('limit') }));
+        }
+        if (path === '/api/related') return send(response, 200, library.related(url.searchParams.get('src') || '', { viewers, rating, limit: url.searchParams.get('limit') }));
+        if (path === '/api/search') return send(response, 200, library.search(url.searchParams.get('q') || '', viewers, rating));
+        return send(response, 200, library.creators({ viewers, rating, id: url.searchParams.get('id') || '' }));
       }
       if (path === '/api/library') return send(response, 200, libraryView({ videos: library.catalogue(), history: history.list(), viewers: url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, rating: url.searchParams.get('rating') }));
       if (path === '/api/shows') return send(response, 200, showsView({ videos: library.catalogue(), history: history.list(), viewers: url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, rating: url.searchParams.get('rating') }));

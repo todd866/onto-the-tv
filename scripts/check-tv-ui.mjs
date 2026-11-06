@@ -195,7 +195,7 @@ try {
   }));
   assert.deepEqual((await homeControls()).profile, 'Everyone');
   assert.deepEqual((await homeControls()).ratings, ['G*^', 'PG', 'M']);
-  assert.deepEqual((await homeControls()).layouts, ['now*', 'guide', 'pictures']);
+  assert.deepEqual((await homeControls()).layouts, ['now*', 'guide', 'pictures', 'tube']);
   assert.match((await homeControls()).channelsClass, /layout-now/);
   await page.locator('.seg[data-layout="guide"]').click();
   assert.match((await homeControls()).channelsClass, /layout-guide/);
@@ -246,9 +246,10 @@ try {
   assert.equal(homeRatings.at(-1), null);
   assert.deepEqual((await homeControls()).profile, 'Jake');
   assert.deepEqual((await homeControls()).ratings, ['G', 'PG*^', 'M']);
-  assert.match((await homeControls()).channelsClass, /layout-pictures/);
+  assert.match((await homeControls()).channelsClass, /layout-tube/);
   await page.screenshot({ path: path.join(out, 'home-dark-unticked.png') });
-  assert.equal(await page.getByRole('button', { name: /19 Rides/ }).count(), 1);
+  assert.equal(await page.locator('#tube-rail:visible').count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'All', exact: true }).count(), 1);
 
   // The rating switch overrides the people's default, up or down, without a password.
   await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight');

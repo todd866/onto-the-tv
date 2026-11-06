@@ -11,12 +11,12 @@
   const PROFILES = [
     { id: 'ian', name: 'Ian', mark: 'I', viewers: ['dad'], layout: 'now' },
     { id: 'fran', name: 'Fran', mark: 'F', viewers: ['mum'], layout: 'guide' },
-    { id: 'jake', name: 'Jake', mark: 'J', viewers: ['jake', 'mum', 'dad'], layout: 'pictures' },
+    { id: 'jake', name: 'Jake', mark: 'J', viewers: ['jake', 'mum', 'dad'], layout: 'tube' },
     { id: 'sam', name: 'Sam', mark: 'S', viewers: ['sam', 'mum', 'dad'], layout: 'pictures' },
     { id: 'all', name: 'Everyone', mark: '★', viewers: ['sam', 'jake', 'mum', 'dad'], layout: 'now' },
   ];
   const RATINGS = ['G', 'PG', 'M'];
-  const LAYOUTS = [['now', '▣', 'Now on'], ['guide', '☰', 'Guide'], ['pictures', '▦', 'Pictures']];
+  const LAYOUTS = [['now', '▣', 'Now on'], ['guide', '☰', 'Guide'], ['pictures', '▦', 'Pictures'], ['tube', '▤', 'Tube']];
   const KEY = 'onto.desktop.profile';
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { saved = {}; }
@@ -147,7 +147,7 @@
   // The "now on" panel: the focused or hovered channel, large.
   function hero(channel) {
     const panel = $('channel-hero');
-    if (!channel || layoutOf() === 'pictures') { panel.hidden = true; return; }
+    if (!channel || layoutOf() === 'pictures' || layoutOf() === 'tube') { panel.hidden = true; return; }
     panel.hidden = false;
     const image = span('hero-picture', '');
     const copy = span('hero-copy', '');

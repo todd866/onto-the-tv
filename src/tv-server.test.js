@@ -1140,3 +1140,119 @@ test('channel picture pools: one per folder, credits carried, Christmas film sti
   assert.equal(channelArtFile(dir, '../etc', 'a.jpg'), null);
   assert.equal(channelArtFile(dir, 'trains', '01-f40.jpg'), join(dir, 'channels', 'trains', '01-f40.jpg'));
 });
+const TUBE_FORBIDDEN = ['Films/d.mkv', 'Mobland/a.mp4', 'Older/rc.mp4'];
+
+function tubeCatalogue() {
+  return [
+    { src: 'Bluey/a.mp4', file: '/m/Bluey/a.mp4', title: 'Bluey S01E01 Keepy Uppy', channel: 'Bluey', tier: 'shared', duration: 420 },
+    { src: 'Bluey/b.mp4', file: '/m/Bluey/b.mp4', title: 'Bluey S01E02 Hospital', channel: 'Bluey', tier: 'shared', duration: 420 },
+    { src: 'Bluey/c.mp4', file: '/m/Bluey/c.mp4', title: 'Bluey S01E03 Shadowlands', channel: 'Bluey', tier: 'shared', duration: 420 },
+    { src: 'Grian/e1.mp4', file: '/m/Grian/e1.mp4', title: 'Hermitcraft S01E01 The Start', channel: 'Grian', tier: 'big', duration: 800 },
+    { src: 'Grian/e2.mp4', file: '/m/Grian/e2.mp4', title: 'Hermitcraft S01E02 RC car jump', channel: 'Grian', tier: 'big', duration: 900 },
+    { src: 'Mumbo/m.mp4', file: '/m/Mumbo/m.mp4', title: 'Redstone shop', channel: 'Mumbo Jumbo', tier: 'big', duration: 700 },
+    { src: 'Films/d.mkv', file: '/m/Films/d.mkv', title: 'Grown Up Film RC', channel: 'Films', tier: 'grownup', duration: 6000 },
+    { src: 'Mobland/a.mp4', file: '/m/Mobland/a.mp4', title: 'MobLand S01E01 The Sign', channel: 'Mobland', tier: 'grownup', duration: 3000 },
+    { src: 'Older/rc.mp4', file: '/m/Older/rc.mp4', title: 'RC stunt special', channel: 'Stunt RC', tier: 'older', duration: 500 },
+  ];
+}
+
+function assertJakeCannotSee(cards, where) {
+  const srcs = cards.map(card => card.src);
+  for (const src of TUBE_FORBIDDEN) assert.equal(srcs.includes(src), false, `${src} leaked into ${where}`);
+  for (const card of cards) {
+    assert.equal(typeof card.title, 'string');
+    assert.equal(typeof card.creator, 'string');
+    assert.equal(card.art.startsWith('/art?src='), true);
+  }
+}
+
+async function tubeLibrary() {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-tube-'));
+  const history = await loadPlaybackHistory(join(dir, 'history.json'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  storage.setItem('kidshuffle.weights.v2.sforjake', JSON.stringify({
+    'Mumbo/m.mp4': 3.5,
+    'Grian/e2.mp4': 2,
+    'Bluey/b.mp4': 1.2,
+  }));
+  const library = createTvLibrary({ videos: tubeCatalogue(), history, storage, random: () => 0 });
+  assert.equal(library.progress({ src: 'Bluey/a.mp4', positionSeconds: 200, durationSeconds: 420, completed: false }), true);
+  return { dir, history, storage, library };
+}
+
+test('tube feed, related, search and creators stay inside the audience', async () => {
+  const { library } = await tubeLibrary();
+  const jake = { viewers: 'jake,mum,dad' };
+  const feed = library.feed(jake);
+  assert.equal(feed.cards[0].src, 'Bluey/a.mp4', 'a part-watched video leads');
+  assert.equal(feed.cards[0].resume, 200);
+  assert.equal(feed.cards[0].watched, false);
+  assert.equal(feed.cards[1].src, 'Mumbo/m.mp4', 'unwatched favourites follow, highest learned weight first');
+  assertJakeCannotSee(feed.cards, 'feed');
+  assert.equal(feed.chips[0].id, 'all');
+  assert.equal(feed.chips.some(chip => chip.label === 'Bluey'), true);
+  assert.equal(feed.chips.some(chip => /mobland|stunt rc|films/i.test(chip.label)), false);
+  assert.ok(feed.chips.length <= 9);
+  let run = 1;
+  for (let i = 1; i < feed.cards.length; i++) {
+    run = feed.cards[i].show === feed.cards[i - 1].show ? run + 1 : 1;
+    assert.ok(run <= 2, feed.cards.map(card => card.show).join(' '));
+  }
+  const bluey = library.feed({ ...jake, chip: 'bluey' });
+  assert.ok(bluey.cards.length > 0);
+  assert.ok(bluey.cards.every(card => card.show === 'Bluey'));
+  assert.equal(library.feed({ ...jake, chip: 'mobland' }).cards.length, 0);
+
+  const sam = library.feed({ viewers: 'sam' });
+  assert.equal(sam.cards.some(card => card.src.startsWith('Grian/')), false, 'PG titles stay off Sam');
+  assert.equal(sam.cards.some(card => card.src.startsWith('Bluey/')), true);
+  const dad = library.feed({ viewers: 'dad' });
+  assert.equal(dad.cards.some(card => card.src === 'Films/d.mkv'), true);
+
+  const related = library.related('Grian/e1.mp4', jake);
+  assert.equal(related.cards[0].src, 'Grian/e2.mp4', 'the next episode is the autoplay pick');
+  assertJakeCannotSee(related.cards, 'related');
+  assert.equal(related.cards.some(card => card.src === 'Grian/e1.mp4'), false);
+  assert.throws(() => library.related('missing.mp4', jake), /not in this library/);
+  assert.deepEqual(library.related('Films/d.mkv', jake).cards, []);
+
+  const found = library.search('rc', jake.viewers, null);
+  assert.deepEqual(found.cards.map(card => card.src), ['Grian/e2.mp4']);
+  assert.equal(found.suggestions.includes('Stunt RC'), false);
+  assert.deepEqual(library.search('grian', jake.viewers, null).suggestions, ['Grian']);
+  assert.equal(library.search('mobland', jake.viewers, null).cards.length, 0);
+  const dadSearch = library.search('rc', 'dad', null);
+  assert.equal(dadSearch.cards.some(card => card.src === 'Films/d.mkv'), true);
+  assert.equal(dadSearch.suggestions.includes('Stunt RC'), true);
+
+  const creators = library.creators(jake);
+  assert.equal(creators.creators.some(creator => creator.name === 'Mobland' || creator.name === 'Stunt RC'), false);
+  const grian = creators.creators.find(creator => creator.id === 'grian');
+  assert.equal(grian.count, 2);
+  assert.equal(grian.art, '/art?src=' + encodeURIComponent('Grian/e2.mp4'));
+  const episodes = library.creators({ ...jake, id: 'grian' });
+  assert.deepEqual(episodes.cards.map(card => card.src), ['Grian/e2.mp4', 'Grian/e1.mp4']);
+});
+
+test('tube HTTP endpoints filter a title Jake cannot watch', async () => {
+  const { dir, history, storage, library } = await tubeLibrary();
+  const server = createTvServer({ library, history, storage, uiRoot: dir, token: 'secret' });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const jake = 'viewers=' + encodeURIComponent('jake,mum,dad');
+  try {
+    const feed = await (await fetch(`${base}/api/feed?${jake}`)).json();
+    assertJakeCannotSee(feed.cards, 'GET /api/feed');
+    assert.equal(feed.cards[0].src, 'Bluey/a.mp4');
+    const related = await (await fetch(`${base}/api/related?src=${encodeURIComponent('Grian/e1.mp4')}&${jake}`)).json();
+    assert.equal(related.cards[0].src, 'Grian/e2.mp4');
+    assertJakeCannotSee(related.cards, 'GET /api/related');
+    const search = await (await fetch(`${base}/api/search?q=rc&${jake}`)).json();
+    assert.deepEqual(search.cards.map(card => card.src), ['Grian/e2.mp4']);
+    assert.equal(search.suggestions.includes('Stunt RC'), false);
+    const creators = await (await fetch(`${base}/api/creators?${jake}`)).json();
+    assert.equal(creators.creators.some(creator => TUBE_FORBIDDEN.some(src => creator.art.includes(encodeURIComponent(src)))), false);
+    assert.equal((await fetch(`${base}/api/feed`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } })).status, 405);
+    assert.equal((await fetch(`${base}/api/related?src=nope`)).status, 404);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
