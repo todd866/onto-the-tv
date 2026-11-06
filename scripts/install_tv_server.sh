@@ -38,13 +38,17 @@ if [ -n "$APP_DATA" ]; then
 fi
 
 mkdir -p "$(dirname "$PLIST")" "$(dirname "$LOG")"
+# Start node via /bin/zsh (tcc-run) so macOS privacy checks see /bin/zsh, which has Full Disk Access;
+# a direct node grant breaks on every Homebrew upgrade and the server then hangs reading external drives.
+LAUNCH=""
+[ -x "$HOME/.local/bin/tcc-run" ] && LAUNCH="<string>/bin/zsh</string><string>$HOME/.local/bin/tcc-run</string>"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key><array>
-    <string>$NODE</string><string>$ROOT/bin/tv-server.js</string><string>--port</string><string>$PORT</string>$EXTRA
+    $LAUNCH<string>$NODE</string><string>$ROOT/bin/tv-server.js</string><string>--port</string><string>$PORT</string>$EXTRA
   </array>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>$(dirname "$NODE"):$(dirname "$(command -v ffprobe)"):/usr/bin:/bin</string>
