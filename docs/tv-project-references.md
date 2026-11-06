@@ -39,3 +39,18 @@ No candidate authorizes discovery, ADB connections, developer mode, rooting,
 package changes, captures, uploads or model calls. The next permitted work is
 still offline fixture/schema/viewer development; real-device work needs a separate
 scope and consent.
+
+## Lead: AeroTizen (noted 7 Nov 2026, not started)
+
+https://github.com/helalaou/AeroTizen — MIT, JavaScript, ~90 stars, active (updated 6 Nov 2026). A replacement
+home screen for Samsung Tizen TVs plus a CLI that signs/installs any `.wgt` without Tizen Studio and lists/removes
+preinstalled bloat where firmware allows.
+
+- Fit for our TV (2017 UA65MU8000, Tizen 3): untested. Their oldest tested set is a 2019 RU8000 (Tizen 5.0, "runs");
+  on 2020–21 sets Home-return and power-on launch often fail, so expect the launcher not to replace Samsung's Home
+  reliably on Tizen 3.
+- What could help us: (1) bloat/privacy cleanup (TV Plus autoplay, ad rows) — same goal as the CleanYourTV notes;
+  (2) power-on/auto-start of an app — could make Onto the TV open when the TV turns on (channel-first home in one
+  press); (3) its signing/install CLI as an alternative to our M2 `vd_appinstall` path.
+- If picked up: TV work needs Ian's go-ahead (never 21:00–07:00); start read-only (list apps/bloat), report before
+  removing or installing anything.
