@@ -102,10 +102,10 @@ test('adults use the existing taste keys and hidden genres stay hidden', async (
     { src: 'Sci/s.mp4', file: '/m/Sci/s.mp4', title: 'Sci-Fi', channel: 'Sci-Fi Show', tier: 'scifi', duration: 2400 },
     { src: 'Anim/a.mp4', file: '/m/Anim/a.mp4', title: 'Adult Cartoon', channel: 'Adult Cartoon', tier: 'adultanim', duration: 1300 },
   ];
-  const library = createTvLibrary({ videos: catalogue, history, storage, random: () => 0 });
+  const library = createTvLibrary({ videos: catalogue, history, storage, random: () => 0, now: () => localHour(15) });
   const sam = library.home('sam');
   assert.equal(sam.ceiling, 'G');
-  assert.deepEqual(sam.channels.map(channel => channel.id), ['cartoons', 'hophop', 'littleones', 'bluey', 'music', 'christmas'], 'kids see their channels first');
+  assert.deepEqual(sam.channels.map(channel => channel.id), ['bluey', 'littleones', 'hophop', 'cartoons', 'music', 'christmas'], 'Sam leads with Bluey, Little Ones and Hop Hop after 9am');
   assert.deepEqual(library.next('hophop', { viewers: 'sam' }).show, 'Hop Hop the Owl');
   const jake = library.home('jake');
   assert.equal(jake.ceiling, 'PG');
@@ -532,4 +532,162 @@ test("Ian's tab: no cosy mysteries or Fran's reality, his own channels, real epi
   assert.equal(ian.channels.find(channel => channel.id === 'seinfeld').now.title.includes('pilot'), false, 'billing skips Season 0 extras');
   const together = library.home('mum,dad');
   assert.ok(JSON.stringify(together.channels).includes('Shetland') || together.channels.some(channel => channel.id === 'crime'), 'Fran and Ian together still get the mysteries');
+});
+
+function localHour(hour, minute = 0) {
+  return new Date(2026, 10, 6, hour, minute, 0).getTime();
+}
+
+function ep(show, n, tier, minutes = 22) {
+  return {
+    src: `${show}/S01E0${n}.mp4`, file: `/m/${show}/S01E0${n}.mp4`, title: `S1 E${n}`, channel: show, tier,
+    duration: minutes * 60,
+  };
+}
+
+async function libraryWith(videos, { random = () => 0, now = () => localHour(15), history } = {}) {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  return {
+    dir,
+    library: createTvLibrary({
+      videos, random, now,
+      history: history || await loadPlaybackHistory(join(dir, 'history.json')),
+      storage: await createFileStorage(join(dir, 'taste.json')),
+    }),
+  };
+}
+
+test('serials and personal channels resume a partial episode or the next unseen one', async () => {
+  const futurama = ep('Futurama', 1, 'adultanim');
+  const utopia = [ep('Utopia', 1, 'sitcom'), ep('Utopia', 2, 'sitcom')];
+  const partial = await libraryWith([futurama, ...utopia]);
+  partial.library.progress({ src: utopia[0].src, positionSeconds: 400, durationSeconds: 1320, completed: false });
+  const resumed = partial.library.home('dad').channels.find(channel => channel.id === 'fordad').now;
+  assert.equal(resumed.show, 'Utopia');
+  assert.equal(resumed.title, 'S1 E1');
+
+  const unseen = await libraryWith([futurama, ...utopia]);
+  unseen.library.progress({ src: utopia[0].src, positionSeconds: 1320, durationSeconds: 1320, completed: true });
+  const next = unseen.library.home('dad').channels.find(channel => channel.id === 'fordad').now;
+  assert.equal(next.show, 'Utopia');
+  assert.equal(next.title, 'S1 E2');
+
+  const duty = ep('Line of Duty', 1, 'grownup');
+  const mob = ep('MobLand', 1, 'grownup');
+  const serial = await libraryWith([duty, mob]);
+  serial.library.progress({ src: mob.src, positionSeconds: 800, durationSeconds: 1320, completed: false });
+  assert.equal(serial.library.home('dad').channels.find(channel => channel.id === 'grownups').now.show, 'MobLand');
+});
+
+test('billing skips an episode finished in the last 30 days and will bill it again later', async () => {
+  const utopia = ep('Utopia', 1, 'sitcom');
+  const futurama = ep('Futurama', 1, 'adultanim');
+  const recent = await libraryWith([utopia, futurama]);
+  recent.library.progress({ src: utopia.src, positionSeconds: 1320, durationSeconds: 1320, completed: true });
+  assert.equal(recent.library.home('dad').channels.find(channel => channel.id === 'fordad').now.show, 'Futurama');
+
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  await writeFile(join(dir, 'history.json'), JSON.stringify({
+    version: 1,
+    entries: [{
+      path: utopia.file, title: 'S1 E1', positionSeconds: 1320, durationSeconds: 1320, completed: true,
+      updatedAt: new Date(localHour(15) - 40 * 86400000).toISOString(), points: [],
+    }],
+  }));
+  const older = await libraryWith([utopia, futurama], { history: await loadPlaybackHistory(join(dir, 'history.json')) });
+  assert.equal(older.library.home('dad').channels.find(channel => channel.id === 'fordad').now.show, 'Utopia');
+});
+
+test('a channel does not repeat a show within three picks, and a personal channel mixes three shows an hour', async () => {
+  const shows = ['Utopia', 'Fisk', 'Blackadder', 'Futurama'];
+  const tiers = ['sitcom', 'sitcom', 'bbc', 'adultanim'];
+  const videos = [];
+  for (let i = 0; i < shows.length; i++) for (let n = 1; n <= 4; n++) videos.push(ep(shows[i], n, tiers[i], 10));
+  const { library } = await libraryWith(videos);
+  const sitcoms = [];
+  for (let i = 0; i < 6; i++) sitcoms.push(library.next('sitcoms', { viewers: 'dad' }).show);
+  for (let i = 0; i + 3 <= sitcoms.length; i++) assert.equal(new Set(sitcoms.slice(i, i + 3)).size, 3, sitcoms.join(' · '));
+
+  const hour = [];
+  let seconds = 0;
+  while (seconds < 3600) {
+    const item = library.next('fordad', { viewers: 'dad' });
+    hour.push(item.show);
+    seconds += item.duration;
+  }
+  assert.ok(new Set(hour).size >= 3, hour.join(' · '));
+  for (let i = 0; i + 3 <= hour.length; i++) assert.equal(new Set(hour.slice(i, i + 3)).size, 3, hour.join(' · '));
+  assert.notEqual(library.home('dad').channels.find(channel => channel.id === 'fordad').now.show,
+    library.home('dad').channels.find(channel => channel.id === 'fordad').now.next.show);
+});
+
+test('before 9am kids lead with Cartoons, Little Ones and Bluey; after 7pm grown-ups lead with long-form', async () => {
+  const kid = (show, tier) => ({ src: `${show}/a.mp4`, file: `/m/${show}/a.mp4`, title: 'Episode', channel: show, tier, duration: 420 });
+  const kids = [
+    kid('Hop Hop the Owl', 'preschool'), kid('Hey Duggee', 'preschool'), kid('Bluey', 'shared'), kid('Bing', 'preschool'),
+    kid('Minecraft', 'big'),
+  ];
+  const morning = await libraryWith(kids, { now: () => localHour(8) });
+  assert.deepEqual(morning.library.home('sam').channels.slice(0, 3).map(channel => channel.id), ['cartoons', 'littleones', 'bluey']);
+  const jakeMorning = morning.library.home('jake').channels.map(channel => channel.id);
+  assert.equal(jakeMorning[0], 'forjake');
+  assert.deepEqual(jakeMorning.slice(1, 4), ['cartoons', 'littleones', 'bluey']);
+
+  const day = await libraryWith(kids, { now: () => localHour(15) });
+  assert.deepEqual(day.library.home('sam').channels.slice(0, 3).map(channel => channel.id), ['bluey', 'littleones', 'hophop']);
+
+  const grown = [
+    { src: 'Films/short.mp4', file: '/m/Films/short.mp4', title: 'Short Film', channel: 'Films', tier: 'grownup', duration: 180 },
+    { src: 'Films/long.mp4', file: '/m/Films/long.mp4', title: 'Long Film', channel: 'Films', tier: 'grownup', duration: 7200 },
+    { src: 'Song/a.mp4', file: '/m/Song/a.mp4', title: 'Song', channel: 'Song', tier: 'music', duration: 200 },
+    { src: 'Doc/b.mp4', file: '/m/Doc/b.mp4', title: 'S1 E1', channel: 'Quick Briefing', tier: 'docs', duration: 180 },
+    { src: 'Doc/a.mp4', file: '/m/Doc/a.mp4', title: 'S1 E1', channel: 'Deep Ocean', tier: 'docs', duration: 3600 },
+  ];
+  const afternoon = await libraryWith(grown, { now: () => localHour(15) });
+  const afternoonIds = afternoon.library.home('dad').channels.map(channel => channel.id);
+  assert.ok(afternoonIds.indexOf('music') < afternoonIds.indexOf('docs'), afternoonIds.join(' '));
+  assert.equal(afternoon.library.home('dad').channels.find(channel => channel.id === 'movies').now.show, 'Short Film');
+  assert.equal(afternoon.library.home('dad').channels.find(channel => channel.id === 'fordad').now.show, 'Quick Briefing');
+
+  const evening = await libraryWith(grown, { now: () => localHour(20, 30) });
+  const eveningIds = evening.library.home('dad').channels.map(channel => channel.id);
+  assert.ok(eveningIds.indexOf('docs') < eveningIds.indexOf('music'), eveningIds.join(' '));
+  assert.equal(evening.library.home('dad').channels.find(channel => channel.id === 'movies').now.show, 'Long Film');
+  assert.equal(evening.library.home('dad').channels.find(channel => channel.id === 'fordad').now.show, 'Deep Ocean');
+});
+
+test('home gives each channel a one-line about from the shows in its pool', async () => {
+  const make = (show, n, tier = 'grownup') => ({
+    src: `${show}/${n}.mp4`, file: `/m/${show}/${n}.mp4`, title: `S1 E${n}`, channel: show, tier, duration: 3000,
+  });
+  const { library } = await libraryWith([
+    make('Band of Brothers', 1), make('Band of Brothers', 2), make('The Pacific', 1),
+  ]);
+  const home = library.home('dad');
+  const military = home.channels.find(channel => channel.id === 'military');
+  assert.equal(military.about, 'War & Military — Band of Brothers, The Pacific');
+  for (const channel of home.channels) {
+    assert.equal(channel.about.includes('\n'), false, channel.id);
+    assert.ok(channel.about.startsWith(channel.name + ' — '), channel.about);
+  }
+});
+
+test("Jake's card leads Minecraft, Track Time, cars and RC; rationed shows stay off it", async () => {
+  const kid = (show, tier) => ({ src: `${show}/S01E01.mp4`, file: `/m/${show}/S01E01.mp4`, title: 'S1 E1', channel: show, tier, duration: 600 });
+  const videos = [
+    kid('Billy’s Aviation', 'big'), kid('Bluey', 'shared'), kid('RC Odyssey', 'big'),
+    kid('Hot Wheels', 'big'), kid('Track Time', 'big'), kid('Minecraft', 'big'),
+  ];
+  const card = await libraryWith(videos);
+  const now = card.library.home('jake').channels.find(channel => channel.id === 'forjake').now;
+  assert.equal(now.show, 'Minecraft');
+  assert.notEqual(now.show, 'Billy’s Aviation');
+  assert.notEqual(now.next.show, 'Billy’s Aviation');
+  const played = await libraryWith(videos);
+  const picks = [];
+  for (let i = 0; i < 3; i++) picks.push(played.library.next('forjake', { viewers: 'jake' }).show);
+  assert.deepEqual(picks, ['Minecraft', 'Track Time', 'Hot Wheels']);
+
+  const cars = await libraryWith([kid('Oddbods', 'big'), kid('RC Odyssey', 'big'), kid('Bluey', 'shared')]);
+  assert.equal(cars.library.home('jake').channels.find(channel => channel.id === 'forjake').now.show, 'RC Odyssey');
 });

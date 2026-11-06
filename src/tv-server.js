@@ -139,7 +139,16 @@ const FRAN_SHOWS = /^(?:(?:couples )?come dine with me|bald and bankrupt|friends
 // Jake's own mix (Ian, 4 Nov 2026): he loves Minecraft, and cars (Track Time); he will watch
 // Bluey but is not in love with it. Shouty YouTuber channels stay off.
 const JAKE_TIERS = new Set(['shared', 'big', 'older']);
-const JAKE_SHOWS = /minecraft|grian|mumbo|hermitcraft|pixlriffs|track time|hot wheels|lego/i;
+const JAKE_SHOWS = /minecraft|grian|mumbo|hermitcraft|pixlriffs|track time|hot wheels|\bcars?\b|lego|\brc\b|odyssey|remote control/i;
+// Jake's card and the next picks walk this list: Minecraft, then Track Time, then cars, then RC.
+function jakeLeadRank(name) {
+  const text = String(name || '');
+  if (/minecraft/i.test(text)) return 0;
+  if (/track time/i.test(text)) return 1;
+  if (/hot wheels|\bcars?\b|lego/i.test(text)) return 2;
+  if (/odyssey|\brc\b|remote control/i.test(text)) return 3;
+  return 4;
+}
 // Shows the kids love that the parents would rather ration (Ian, 4 Nov 2026): the plane-crash
 // cartoons ("If Planes Could Talk"), and YouTube slop in general ("he *loves* a bit of youtube
 // slop, we kinda hate it, so use it sparingly"). Fine to watch, rarely picked, and never billed
@@ -172,6 +181,13 @@ const PERSON_LINEUP = {
     'grownups', 'crime', 'friends', 'reality'],
   mum: ['formum', 'reality', 'friends', 'sitcoms', 'grownups', 'truecrime', 'crime', 'comedy', 'music', 'seinfeld', 'movies'],
 };
+// After 7pm these sink below films, drama and documentaries.
+const SHORT_CLIP_CHANNELS = new Set(['music', 'livesets', 'shorts', 'makers', 'comedy']);
+// Episodic channels play the next episode; cartoons and music stay shuffled.
+const SERIAL_CHANNELS = new Set(['movies', 'sitcoms', 'grownups', 'friends', 'seinfeld', 'crime', 'thrillers', 'military',
+  'aviation', 'motoring', 'scifi', 'classic', 'truecrime', 'reality', 'docs']);
+const RECENT_FINISH_MS = 30 * 24 * 60 * 60 * 1000;
+const LONG_FORM_SECONDS = 20 * 60;
 const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]));
 
 const RIDES_SHOWS = /\b(?:knight rider|the a[- ]team|the dukes of hazzard|airwolf|chips|baywatch|top gear)\b/i;
@@ -503,6 +519,18 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return now;
   }
 
+  // One line for a later tooltip: the channel, then the shows that fill it.
+  function channelAbout(channelId, ids, rating) {
+    const channel = CHANNEL_BY_ID.get(channelId);
+    const counts = new Map();
+    for (const index of poolFor(channelId, ids, rating)) {
+      const name = showName(videos[index].channel || 'Other');
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 2);
+    return top.length ? channel.name + ' — ' + top.map(entry => entry[0]).join(', ') : channel.name;
+  }
+
   function home(viewers, ratingValue) {
     const ids = viewerIds(viewers);
     const selected = new Set(ids);
@@ -512,7 +540,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const channels = [];
     for (const channel of TV_CHANNELS) {
       const count = poolFor(channel.id, ids, rating).length;
-      if (count) channels.push({ id: channel.id, number: channel.number, name: channel.name, count });
+      if (count) channels.push({ id: channel.id, number: channel.number, name: channel.name, count, about: channelAbout(channel.id, ids, rating) });
     }
     // Grown-ups see their channels first, children theirs; the numbers stay put.
     const order = AUDIENCE_ORDER[ceiling === 'M' ? 'grown' : 'child'];
@@ -533,7 +561,18 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       }
     }
     const liked = id => liking.get(id) || 0;
-    channels.sort((a, b) => placed(a.id) - placed(b.id) || rank(a.id) - rank(b.id) || liked(b.id) - liked(a.id) ||
+    // Before 9am, and for any kids' profile, Cartoons, Little Ones and Bluey lead.
+    // Sam, once the morning is over and Jake is not the one watching, leads with Bluey, Hey Duggee and Hop Hop.
+    const hour = new Date(now()).getHours();
+    const morning = hour < 9 && ceiling !== 'M';
+    const samLine = !morning && ceiling !== 'M' && ids.includes('sam') && !ids.includes('jake');
+    const lead = samLine ? ['bluey', 'littleones', 'hophop', 'cartoons'] : (ceiling !== 'M' ? ['cartoons', 'littleones', 'bluey'] : []);
+    const leadAt = id => {
+      const at = lead.indexOf(id);
+      return at < 0 ? lead.length : at;
+    };
+    const clipAt = id => hour >= 19 && ceiling === 'M' && SHORT_CLIP_CHANNELS.has(id) ? 1 : 0;
+    channels.sort((a, b) => clipAt(a.id) - clipAt(b.id) || placed(a.id) - placed(b.id) || rank(a.id) - rank(b.id) || leadAt(a.id) - leadAt(b.id) || liked(b.id) - liked(a.id) ||
       position.get(a.id) - position.get(b.id));
     // Bill each show once: channels with the fewest shows claim theirs first (Seinfeld, Sci-Fi),
     // so a broad channel like For Ian picks around them.
@@ -569,8 +608,12 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
   }
 
-  // Where each serial's story is, from the places and finishes the TV has reported.
-  function story(show, available, currentIndex, currentFinished) {
+  function showOf(index) {
+    return videos[index].channel || 'Other';
+  }
+
+  // Places and finishes the TV (and the Mac app, via layered history) have reported.
+  function watchMaps() {
     const byPath = new Map(videos.map(item => [item.file, item]));
     const places = Object.create(null), finished = new Map();
     for (const entry of history.list()) {
@@ -580,7 +623,66 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       if (entry.completed || player.nearlyFinished(entry.positionSeconds, entry.durationSeconds || item.duration)) finished.set(item.src, at);
       else places[item.src] = { time: entry.positionSeconds, updated: at };
     }
-    if (currentFinished && currentIndex >= 0) finished.set(videos[currentIndex].src, Date.now());
+    return { places, finished };
+  }
+
+  function finishedRecently(src, finished) {
+    const at = finished.get(src);
+    return typeof at === 'number' && now() - at < RECENT_FINISH_MS;
+  }
+
+  // The episode a household is already in: a half-watched one, or the next one after a finish.
+  function continuationIndex(pool, places, finished) {
+    let best = -1, bestAt = -Infinity;
+    const seen = new Set();
+    for (const index of pool) {
+      const show = showOf(index);
+      if (seen.has(show)) continue;
+      seen.add(show);
+      let at = -Infinity, active = false, episodic = false;
+      for (const candidate of pool) {
+        if (showOf(candidate) !== show) continue;
+        if (player.episodeNumber(videos[candidate]) === null) continue;
+        episodic = true;
+        const src = videos[candidate].src;
+        const place = places[src];
+        if (place && place.time >= 60 && !finished.has(src)) { active = true; at = Math.max(at, place.updated || 0); }
+        if (finished.has(src)) { active = true; at = Math.max(at, finished.get(src)); }
+      }
+      if (!active || !episodic) continue;
+      const next = player.seriesNext(videos, pool, show, places, finished, -1);
+      if (next >= 0 && at >= bestAt) { best = next; bestAt = at; }
+    }
+    return best;
+  }
+
+  // Don't bill the same show twice inside three picks. Personal channels also keep
+  // the current hour to three or more shows when the pool has them.
+  function varietyBan(channelId, pool) {
+    const shows = new Set(pool.map(showOf));
+    if (shows.size < 2) return new Set();
+    const played = recent.get(channelId) || [];
+    const ban = new Set();
+    const span = shows.size >= 3 ? 2 : 1;
+    for (const name of played.map(showOf).slice(-span)) ban.add(name);
+    if (CHANNEL_BY_ID.get(channelId)?.person && shows.size >= 3) {
+      let total = 0;
+      const hourShows = new Set();
+      for (let i = played.length - 1; i >= 0; i--) {
+        const dur = videos[played[i]].duration || 0;
+        if (total > 0 && total + dur > 3600) break;
+        total += dur;
+        hourShows.add(showOf(played[i]));
+      }
+      if (hourShows.size > 0 && hourShows.size < 3 && total < 3600) for (const name of hourShows) ban.add(name);
+    }
+    return ban;
+  }
+
+  // Where each serial's story is, from the places and finishes the TV has reported.
+  function story(show, available, currentIndex, currentFinished) {
+    const { places, finished } = watchMaps();
+    if (currentFinished && currentIndex >= 0) finished.set(videos[currentIndex].src, now());
     return player.seriesNext(videos, available, show, places, finished, currentIndex);
   }
 
@@ -625,6 +727,13 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       const fresh = pool.filter(index => !options.avoid.has(videos[index].channel || 'Other'));
       if (fresh.length) pool = fresh;
     }
+    const watched = watchMaps();
+    // Story still sees a just-finished episode so it can offer the next one. The card does not bill it.
+    const storyPool = pool.slice();
+    if (options.billing) {
+      const open = pool.filter(index => !finishedRecently(videos[index].src, watched.finished));
+      if (open.length) pool = open;
+    }
     if (favourites || limited.length) {
       const learned = weights, rationed = new Set(limited);
       weights = Object.create(null);
@@ -635,20 +744,42 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         weights[item.src] = rationed.has(index) ? LIMITED_WEIGHT : player.weightFor(learned, item.src) * taste;
       }
     }
-    // Episodic films and sitcoms play in order; cartoons stay shuffled.
-    const serial = ['movies', 'sitcoms', 'grownups', 'friends', 'seinfeld', 'crime'].includes(channelId);
+    // Episodic films and sitcoms play in order; cartoons stay shuffled. Personal channels
+    // resume a story too, then move on so the hour is not one show.
+    const personal = !!CHANNEL_BY_ID.get(channelId)?.person;
+    const serial = SERIAL_CHANNELS.has(channelId);
     // peek: what follows the current pick (a serial's next episode), without grading anything.
     const ending = options.reason === 'ended' || options.peek === true;
-    const showOf = index => videos[index].channel || 'Other';
+    const binge = serial && !personal && ending && currentIndex >= 0 && player.episodeNumber(videos[currentIndex]) !== null;
     let index = -1;
-    if (serial && ending && currentIndex >= 0 && player.episodeNumber(videos[currentIndex]) !== null) {
-      index = story(showOf(currentIndex), pool, currentIndex, true);
+    if (binge) index = story(showOf(currentIndex), pool, currentIndex, true);
+    const ban = binge ? new Set() : varietyBan(channelId, pool);
+    if (!binge && currentIndex >= 0 && (options.peek || personal)) ban.add(showOf(currentIndex));
+    if (!binge && ban.size) {
+      let fresh = pool.filter(candidate => !ban.has(showOf(candidate)));
+      // A rationed show never fills a gap variety opened. Repeat a real show instead.
+      if (limited.length) {
+        const rationed = new Set(limited);
+        const open = fresh.filter(candidate => !rationed.has(candidate));
+        fresh = open.length ? open : [];
+      }
+      if (fresh.length) pool = fresh;
+    }
+    if (index < 0 && (serial || personal)) {
+      const cont = continuationIndex(storyPool, watched.places, watched.finished);
+      if (cont >= 0 && pool.includes(cont) && !ban.has(showOf(cont))) index = cont;
+    }
+    if (index < 0 && channelId === 'forjake') pool.sort((a, b) => jakeLeadRank(videos[a].channel) - jakeLeadRank(videos[b].channel));
+    const evening = new Date(now()).getHours() >= 19 && grownOnly(ids, ratingOf(options.rating));
+    if (index < 0 && evening) {
+      const long = pool.filter(candidate => (videos[candidate].duration || 0) >= LONG_FORM_SECONDS);
+      if (long.length) pool = long;
     }
     if (index < 0) {
-      index = player.pickVideo(videos, pool, weights, currentIndex, new Set(), played, random);
-      if (serial && index >= 0 && player.episodeNumber(videos[index]) !== null) {
-        const following = story(showOf(index), pool, currentIndex, ending);
-        if (following >= 0) index = following;
+      index = player.pickVideo(videos, pool, weights, currentIndex, new Set(), played, random, !evening);
+      if ((serial || personal) && index >= 0 && player.episodeNumber(videos[index]) !== null) {
+        const following = story(showOf(index), pool, currentIndex, binge);
+        if (following >= 0 && showOf(following) === showOf(index)) index = following;
       }
     }
     if (index < 0) throw Object.assign(new Error('This channel is empty.'), { status: 404 });
