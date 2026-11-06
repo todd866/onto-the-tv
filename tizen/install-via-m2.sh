@@ -5,6 +5,9 @@
 #   tizen/install-via-m2.sh            build + install
 #   tizen/install-via-m2.sh --no-build install the last build
 set -euo pipefail
+# Touching the TV needs Ian's go-ahead for that install (6 Nov 2026), and never overnight.
+[[ ${ONTO_TV_APPROVED:-} == 1 ]] || { echo "Ask Ian first, then run with ONTO_TV_APPROVED=1." >&2; exit 3; }
+hour=$(date +%H); (( 10#$hour >= 21 || 10#$hour < 7 )) && { echo "No TV work between 21:00 and 07:00." >&2; exit 3; }
 HERE=${0:A:h}
 TV=${ONTO_TV_HOST:-192.168.20.14}
 M2=${ONTO_TV_INSTALLER:-m2}
