@@ -32,4 +32,6 @@ fi
 # Stage in the private install folder (user-only), not the shared /tmp.
 scp -q "$WGT" "$M2:.local/state/onto-tv-install/onto.wgt"
 # Always disconnect: a connection left open makes the TV show an 'RWI mapping info' dialog at launch.
-ssh "$M2" "$SDB connect $TV:26101 >/dev/null; $SDB -s $TV:26101 install ~/.local/state/onto-tv-install/onto.wgt 2>&1 | tail -3; rc=\$?; $SDB disconnect $TV:26101 >/dev/null; $SDB kill-server >/dev/null 2>&1; rm -f ~/.local/state/onto-tv-install/onto.wgt; exit \$rc"
+# `sdb install` only copies a web app across on these TVs; the TV's own vd_appinstall installs it
+# (what Tizen's CLI does). The staged copy stays in the private folder and is overwritten next time.
+ssh "$M2" "S=$SDB; T=$TV:26101; \$S connect \$T >/dev/null; \$S -s \$T push ~/.local/state/onto-tv-install/onto.wgt /home/owner/share/tmp/sdk_tools/tmp/onto.wgt >/dev/null 2>&1; \$S -s \$T shell 0 vd_appinstall OntoTheTV1.OntoTheTV /home/owner/share/tmp/sdk_tools/tmp/onto.wgt 2>&1 | grep -E 'install (completed|failed)|failed'; \$S -s \$T shell 0 vd_applist 2>&1 | grep -A8 'app_id.*OntoTheTV' | grep install_date; \$S disconnect \$T >/dev/null; \$S kill-server >/dev/null 2>&1"
