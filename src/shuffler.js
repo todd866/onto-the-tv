@@ -111,16 +111,19 @@ export function generatorArgs(root, settings) {
   return args;
 }
 
+// A cold build over the external spinning drive can exceed 10 min while downloads share it (6 Nov 2026).
+const BUILD_LIMIT_S = Number(process.env.TV_CATALOGUE_BUILD_LIMIT_S) || 1800;
+
 export async function buildPlayer(root, settings, runner = execute, extraArgs = []) {
   try {
     const { stdout } = await runner('python3', [...generatorArgs(root, settings), ...extraArgs], {
-      timeout: 600_000, maxBuffer: 4 * 1024 * 1024, env: process.env,
+      timeout: BUILD_LIMIT_S * 1000, maxBuffer: 4 * 1024 * 1024, env: process.env,
     });
     return stdout.trim();
   } catch (error) {
     if (error.code === 'ENOENT') throw new Error('Python 3 is required to build the player. Install Python 3 and FFmpeg first.');
     // stderr carries warnings too, so name a timeout or signal rather than echo them as the cause.
-    const cause = error.killed || error.signal ? `catalogue build stopped (${error.signal || 'timeout'} at the 600 s limit). ` : '';
+    const cause = error.killed || error.signal ? `catalogue build stopped (${error.signal || 'timeout'} at the ${BUILD_LIMIT_S} s limit). ` : '';
     throw new Error(cause + String(error.stderr || error.message).trim().slice(-1800));
   }
 }
