@@ -156,7 +156,9 @@ function jakeLeadRank(name) {
 // as a card's "now on" while the channel has anything else.
 const LIMITED_SHOWS = new RegExp(['billy.s aviation', 'if planes could talk', 'plane crash', 'air crash', 'mayday',
   'brent rivera', 'ben azelart', 'stephen sharer', 'carter sharer', 'unspeakable', 'stokes twins', 'beck ?bro', 'vlad and niki',
-  'kids diana', 'waffloos', 'lincoln.s super', 'mrbeast', 'try not to laugh', 'ytp'].join('|'), 'i');
+  'kids diana', 'waffloos', 'lincoln.s super', 'mrbeast', 'try not to laugh', 'ytp',
+  // Added 6 Nov 2026 from real viewing: Peppa-theory clickbait, kitten-gadget and challenge channels.
+  'cinewave', 'daniel ?ferri', 'stay ?wild'].join('|'), 'i');
 const LIMITED_WEIGHT = 0.05;
 // Ian (5 Nov 2026: "think about what a 40 year old ex-military dude might want"): ex-RAAF
 // pilot. British crime and gangster films, Mobland-style drama, Star Trek, Futurama and South
