@@ -145,8 +145,8 @@ function collectionOf(item) {
   return item.kind === 'film' ? 'films' : 'other';
 }
 // Collection rows are the library's top folders; give them the names the channels use.
-const LABELS = { 'adultanim': 'Grown-up Cartoons', 'bbc': 'BBC', 'grown-ups': 'Grown-ups', 'kids-holiday': 'Kids',
-  'kids': 'Kids', 'music-videos': 'Music', 'family-films': 'Family Films', 'family-shorts': 'Shorts', 'scifi': 'Sci-Fi',
+const LABELS = { 'adultanim': 'Grown-up Cartoons', 'bbc': 'BBC', 'grown-ups': 'Grown-ups', 'kids-holiday': 'Kids YouTube',
+  'kids': 'Kids TV', 'music-videos': 'Music', 'family-films': 'Family Films', 'family-shorts': 'Shorts', 'scifi': 'Sci-Fi',
   'sitcoms': 'Sitcoms', 'together': 'Ian & Fran', 'gaming': 'Gaming', 'preschool': 'Little Ones', 'comedy': 'Comedy',
   'films': 'Films', 'decades': 'Decades', 'standup': 'Stand-up', 'docs': 'Docs', 'christmas': 'Christmas', 'classic': 'Classics' };
 const label = key => LABELS[key] || key.replace(/[-_]+/g, ' ').replace(/^./, c => c.toUpperCase());
