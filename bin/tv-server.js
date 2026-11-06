@@ -141,7 +141,8 @@ async function warmLibrary(videos) {
     }
   } finally { warming = false; }
 }
-const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore, log });
+const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore,
+  playNextFile: join(homedir(), '.local/state/onto-the-tv/play-next.json'), log });
 server.listen(port, host, () => log(`serving ${library.home().channels.length} channels on http://${host}:${port}/`));
 
 // Invited guests: a separate server with no route to the TV's controls (src/guest-server.js).

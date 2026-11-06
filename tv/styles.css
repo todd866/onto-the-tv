@@ -174,16 +174,20 @@ button:focus { outline: none; }
   font-size: 28px; font-weight: 700; color: #f4f1ea;
   overflow: hidden; text-overflow: ellipsis;
 }
-#osd-bar { display: flex; align-items: center; font-size: 32px; font-weight: 800; font-feature-settings: "tnum" 1; }
-#osd-elapsed { margin-right: 16px; }
-#osd-duration { margin-left: 16px; }
-#osd-track { flex: 1; height: 16px; border-radius: 4px; background: rgba(244, 241, 234, 0.32); overflow: hidden; }
+#osd-bar { display: block; font-size: 40px; font-weight: 800; font-feature-settings: "tnum" 1; }
+#osd-progress { display: flex; align-items: center; }
+#osd-elapsed { margin-right: 18px; min-width: 4.6em; text-align: right; }
+#osd-duration { margin-left: 18px; min-width: 4.6em; }
+#osd-track { flex: 1; height: 22px; border-radius: 4px; background: rgba(244, 241, 234, 0.32); overflow: hidden; }
 #osd-fill { height: 100%; width: 0; background: #ffb547; }
-#osd-keys { flex: 0 0 auto; display: flex; align-items: center; margin-top: 0; color: #f4f1ea; font-size: 32px; }
-#osd-keys > button { display: block; margin-right: 16px; flex: 0 0 auto; }
-#osd-keys button { padding: 8px; border: 3px solid transparent; border-radius: 12px; }
-#osd-keys button:hover, #osd-keys button:focus { border-color: #ffb547; }
-#osd-keys .icon { width: 40px; height: 40px; display: block; }
+#osd-keys { display: flex; align-items: center; justify-content: center; margin-top: 16px; color: #f4f1ea; }
+#osd-keys > button { display: block; margin-right: 28px; flex: 0 0 auto; }
+#osd-keys > button:last-child { margin-right: 0; }
+#osd-keys button { padding: 10px; border: 4px solid transparent; border-radius: 16px; }
+#osd-keys button:hover, #osd-keys button:focus, #osd-keys button.focused,
+#osd-play:focus, #osd-play.focused { border-color: #ffb547; background: #ffb547; color: #14213d; }
+#osd-keys .icon { width: 64px; height: 64px; display: block; }
+#osd-next-scene { display: none; }
 #osd-play { color: #ffb547; }
 #osd-play .icon-play { display: none; }
 #osd-play.is-paused .icon-pause { display: none; }
@@ -321,8 +325,8 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
   #osd-chname { font-size: 28px; }
   #osd-keys > button { margin-right: 6px; }
   #osd-show { font-size: 40px; }
-  #osd-bar { flex-wrap: wrap; }
-  #osd-keys { width: 100%; margin-bottom: 12px; }
+  #osd-progress { flex-wrap: wrap; }
+  #osd-keys { width: 100%; margin-top: 12px; }
   #options { left: 12px; right: 12px; width: auto; padding: 12px; }
   .opt { padding: 0 8px; font-size: 28px; }
 }
@@ -336,11 +340,11 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
 .desktop-embedded #osd-chname { font-size:16px; margin-left:8px; }
 .desktop-embedded #osd-show { font-size:18px; margin:0 8px 0 0; }
 .desktop-embedded #osd-episode { font-size:13px; }
-.desktop-embedded #osd-bar { font-size:14px; flex-wrap:wrap; }
-.desktop-embedded #osd-track { height:6px; }
-.desktop-embedded #osd-keys { width:auto; margin:0; }
-.desktop-embedded #osd-keys > button { margin-right:4px; padding:5px; border-radius:8px; }
-.desktop-embedded #osd-keys .icon { width:22px; height:22px; }
+.desktop-embedded #osd-bar { font-size:16px; }
+.desktop-embedded #osd-track { height:8px; }
+.desktop-embedded #osd-keys { width:auto; margin-top:8px; }
+.desktop-embedded #osd-keys > button { margin-right:8px; padding:6px; border-radius:8px; }
+.desktop-embedded #osd-keys .icon { width:32px; height:32px; }
 .desktop-embedded #options { left:auto; right:12px; bottom:130px; width:min(340px,calc(100% - 24px)); padding:8px; border-width:3px; border-radius:14px; }
 .desktop-embedded .opt { min-height:42px; font-size:15px; padding:0 10px; border-radius:8px; }
 .desktop-embedded .opt .glyph,.desktop-embedded .opt .glyph svg { width:24px; height:24px; }
@@ -630,7 +634,15 @@ body.profile-all .seg-layout.on { background: #ffd166; border-color: #ffd166; co
 .resume-at { margin-top: 4px; font-size: 28px; font-feature-settings: "tnum" 1; color: #ffb547; }
 .resume.focused .bezel, .resume:focus .bezel { border-color: #ffb547; }
 #continue-strip {
-  position: fixed; z-index: 8; left: 48px; right: 48px; bottom: 280px;
+  position: fixed; z-index: 8; left: 48px; right: 48px; bottom: 340px;
+}
+@media (prefers-color-scheme: light) {
+  #osd { background: #fff; color: #14213d; }
+  #osd-episode { color: #52627c; }
+  #osd-track { background: rgba(20, 33, 61, 0.16); }
+  #osd-keys { color: #14213d; }
+  #osd-play { color: #9a6208; }
+  #osd-keys button.focused, #osd-keys button:focus, #osd-play.focused, #osd-play:focus { background: #ffb547; color: #14213d; }
 }
 #back-chip {
   position: fixed; z-index: 8; top: 280px; left: 48px;
@@ -649,8 +661,8 @@ body.profile-all .seg-layout.on { background: #ffd166; border-color: #ffd166; co
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 #channel-preview {
-  position: fixed; z-index: 8; left: 50%; top: 46%;
-  transform: translate(-50%, -50%);
+  position: fixed; z-index: 8; right: 48px; top: 46%;
+  transform: translateY(-50%);
   display: flex; align-items: center;
   width: 920px; max-width: calc(100% - 96px); height: 240px; padding: 18px 22px;
   border: 8px solid #ffb547; border-radius: 36px;

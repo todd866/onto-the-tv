@@ -52,9 +52,15 @@
   }
   function runCommand(command) {
     if (!command || typeof command.id !== 'string' || command.id.length > 64 ||
-        ['uke-open','uke-phone','uke-follow','uke-state','play'].indexOf(command.action) < 0 ||
+        ['uke-open','uke-phone','uke-follow','uke-state','play','queue-next','pause','resume','seek','home','tune','back'].indexOf(command.action) < 0 ||
         typeof command.expiresAt !== 'number' || command.expiresAt <= Date.now() || handled[command.id]) return;
-    if (command.action === 'play' && (typeof command.src !== 'string' || !command.src || command.src.indexOf('..') >= 0)) return;
+    if ((command.action === 'play' || command.action === 'queue-next') && (typeof command.src !== 'string' || !command.src || command.src.indexOf('..') >= 0)) return;
+    if (command.action === 'seek' && (typeof command.seconds !== 'number' || command.seconds !== command.seconds || command.seconds < 0 || command.seconds > 86400)) return;
+    if (command.action === 'tune') {
+      var channel = command.channel, numberOk = typeof channel === 'number' && channel === Math.floor(channel) && channel >= 0 && channel <= 999;
+      var idOk = typeof channel === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(channel);
+      if (!numberOk && !idOk) return;
+    }
     handled[command.id] = true;
     var ids=Object.keys(handled); if(ids.length>32) delete handled[ids[0]];
     Promise.resolve().then(function () {

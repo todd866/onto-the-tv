@@ -50,6 +50,7 @@
   var watchBack = window.ontoWatchBack ? window.ontoWatchBack.create() : null;
   var channelArm = window.ontoChannelArm ? window.ontoChannelArm.create() : null;
   var armTimer = 0, armedRequest = 0, prefetchTimer = 0, continueOpen = false, continueIndex = 0;
+  var overlayFocus = '', transportIndex = 1;
   var homeCache = {}, channelPrefetch = {};
   try {
     if (watchBack) {
@@ -948,7 +949,14 @@
   function showOsd() {
     osd.classList.remove('hidden');
     clearTimeout(osdTimer);
-    osdTimer = setTimeout(function () { if (!media.paused() && !playerOverlay()) osd.classList.add('hidden'); }, OSD_MS);
+    osdTimer = setTimeout(function () {
+      if (!media.paused() && !playerOverlay()) {
+        osd.classList.add('hidden');
+        overlayFocus = '';
+        closeContinue();
+        clearTransportFocus();
+      }
+    }, OSD_MS);
   }
   function updateOsd() {
     if (!play || !play.item) return;
@@ -1497,8 +1505,7 @@
           else if (!$('skip-intro').hidden && play && play.pendingIntro) skipIntro();
           else if (!$('skip-intro').hidden && play && play.pendingCredits) skipCredits();
           else togglePause();
-        }         else if (action.key === 'up') armChannel(channelByStep(1));
-        else if (action.key === 'down') armChannel(channelByStep(-1));
+        }         else if (action.key === 'up' || action.key === 'down') showOsd();
         else if (action.key === 'play') { media.play(); watchEvent('resume'); showOsd(); }
         else if (action.key === 'subt') { cycleSubs(); if (optionOpen) paintOptions(); }
       }
@@ -1516,8 +1523,8 @@
   function navKey(code) {
     if (code === KEY.LEFT || code === KEY.RW) return 'left';
     if (code === KEY.RIGHT || code === KEY.FF) return 'right';
-    if (code === KEY.UP || code === KEY.CH_UP) return 'up';
-    if (code === KEY.DOWN || code === KEY.CH_DOWN) return 'down';
+    if (code === KEY.UP) return 'up';
+    if (code === KEY.DOWN) return 'down';
     if (code === KEY.ENTER || code === KEY.PLAYPAUSE || code === KEY.SPACE) return 'ok';
     if (code === KEY.PLAY) return 'play';
     if (KEY.SUBT && code === KEY.SUBT) return 'subt';
@@ -1782,7 +1789,7 @@
     if (play && play.item && play.channel !== channel) watchEvent('stop');
     if (play && play.item && play.channel && play.channel.id !== channel.id) rememberShow();
     if (!previousId || previousId !== channel.id) showTuning(channel);
-    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel };
+    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: (play && play.nextQueue) || [] };
     paintChannel(channel);
     load(item);
   }
@@ -1793,7 +1800,7 @@
     if (play && play.item && (!fromItem || play.channel !== channel)) watchEvent('stop');
     if (play && play.item && play.channel && play.channel.id !== channel.id) rememberShow();
     if (!previousId || previousId !== channel.id) showTuning(channel);
-    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel };
+    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: (play && play.nextQueue) || [] };
     paintChannel(channel);
     var body = nextBody(channel, fromItem, reason);
     return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { showStreamError('tune'); return; } stopPlayback(); fail(error); });
@@ -1804,13 +1811,38 @@
     play.lastSave = Date.now();
     post('/api/progress', { src: play.item.src, positionSeconds: completed ? 0 : playbackPosition(),
       durationSeconds: play.item.duration || media.duration(), completed: !!completed }).catch(function () {});
+    reportNow();
+  }
+  function reportNow() {
+    if (!TOKEN) return;
+    var body, channel;
+    if (!play || !play.item || $('player').hidden) body = { src: null, position: 0, channel: null, profile: profileId };
+    else {
+      channel = play.channel || {};
+      body = {
+        src: play.item.src,
+        position: Math.round(playbackPosition() || 0),
+        channel: { id: channel.id || '', number: typeof channel.number === 'number' ? channel.number : null, name: channel.name || '' },
+        profile: profileId
+      };
+    }
+    post('/api/now-playing', body).catch(function () {});
   }
 
   function next(reason) {
     if (!play) return;
     var current = play.item;
+    var queued = play.nextQueue && play.nextQueue[0];
     watchEvent(reason === 'ended' ? 'ended' : 'skip');
     saveProgress(reason === 'ended');
+    if (queued) {
+      playResume({
+        src: queued.src, title: queued.title || basename(queued.src), show: queued.title || basename(queued.src),
+        art: '/art?src=' + q(queued.src), positionSeconds: 0, queued: true,
+        channel: play.channel, mode: play.mode || 'channel'
+      });
+      return;
+    }
     if (play.mode === 'channel') return startChannel(play.channel, current, reason);
     stopPlayback();
   }
@@ -1840,6 +1872,7 @@
     if (desktopQuery) window.parent.postMessage({ type: 'onto:desktop-home' }, '*');
     play = null; mediaState = 'ready';
     media.stop();
+    reportNow();
     document.body.classList.remove('playing');
     $('player').hidden = true;
     $('home').hidden = false;
@@ -1851,6 +1884,7 @@
     if (media.paused()) { media.play(); watchEvent('resume'); } else media.pause();
     updateOsd();
     showOsd();
+    reportNow();
   }
 
   media.on('time', function () {
@@ -1925,7 +1959,7 @@
     if (!$('player').hidden) stopPlayback();
   });
   $('osd-play').addEventListener('click', togglePause);
-  $('osd-prev-scene').addEventListener('click', function () { commitJump(-1); });
+  $('osd-prev-scene').addEventListener('click', function () { previousShow(); });
   $('osd-next-scene').addEventListener('click', function () { commitJump(1); });
   $('osd-options').addEventListener('click', openOptions);
   $('osd-next').addEventListener('click', function () { next('skip'); });
@@ -1970,8 +2004,9 @@
     if (play && play.item) rememberShow();
     tuneRequest++;
     var channel = { id: 'continue', number: '', name: '' };
+    var queue = play && play.nextQueue ? play.nextQueue.slice() : [];
     showTuning(channel);
-    play = { mode: 'single', channel: channel };
+    play = { mode: 'single', channel: channel, nextQueue: queue };
     paintChannel(channel);
     load({
       src: command.src,
@@ -1984,10 +2019,49 @@
     }, true);
     showOsd();
   }
+  function channelFromCommand(command) {
+    var list = data.channels || [], i, want = command && command.channel;
+    for (i = 0; i < list.length; i++) {
+      if (list[i].app) continue;
+      if (typeof want === 'number' && list[i].number === want) return list[i];
+      if (String(list[i].id) === String(want) || String(list[i].number) === String(want)) return list[i];
+    }
+    return null;
+  }
   window.ontoTVAction = function (action, command) {
+    var channel;
     if (action === 'play') {
       if (!command || typeof command.src !== 'string' || !command.src || command.src.indexOf('..') >= 0) return Promise.reject(new Error('no src'));
       playRemote(command);
+      return null;
+    }
+    if (action === 'queue-next') {
+      if (!command || typeof command.src !== 'string' || !command.src || command.src.indexOf('..') >= 0) return Promise.reject(new Error('no src'));
+      if (!play || $('player').hidden) { playRemote(command); return null; }
+      play.nextQueue = play.nextQueue || [];
+      play.nextQueue.push({ src: command.src, title: basename(command.src) });
+      showOsd();
+      return null;
+    }
+    if (action === 'pause') { if (play) media.pause(); showOsd(); reportNow(); return null; }
+    if (action === 'resume') { if (play) { media.play(); watchEvent('resume'); } showOsd(); reportNow(); return null; }
+    if (action === 'seek') {
+      if (!play || !command || typeof command.seconds !== 'number') return Promise.reject(new Error('no seek'));
+      applySeek(command.seconds);
+      reportNow();
+      return null;
+    }
+    if (action === 'home') { if (window.ontoHome) window.ontoHome(); else stopPlayback(); return null; }
+    if (action === 'tune') {
+      channel = channelFromCommand(command);
+      if (!channel) return Promise.reject(new Error('no channel'));
+      if ($('player').hidden) activate(channel);
+      else commitChannel(channel);
+      return null;
+    }
+    if (action === 'back') {
+      if ((osd && !osd.classList.contains('hidden')) || continueOpen || overlayFocus) closeOverlay();
+      else undoOrHome();
       return null;
     }
     if (action === 'uke-open' || action === 'uke-phone') {
@@ -2082,7 +2156,8 @@
     button.tabIndex = -1;
     button._entry = entry;
     var name = entry.show || entry.title || '';
-    button.setAttribute('aria-label', 'Continue ' + name + ' resume ' + clock(entry.positionSeconds || 0));
+    var place = entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
+    button.setAttribute('aria-label', 'Continue ' + name + ' ' + place);
     var bezel = document.createElement('span');
     bezel.className = 'bezel';
     var img = document.createElement('img');
@@ -2098,7 +2173,7 @@
     title.textContent = name;
     var at = document.createElement('span');
     at.className = 'resume-at';
-    at.textContent = 'resume ' + clock(entry.positionSeconds || 0);
+    at.textContent = entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
     copy.appendChild(title);
     copy.appendChild(at);
     bezel.appendChild(copy);
@@ -2121,6 +2196,20 @@
     var list = watchBack ? watchBack.continueList(profileId).slice(0) : [];
     return list;
   }
+  function queuedEntries() {
+    var queue = play && play.nextQueue || [], list = [], i, item;
+    for (i = 0; i < queue.length; i++) {
+      item = queue[i];
+      if (!item || !item.src) continue;
+      list.push({
+        src: item.src, title: item.title || basename(item.src), show: item.title || basename(item.src),
+        art: '/art?src=' + q(item.src), positionSeconds: 0, duration: 0, queued: true,
+        channel: (play && play.channel) || { id: 'next', number: '', name: '' }, mode: (play && play.mode) || 'single'
+      });
+    }
+    return list;
+  }
+  function continueEntries() { return resumeEntries().concat(queuedEntries()); }
   function paintResumeRow() {
     var holder = $('resume-row');
     var entries = resumeEntries();
@@ -2148,7 +2237,7 @@
     if (continueOpen) { closeContinue(); return; }
     dismissArm();
     var holder = $('continue-strip');
-    var entries = resumeEntries();
+    var entries = continueEntries();
     if (!holder || !entries.length) { showOsd(); return; }
     continueOpen = true;
     paintResumeInto(holder, entries);
@@ -2235,6 +2324,7 @@
     if (!entry || !entry.src) return;
     closeContinue();
     dismissArm();
+    var queue = play && play.nextQueue ? play.nextQueue.slice() : [];
     var channel = entry.channel || {};
     channel = { id: channel.id || 'continue', number: channel.number != null ? channel.number : '', name: channel.name || entry.show || '' };
     var item = {
@@ -2249,15 +2339,19 @@
     tuneRequest++;
     if (play && play.item && play.item.src !== entry.src) rememberShow();
     showTuning(channel);
-    play = { mode: entry.mode || (channel.id && channel.id !== 'continue' ? 'channel' : 'single'), channel: channel };
+    play = { mode: entry.mode || (channel.id && channel.id !== 'continue' ? 'channel' : 'single'), channel: channel, nextQueue: queue };
+    if (entry.queued) {
+      play.nextQueue = queue.filter(function (queued) { return queued.src !== entry.src; });
+      if (TOKEN) post('/api/play-next', { src: entry.src, consume: true }).catch(function () {});
+    }
     paintChannel(channel);
     load(item, true);
     warmMedia(entry.src);
   }
   function restoreEntry(entry) { playResume(entry); }
   function undoOrHome() {
-    if (continueOpen) { closeContinue(); return; }
     dismissArm();
+    closeContinue();
     var entry = watchBack ? watchBack.undo(profileId, Date.now()) : null;
     if (watchBack) persistBack();
     paintBackChip();
@@ -2283,6 +2377,118 @@
     if (!bug || !digits || $('player').hidden) return;
     digits.textContent = text;
     bug.hidden = false;
+  }
+  function transportEls() {
+    var ids = [], els = [], i, el;
+    if (GUEST) ids.push('osd-back');
+    ids.push('osd-prev-scene', 'osd-play', 'osd-next', 'osd-options');
+    for (i = 0; i < ids.length; i++) {
+      el = $(ids[i]);
+      if (!el || el.hidden) continue;
+      els.push(el);
+    }
+    return els;
+  }
+  function clearTransportFocus() {
+    var els = transportEls(), i;
+    for (i = 0; i < els.length; i++) els[i].classList.remove('focused');
+  }
+  function paintTransportFocus() {
+    var els = transportEls(), i;
+    if (!els.length) return;
+    if (transportIndex < 0) transportIndex = 0;
+    if (transportIndex >= els.length) transportIndex = els.length - 1;
+    for (i = 0; i < els.length; i++) els[i].classList.toggle('focused', i === transportIndex);
+    try { els[transportIndex].focus(); } catch (e) {}
+  }
+  function clearContinueFocus() {
+    var els = $('continue-strip') ? $('continue-strip').children : [], i;
+    for (i = 0; i < els.length; i++) els[i].classList.remove('focused');
+  }
+  function focusTransportRow() {
+    overlayFocus = 'transport';
+    clearContinueFocus();
+    paintTransportFocus();
+    showOsd();
+  }
+  function focusContinueRow() {
+    var holder = $('continue-strip'), entries = continueEntries();
+    clearTransportFocus();
+    showOsd();
+    if (!holder || !entries.length) { overlayFocus = ''; return; }
+    overlayFocus = 'continue';
+    continueOpen = true;
+    paintResumeInto(holder, entries);
+    holder.hidden = false;
+    focusContinue(Math.max(0, continueIndex));
+  }
+  function closeOverlay() {
+    overlayFocus = '';
+    closeContinue();
+    clearTransportFocus();
+    clearTimeout(osdTimer);
+    if (osd) osd.classList.add('hidden');
+  }
+  function seekBy(seconds) {
+    var duration, at;
+    if (!play) return;
+    if (play.airing === 'ad') { if (seconds > 0) skipBreak(); showOsd(); return; }
+    duration = durationNow();
+    at = media.time() + seconds;
+    if (at < 0) at = 0;
+    if (duration > 1 && at > duration - 1) at = duration - 1;
+    applySeek(at);
+    reportNow();
+  }
+  function activateTransport() {
+    var els = transportEls(), el = els[transportIndex];
+    if (!el) return;
+    if (el.id === 'osd-back') { undoOrHome(); return; }
+    if (el.id === 'osd-prev-scene') previousShow();
+    else if (el.id === 'osd-play') togglePause();
+    else if (el.id === 'osd-next') next('skip');
+    else if (el.id === 'osd-options') openOptions();
+    showOsd();
+  }
+  function applyRemote(action) {
+    var target, chosen;
+    if (!action || action.type === 'none' || action.type === 'digit') return;
+    if (action.type === 'show') { overlayFocus = ''; clearTransportFocus(); showOsd(); return; }
+    if (action.type === 'focus' && action.row === 'transport') { focusTransportRow(); return; }
+    if (action.type === 'focus') { focusContinueRow(); return; }
+    if (action.type === 'move' && action.row === 'transport') {
+      transportIndex += action.delta;
+      paintTransportFocus();
+      showOsd();
+      return;
+    }
+    if (action.type === 'move') { focusContinue(continueIndex + action.delta); showOsd(); return; }
+    if (action.type === 'seek') { seekBy(action.seconds); return; }
+    if (action.type === 'play-pause') {
+      if (inAd()) { skipBreak(); showOsd(); return; }
+      togglePause();
+      return;
+    }
+    if (action.type === 'activate') {
+      if (overlayFocus === 'continue' || continueOpen) {
+        chosen = $('continue-strip') && $('continue-strip').children[continueIndex];
+        if (chosen && chosen._entry) playResume(chosen._entry);
+        return;
+      }
+      activateTransport();
+      return;
+    }
+    if (action.type === 'play') { if (play) { media.play(); watchEvent('resume'); } showOsd(); reportNow(); return; }
+    if (action.type === 'pause') { if (play) media.pause(); showOsd(); reportNow(); return; }
+    if (action.type === 'stop') { dismissArm(); closeOverlay(); stopPlayback(); return; }
+    if (action.type === 'next') { next('skip'); return; }
+    if (action.type === 'previous') { previousShow(); return; }
+    if (action.type === 'close') { closeOverlay(); return; }
+    if (action.type === 'back') { dismissArm(); undoOrHome(); return; }
+    if (action.type === 'tune') {
+      target = channelByStep(action.direction);
+      if (target) armChannel(target); else showOsd();
+    }
   }
 
   // ---------- keys ----------
@@ -2322,27 +2528,14 @@
     var playing = !$('player').hidden;
     if (!playing && play && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { stopPlayback(); event.preventDefault(); return; }
     if (playing) {
+      var action, optionName, resumeName, armed;
       if (upNextCard && upNextCard.active() && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { cancelUpNext(); event.preventDefault(); return; }
       if (optionOpen && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { closeOptions(); event.preventDefault(); return; }
-      if (key === KEY.STOP) { dismissArm(); closeContinue(); stopPlayback(); event.preventDefault(); return; }
-      if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) { undoOrHome(); event.preventDefault(); return; }
-      if (continueOpen && !optionOpen) {
-        if (key === KEY.LEFT) { focusContinue(continueIndex - 1); event.preventDefault(); return; }
-        if (key === KEY.RIGHT) { focusContinue(continueIndex + 1); event.preventDefault(); return; }
-        if (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) {
-          var chosen = $('continue-strip').children[continueIndex];
-          if (chosen && chosen._entry) playResume(chosen._entry);
-          event.preventDefault();
-          return;
-        }
-        if (key === KEY.UP || key === KEY.INFO || key === KEY.DOWN) { closeContinue(); event.preventDefault(); return; }
-      }
       if (play && play.resumePending) {
-        var resumeName = navKey(key);
+        resumeName = navKey(key);
         if (resumeName === 'left') { focusResume(-1); event.preventDefault(); return; }
         if (resumeName === 'right') { focusResume(1); event.preventDefault(); return; }
         if (resumeName === 'ok') { acceptResume(); event.preventDefault(); return; }
-        if (resumeName !== 'up' && resumeName !== 'down') { event.preventDefault(); return; }
       }
       if (play && play.errorOn) {
         if (navKey(key) === 'ok') retryPlayback();
@@ -2350,25 +2543,23 @@
         return;
       }
       if (upNextCard && upNextCard.active() && navKey(key) === 'ok') { acceptUpNext(); event.preventDefault(); return; }
-      if (key === KEY.PAUSE) { media.pause(); showOsd(); event.preventDefault(); return; }
-      if (key === KEY.NEXT) { next('skip'); event.preventDefault(); return; }
-      if (key === KEY.PREV) { previousShow(); event.preventDefault(); return; }
-      if (!optionOpen && !event.repeat && (key === KEY.UP || key === KEY.INFO)) { toggleContinue(); event.preventDefault(); return; }
-      if (!optionOpen && !event.repeat && (key === KEY.CH_UP || key === KEY.CH_DOWN || key === KEY.DOWN)) {
-        var target = channelByStep(key === KEY.CH_UP ? 1 : -1);
-        if (target) armChannel(target); else showOsd();
-        event.preventDefault();
-        return;
-      }
       if (!optionOpen && !event.repeat && (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) && channelArm) {
-        var armed = channelArm.ok();
+        armed = channelArm.ok();
         if (armed.type === 'commit') { commitChannel(armed.target); event.preventDefault(); return; }
       }
-      var name = navKey(key);
-      if (!name) return;
-      if (optionOpen) { handleOptionKey(name); event.preventDefault(); return; }
-      if (name === 'up' || name === 'down') { event.preventDefault(); return; }
-      onNav({ type: 'down', key: name, time: Date.now(), ad: inAd() });
+      if (optionOpen) {
+        optionName = navKey(key);
+        if (optionName) { handleOptionKey(optionName); event.preventDefault(); return; }
+      }
+      action = window.ontoRemoteMap.decide({
+        overlay: osd.classList.contains('hidden') ? 'hidden' : 'open',
+        focus: overlayFocus,
+        repeat: !!event.repeat
+      }, key);
+      applyRemote(action);
+      if (!action || action.type === 'none') return;
+      event.preventDefault();
+      return;
     } else {
       if (key === KEY.LEFT) moveFocus(0, -1);
       else if (key === KEY.RIGHT) moveFocus(0, 1);
@@ -2388,14 +2579,6 @@
     if (consoleState) return;
     clearInterval(sweepTimer);
     sweepDir = 0;
-    var name = navKey(event.keyCode);
-    if (!name) return;
-    if (play && play.errorOn) return;
-    if (play && play.resumePending && name !== 'up' && name !== 'down') return;
-    if (upNextCard && upNextCard.active() && name === 'ok') return;
-    if (continueOpen) return;
-    if (name === 'up' || name === 'down') return;
-    onNav({ type: 'up', key: name, time: Date.now(), ad: inAd() });
   });
 
   // Media keys reach the app only once registered (Tizen). SUBT is mapped when the TV exposes it.
