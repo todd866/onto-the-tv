@@ -1,6 +1,6 @@
 import { createTvCommands } from './tv-commands.js';
 import { createServer } from 'node:http';
-import { createReadStream } from 'node:fs';
+import { createReadStream, readFileSync, writeFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, normalize } from 'node:path';
@@ -825,9 +825,28 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return { ...described, queue: queueFor(channel, described, ids, rating) };
   }
 
+  // Play-next queue (Ian, 6 Nov 2026: "queue timmy time christmas surprise to go on after the current show").
+  // A household helper writes ~/.local/state/onto-the-tv/play-next.json = [{ "src": "...", "channel": "christmas"? }];
+  // the next request on that channel (or any channel when none is given) plays it, still within the audience rules.
+  function takeQueued(channelId, options) {
+    const path = join(process.env.HOME || '', '.local/state/onto-the-tv/play-next.json');
+    let queue;
+    try { queue = JSON.parse(readFileSync(path, 'utf8')); } catch { return undefined; }
+    if (!Array.isArray(queue)) return undefined;
+    const at = queue.findIndex(entry => entry && (!entry.channel || entry.channel === channelId));
+    if (at < 0) return undefined;
+    const entry = queue[at];
+    if (!options.peek) { queue.splice(at, 1); try { writeFileSync(path, JSON.stringify(queue)); } catch {} }
+    const index = bySrc.get(entry.src);
+    if (index === undefined || !allowed(entry.src, options.viewers, options.rating)) return undefined;
+    return index;
+  }
+
   function next(channelId, options = {}) {
     const ids = viewerIds(options.viewers);
     const rating = ratingOf(options.rating);
+    const queued = takeQueued(channelId, options);
+    if (queued !== undefined) { remember(channelId, queued); return finish(queued, channelId, ids, rating); }
     const key = stageKey(channelId, ids, rating);
     if (!options.current && staged.has(key)) {
       const index = staged.get(key);
