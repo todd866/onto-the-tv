@@ -836,7 +836,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const at = queue.findIndex(entry => entry && (!entry.channel || entry.channel === channelId));
     if (at < 0) return undefined;
     const entry = queue[at];
-    if (!options.peek) { queue.splice(at, 1); try { writeFileSync(path, JSON.stringify(queue)); } catch {} }
+    // Only a real advance uses it up: the episode ended (or was skipped). Peeks and guide/preview calls just show it.
+    if (!options.peek && (options.reason === 'ended' || options.reason === 'skip')) { queue.splice(at, 1); try { writeFileSync(path, JSON.stringify(queue)); } catch {} }
     const index = bySrc.get(entry.src);
     if (index === undefined || !allowed(entry.src, options.viewers, options.rating)) return undefined;
     return index;
