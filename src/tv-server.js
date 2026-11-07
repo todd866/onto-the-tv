@@ -15,6 +15,7 @@ import { createConfiguredUkeHandler } from './uke-handler.js';
 import { adDecade, buildPlayQueue, isAdSrc } from './ads.js';
 import { listSidecars, readSubtitle } from './subtitles.js';
 import { libraryView } from './tv-library-api.js';
+import { catalogueStatus, libraryHealthReport } from './library.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
 // episode with the same picker and learning rules as the app's player, and streams
@@ -907,7 +908,15 @@ function send(response, status, body, headers = {}) {
 }
 
 export async function streamFile(request, response, file, mediaCache) {
-  const info = await stat(file);
+  let info;
+  try { info = await stat(file); }
+  catch (error) {
+    // The TV player already turns a failed /media response into Retry / next.
+    if (error.code === 'ENOENT' || error.code === 'EIO' || error.code === 'ENXIO') {
+      throw Object.assign(new Error('This video is offline.'), { status: 404 });
+    }
+    throw error;
+  }
   const type = MIME[extname(file).toLowerCase()] || 'application/octet-stream';
   const range = parseRange(request.headers.range, info.size);
   const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes' };
@@ -932,7 +941,7 @@ export async function streamFile(request, response, file, mediaCache) {
  * `token` is the pairing secret the installed TV app sends.
  */
 export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), sceneStore = null,
-  consoleLauncher = createConsoleLauncher(), log = () => {} }) {
+  consoleLauncher = createConsoleLauncher(), libraryRoots = null, catalogueFile = null, log = () => {} }) {
   const tvCommands = createTvCommands();
   let dirty = false;
   const save = () => {
@@ -1080,7 +1089,12 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         if (!sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
         return send(response, 200, mediaCache?.stats() || { enabled: false });
       }
-      if (path === '/api/health') return send(response, 200, { ok: true });
+      if (path === '/api/health') {
+        if (libraryRoots == null) return send(response, 200, { ok: true });
+        const roots = typeof libraryRoots === 'function' ? await libraryRoots() : libraryRoots;
+        const status = await catalogueStatus(roots, catalogueFile);
+        return send(response, 200, { ok: true, library: libraryHealthReport(status) });
+      }
       // Static TV UI. A trailing slash is that folder's index, so /games/ is the games page.
       let name = path === '/' ? '/index.html' : path;
       if (name.endsWith('/')) name += 'index.html';

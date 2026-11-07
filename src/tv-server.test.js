@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TV_CHANNELS, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
@@ -670,6 +670,46 @@ test('home gives each channel a one-line about from the shows in its pool', asyn
     assert.equal(channel.about.includes('\n'), false, channel.id);
     assert.ok(channel.about.startsWith(channel.name + ' — '), channel.about);
   }
+});
+
+test('health reports which library roots are online and how old the catalogue is', async () => {
+  const { dir, history, storage, library } = await setup();
+  const root = join(dir, 'Movies');
+  await mkdir(root);
+  const missing = join(dir, 'Volumes', 'Stash', 'Movies');
+  const catalogue = join(dir, 'library.json');
+  await writeFile(catalogue, '{"version":1,"videos":[{"src":"A"}]}\n');
+  const built = new Date('2026-11-01T03:04:05.000Z');
+  await utimes(catalogue, built, built);
+  const server = createTvServer({ library, history, storage, uiRoot: dir, libraryRoots: [root, missing], catalogueFile: catalogue });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const body = await (await fetch(`${base}/api/health`)).json();
+    const when = (await stat(catalogue)).mtime.toISOString();
+    const age = Math.round((Date.now() - Date.parse(when)) / 1000);
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.library.roots, [
+      { path: root, online: true },
+      { path: missing, online: false },
+    ]);
+    assert.equal(body.library.catalogueBuiltAt, when);
+    assert.ok(Math.abs(body.library.catalogueAgeSeconds - age) <= 2, body.library.catalogueAgeSeconds);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('a catalogue file on an offline drive returns an error the player handles', async () => {
+  const { dir, history, storage } = await setup();
+  const file = join(dir, 'gone.mp4');
+  const library = createTvLibrary({ videos: [{ ...videos[0], file }], history, storage });
+  const server = createTvServer({ library, history, storage, uiRoot: dir });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const response = await fetch(`${base}/media?src=${encodeURIComponent('Bluey/a.mp4')}`);
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: 'This video is offline.' });
+  } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
 test("Jake's card leads Minecraft, Track Time, cars and RC; rationed shows stay off it", async () => {

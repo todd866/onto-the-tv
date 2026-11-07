@@ -1,3 +1,4 @@
+import errno
 import importlib.util
 import json
 from pathlib import Path
@@ -5,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('make_shuffler', ROOT / 'make_shuffler.py')
@@ -13,6 +15,41 @@ spec.loader.exec_module(generator)
 
 
 class GeneratorTests(unittest.TestCase):
+    def test_a_missing_extra_root_is_offline_and_does_not_publish(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = Path(directory) / 'library'
+            library.mkdir()
+            missing = Path(directory) / 'Stash' / 'Movies'
+            output = Path(directory) / 'out.html'
+            output.write_text('previous catalogue')
+            with self.assertRaises(generator.RootOffline) as caught:
+                generator.collect_videos(library, output, roots=[
+                    {'label': 'stash', 'path': missing, 'tier': 'older'},
+                    {'label': '', 'path': library, 'classify': 'shows'},
+                ])
+            self.assertEqual(caught.exception.path, str(missing))
+            self.assertEqual(caught.exception.errno, errno.ENOENT)
+            self.assertEqual(output.read_text(), 'previous catalogue')
+
+    def test_a_read_error_while_walking_a_root_is_offline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = Path(directory) / 'library'
+            library.mkdir()
+            real = Path.rglob
+
+            def fail(self, pattern):
+                if self == library:
+                    raise OSError(errno.EIO, 'Input/output error')
+                return real(self, pattern)
+
+            with mock.patch.object(Path, 'rglob', fail):
+                with self.assertRaises(generator.RootOffline) as caught:
+                    generator.collect_videos(library, Path(directory) / 'out.html', roots=[
+                        {'label': '', 'path': library, 'classify': 'shows'},
+                    ])
+            self.assertEqual(caught.exception.errno, errno.EIO)
+            self.assertEqual(caught.exception.path, str(library))
+
     def test_embedded_filenames_cannot_close_script(self):
         payload = [{'src': 'odd.mp4', 'title': '</script><img src=x>\u2028 __PLAYER_JS__'}]
         html = generator.render_html(payload)

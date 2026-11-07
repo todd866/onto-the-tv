@@ -1,9 +1,20 @@
-import { readdir, lstat } from 'node:fs/promises';
+import { lstat, readFile, readdir, stat, utimes } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { writeAtomically } from './atomic-write.js';
 
 // Keep this list deliberately small. The library view is an index, so it must
 // never claim that an arbitrary file is playable by the TV pipeline.
 export const MEDIA_EXTENSIONS = new Set(['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.ts', '.m2ts']);
+
+// An unmounted volume is ENOENT. A volume that is still attached but not
+// answering is EIO or ENXIO. All three mean "this root is offline".
+const OFFLINE_IO_CODES = new Set(['ENOENT', 'EIO', 'ENXIO']);
+
+function markRootOffline(found, path, code) {
+  found.partial = true;
+  found.offline = found.offline || [];
+  if (!found.offline.some(item => item.path === path)) found.offline.push({ path, code });
+}
 
 function cleanTitle(value) {
   let text = String(value || '').replace(/\.(mp4|m4v|mov|mkv|webm|avi|ts|m2ts)$/i, '').trim()
@@ -105,8 +116,10 @@ function validRoot(root) {
  * Bounded read-only scan for explicitly supplied media folders. It does not
  * follow symlinks, hidden entries, or descend beyond maxDepth.
  */
-export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 10000 } = {}) {
+export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 10000, io } = {}) {
   if (!Array.isArray(roots)) throw new TypeError('Media roots must be an array.');
+  const list = io?.readdir || readdir;
+  const statRoot = io?.lstat || lstat;
   const found = [];
   const seen = new Set();
   let limit = maxItems;
@@ -123,15 +136,22 @@ export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 10
       positionSeconds: 0, durationSeconds: 0, completed: false });
   }
   async function visit(root, directory, depth) {
-    if (found.truncated || depth > maxDepth) return;
+    if (found.truncated || found.partialPath || depth > maxDepth) return;
     let entries;
-    try { entries = await readdir(directory, { withFileTypes: true }); } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR' || error.code === 'EACCES') return;
+    try { entries = await list(directory, { withFileTypes: true }); } catch (error) {
+      // A read failing at the root or halfway down the tree means the drive
+      // dropped. The files found so far are not a catalogue.
+      if (OFFLINE_IO_CODES.has(error.code)) {
+        markRootOffline(found, root.path, error.code);
+        found.partialPath = directory;
+        return;
+      }
+      if (error.code === 'ENOTDIR' || error.code === 'EACCES') return;
       throw error;
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
-      if (found.truncated || !entry.name || entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
+      if (found.truncated || found.partialPath || !entry.name || entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) { await visit(root, path, depth + 1); continue; }
       if (entry.isFile()) addFile(root, path);
@@ -142,8 +162,13 @@ export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 10
   for (const input of roots) {
     const root = validRoot(input);
     let info;
-    try { info = await lstat(root.path); } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'EACCES') continue;
+    try { info = await statRoot(root.path); } catch (error) {
+      if (OFFLINE_IO_CODES.has(error.code)) {
+        // A named video that is gone was deleted. A folder that is gone is an unmounted library.
+        if (!MEDIA_EXTENSIONS.has(extname(root.path).toLowerCase())) markRootOffline(found, root.path, error.code);
+        continue;
+      }
+      if (error.code === 'EACCES') continue;
       throw error;
     }
     if (info.isSymbolicLink()) continue;
@@ -153,8 +178,152 @@ export async function scanMediaLibrary(roots = [], { maxDepth = 4, maxItems = 10
   // Folders go first so their files keep the folder's classification, but they
   // leave room for explicit files (watched history) so those are never crowded out.
   limit = Math.max(0, maxItems - files.length);
-  for (const root of folders) await visit(root, root.path, 0);
+  for (const root of folders) {
+    if (found.partialPath) break;
+    await visit(root, root.path, 0);
+  }
   limit = maxItems;
   for (const root of files) addFile(root, root.path);
   return found;
+}
+
+/** Whether each configured root can be listed. Offline roots are not scanned. */
+export async function inspectLibraryRoots(roots = [], io = {}) {
+  if (!Array.isArray(roots)) throw new TypeError('Media roots must be an array.');
+  const list = io.readdir || readdir;
+  const statRoot = io.lstat || lstat;
+  const status = [];
+  for (const input of roots) {
+    const path = validRoot(input).path;
+    try {
+      const info = await statRoot(path);
+      if (typeof info.isSymbolicLink === 'function' && info.isSymbolicLink()) {
+        status.push({ path, online: true, symlink: true });
+        continue;
+      }
+      if (typeof info.isDirectory !== 'function' || !info.isDirectory()) {
+        status.push({ path, online: true });
+        continue;
+      }
+      await list(path);
+      status.push({ path, online: true });
+    } catch (error) {
+      if (OFFLINE_IO_CODES.has(error.code)) status.push({ path, online: false, code: error.code });
+      else throw error;
+    }
+  }
+  return status;
+}
+
+/** Root reachability plus the mtime of the catalogue file the server is serving. */
+export async function catalogueStatus(roots, catalogueFile, io) {
+  const rootsStatus = await inspectLibraryRoots(roots, io);
+  let catalogueBuiltAt = null;
+  if (catalogueFile) {
+    try {
+      const info = await (io?.stat || stat)(catalogueFile);
+      catalogueBuiltAt = info.mtime.toISOString();
+    } catch (error) {
+      if (error.code !== 'ENOENT' && !OFFLINE_IO_CODES.has(error.code)) throw error;
+    }
+  }
+  return { roots: rootsStatus, catalogueBuiltAt };
+}
+
+/** What /api/health reports. Age is seconds since the catalogue file was written. */
+export function libraryHealthReport({ roots = [], catalogueBuiltAt = null, now = Date.now() } = {}) {
+  const built = typeof catalogueBuiltAt === 'string' ? Date.parse(catalogueBuiltAt) : Number.NaN;
+  return {
+    roots: roots.map(root => ({ path: root.path, online: root.online === true })),
+    catalogueBuiltAt: Number.isFinite(built) ? new Date(built).toISOString() : null,
+    catalogueAgeSeconds: Number.isFinite(built) ? Math.max(0, Math.round((now - built) / 1000)) : null,
+  };
+}
+
+function catalogueCount(content) {
+  if (content == null) return null;
+  const text = Buffer.isBuffer(content) ? content.toString('utf8') : String(content);
+  try {
+    const data = JSON.parse(text);
+    if (Array.isArray(data?.videos)) return data.videos.length;
+    if (Array.isArray(data)) return data.length;
+  } catch { /* the TV catalogue is the shuffler HTML, not JSON */ }
+  const match = text.match(/const VIDEOS = ([\s\S]*?);\s*<\/script>/);
+  if (!match) return null;
+  try {
+    const videos = JSON.parse(match[1]);
+    return Array.isArray(videos) ? videos.length : null;
+  } catch { return null; }
+}
+
+function isOfflineFailure(error) {
+  if (!error) return false;
+  if (error.partial === true || OFFLINE_IO_CODES.has(error.code)) return true;
+  return `${error.stderr || ''}\n${error.message || ''}`.includes('library root offline:');
+}
+
+function offlinePath(error) {
+  if (typeof error?.path === 'string' && error.path) return error.path;
+  const match = `${error?.stderr || ''}\n${error?.message || ''}`.match(/library root offline:\s*(.+)$/m);
+  return match ? match[1].trim() : '';
+}
+
+function warnOffline(log, roots, when) {
+  const time = when || 'unknown';
+  for (const root of roots) log(`library root offline: ${root.path}, serving last catalogue from ${time}`);
+}
+
+async function restoreCatalogue(catalogueFile, previous, builtAt) {
+  const current = await readFile(catalogueFile).catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (current && current.equals(previous)) return;
+  await writeAtomically(catalogueFile, previous);
+  const when = builtAt ? new Date(builtAt) : null;
+  if (when && !Number.isNaN(when.getTime())) await utimes(catalogueFile, when, when);
+}
+
+/**
+ * Rebuild the catalogue only when every configured root can be read.
+ * A missing root, or a read that fails while the new catalogue is being built,
+ * leaves the previous file byte for byte. A smaller catalogue is kept only
+ * when every root was online for the whole rebuild: that is a real deletion.
+ */
+export async function rebuildCatalogue({ roots = [], catalogueFile, build, log = () => {}, io } = {}) {
+  if (typeof build !== 'function') throw new TypeError('A catalogue build is required.');
+  if (typeof catalogueFile !== 'string' || !catalogueFile) throw new TypeError('A catalogue file is required.');
+  const status = await catalogueStatus(roots, catalogueFile, io);
+  const offline = status.roots.filter(root => !root.online);
+  if (offline.length) {
+    warnOffline(log, offline, status.catalogueBuiltAt);
+    return { rescanned: false, roots: status.roots, catalogueBuiltAt: status.catalogueBuiltAt };
+  }
+  const previous = await readFile(catalogueFile).catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  let built;
+  try {
+    built = await build({ io });
+  } catch (error) {
+    if (!isOfflineFailure(error)) throw error;
+    if (previous) await restoreCatalogue(catalogueFile, previous, status.catalogueBuiltAt);
+    const path = offlinePath(error) || status.roots[0]?.path || 'unknown';
+    warnOffline(log, [{ path }], status.catalogueBuiltAt);
+    return { rescanned: false, roots: status.roots, catalogueBuiltAt: status.catalogueBuiltAt };
+  }
+  const after = await catalogueStatus(roots, catalogueFile, io);
+  const dropped = after.roots.filter(root => !root.online);
+  const previousCount = catalogueCount(previous);
+  const nextCount = catalogueCount(await readFile(catalogueFile).catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }));
+  if (previous && dropped.length && previousCount != null && nextCount != null && nextCount < previousCount) {
+    await restoreCatalogue(catalogueFile, previous, status.catalogueBuiltAt);
+    warnOffline(log, dropped, status.catalogueBuiltAt);
+    return { rescanned: false, roots: after.roots, catalogueBuiltAt: status.catalogueBuiltAt };
+  }
+  return { rescanned: built !== false, roots: after.roots, catalogueBuiltAt: after.catalogueBuiltAt };
 }

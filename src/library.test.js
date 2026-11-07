@@ -1,10 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildLibrary, scanMediaLibrary } from './library.js';
+import { buildLibrary, rebuildCatalogue, scanMediaLibrary } from './library.js';
 
 test('buildLibrary joins catalogue items with continue-watching history', () => {
   const result = buildLibrary([{ src: 'Bluey/Keep.mp4', file: '/videos/Bluey/Keep.mp4', title: 'Keep', channel: 'Bluey', tier: 'shared' }, { src: 'Movie Scenes/Piper.mp4', file: '/films/Piper.mp4', title: 'Piper', tier: 'big' }], [
@@ -80,4 +79,145 @@ test('a watched file listed explicitly keeps its folder classification', async (
     assert.equal(item.kind, 'film');
     assert.equal(item.channel, 'Films');
   } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test('a missing library root keeps the previous catalogue', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-library-'));
+  try {
+    const catalogue = join(dir, 'library.json');
+    const body = JSON.stringify({ version: 1, videos: [{ src: 'Movies/A.mp4', title: 'A' }, { src: 'Movies/B.mp4', title: 'B' }] }) + '\n';
+    await writeFile(catalogue, body);
+    const when = (await stat(catalogue)).mtime.toISOString();
+    const missing = join(dir, 'Volumes', 'Stash', 'Movies');
+    const warnings = [];
+    let built = 0;
+    const result = await rebuildCatalogue({
+      roots: [missing],
+      catalogueFile: catalogue,
+      log: message => warnings.push(message),
+      build: async () => { built += 1; },
+    });
+    assert.equal(built, 0);
+    assert.equal(result.rescanned, false);
+    assert.equal(result.roots[0].online, false);
+    assert.equal(await readFile(catalogue, 'utf8'), body);
+    assert.deepEqual(warnings, [`library root offline: ${missing}, serving last catalogue from ${when}`]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a library root coming back triggers a rescan', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-library-'));
+  try {
+    const root = join(dir, 'Movies');
+    await mkdir(root);
+    await writeFile(join(root, 'New.mp4'), '');
+    const catalogue = join(dir, 'library.json');
+    await writeFile(catalogue, JSON.stringify({ version: 1, videos: [{ src: 'old', title: 'Old' }] }) + '\n');
+    let built = 0;
+    const result = await rebuildCatalogue({
+      roots: [root],
+      catalogueFile: catalogue,
+      log: () => {},
+      build: async () => {
+        built += 1;
+        const found = await scanMediaLibrary([root]);
+        await writeFile(catalogue, JSON.stringify({ version: 1, videos: found.map(item => ({ src: item.title, title: item.title })) }) + '\n');
+      },
+    });
+    assert.equal(built, 1);
+    assert.equal(result.rescanned, true);
+    assert.equal(result.roots[0].online, true);
+    const saved = JSON.parse(await readFile(catalogue, 'utf8'));
+    assert.deepEqual(saved.videos, [{ src: 'New', title: 'New' }]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a read error mid-scan keeps the previous catalogue', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-library-'));
+  try {
+    const root = join(dir, 'Movies');
+    await mkdir(join(root, 'Shows'), { recursive: true });
+    await writeFile(join(root, 'Keep.mp4'), '');
+    await writeFile(join(root, 'Shows', 'A.mp4'), '');
+    const catalogue = join(dir, 'library.json');
+    const body = JSON.stringify({ version: 1, videos: [{ src: 'Kept', title: 'Kept' }, { src: 'Also', title: 'Also' }] }) + '\n';
+    await writeFile(catalogue, body);
+    const when = (await stat(catalogue)).mtime.toISOString();
+    const warnings = [];
+    const result = await rebuildCatalogue({
+      roots: [root],
+      catalogueFile: catalogue,
+      log: message => warnings.push(message),
+      io: {
+        readdir: async (directory, options) => {
+          if (directory === join(root, 'Shows')) throw Object.assign(new Error('Input/output error'), { code: 'EIO', path: directory });
+          return readdir(directory, options);
+        },
+      },
+      build: async ({ io }) => {
+        const found = await scanMediaLibrary([root], { io });
+        if (found.partial) throw Object.assign(new Error('library root offline'), { code: 'EIO', path: root, partial: true });
+        await writeFile(catalogue, JSON.stringify({ version: 1, videos: found.map(item => ({ src: item.title, title: item.title })) }) + '\n');
+      },
+    });
+    assert.equal(result.rescanned, false);
+    assert.equal(await readFile(catalogue, 'utf8'), body);
+    assert.equal((await stat(catalogue)).mtime.toISOString(), when);
+    assert.deepEqual(warnings, [`library root offline: ${root}, serving last catalogue from ${when}`]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a smaller catalogue is discarded when a root goes missing during the rebuild', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-library-'));
+  try {
+    const root = join(dir, 'Movies');
+    await mkdir(root);
+    await writeFile(join(root, 'A.mp4'), '');
+    const catalogue = join(dir, 'library.json');
+    const body = JSON.stringify({ version: 1, videos: [{ src: 'A' }, { src: 'B' }] }) + '\n';
+    await writeFile(catalogue, body);
+    const when = (await stat(catalogue)).mtime.toISOString();
+    let mounted = true;
+    const warnings = [];
+    const result = await rebuildCatalogue({
+      roots: [root],
+      catalogueFile: catalogue,
+      log: message => warnings.push(message),
+      io: {
+        lstat: async path => {
+          if (!mounted) throw Object.assign(new Error('unmounted'), { code: 'ENOENT', path });
+          return stat(path);
+        },
+      },
+      build: async () => {
+        mounted = false;
+        await writeFile(catalogue, JSON.stringify({ version: 1, videos: [] }) + '\n');
+      },
+    });
+    assert.equal(result.rescanned, false);
+    assert.equal(await readFile(catalogue, 'utf8'), body);
+    assert.equal((await stat(catalogue)).mtime.toISOString(), when);
+    assert.deepEqual(warnings, [`library root offline: ${root}, serving last catalogue from ${when}`]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a smaller catalogue is kept when every library root stays online', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-library-'));
+  try {
+    const root = join(dir, 'Movies');
+    await mkdir(root);
+    await writeFile(join(root, 'A.mp4'), '');
+    const catalogue = join(dir, 'library.json');
+    await writeFile(catalogue, JSON.stringify({ version: 1, videos: [{ src: 'A' }, { src: 'B' }] }) + '\n');
+    const result = await rebuildCatalogue({
+      roots: [root],
+      catalogueFile: catalogue,
+      log: () => {},
+      build: async () => {
+        await writeFile(catalogue, JSON.stringify({ version: 1, videos: [{ src: 'A' }] }) + '\n');
+      },
+    });
+    assert.equal(result.rescanned, true);
+    assert.deepEqual(JSON.parse(await readFile(catalogue, 'utf8')).videos, [{ src: 'A' }]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

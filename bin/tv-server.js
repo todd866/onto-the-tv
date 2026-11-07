@@ -4,11 +4,12 @@
 // catalogue, which also admits formats only the TV plays (MKV, Dolby Digital), and
 // keeps its own taste and watch history in <app data>/tv-server/.
 import { homedir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { readSettings } from '../src/settings.js';
+import { rebuildCatalogue } from '../src/library.js';
 import { buildPlayer } from '../src/shuffler.js';
 import { loadPlaybackHistory } from '../src/playback-history.js';
 import { createArtworkCache } from '../src/library-artwork.js';
@@ -61,15 +62,43 @@ async function signature(settings) {
   return parts.sort().join('\n');
 }
 
+// The kids library plus every extra source root. A pick is one file; a missing
+// pick is a deletion, not an unmounted drive.
+async function configuredRoots(settings) {
+  const folders = [];
+  if (typeof settings.library === 'string' && isAbsolute(settings.library)) folders.push(settings.library);
+  try {
+    const sources = JSON.parse(await readFile(settings.sourcesPath, 'utf8'));
+    for (const entry of sources.roots || []) {
+      if (typeof entry?.path !== 'string') continue;
+      const path = entry.path.replace(/^~(?=\/)/, homedir());
+      if (isAbsolute(path)) folders.push(path);
+    }
+  } catch { /* no sources file, or it is not ours to invent */ }
+  return [...new Set(folders)];
+}
+
 async function rebuild(settings, force) {
-  const now = await signature(settings);
-  const before = await readFile(signatureFile, 'utf8').catch(() => '');
-  const exists = await stat(catalogue).then(() => true, () => false);
-  if (!force && exists && now === before) return false;
-  log(`building catalogue from ${settings.library}`);
-  log(await buildPlayer(root, { ...settings, playerPath: catalogue }, undefined, ['--tv']));
-  await writeFile(signatureFile, now);
-  return true;
+  let signatureText = null;
+  const outcome = await rebuildCatalogue({
+    roots: await configuredRoots(settings),
+    catalogueFile: catalogue,
+    log,
+    build: async () => {
+      const now = await signature(settings);
+      const before = await readFile(signatureFile, 'utf8').catch(() => '');
+      const exists = await stat(catalogue).then(() => true, () => false);
+      if (!force && exists && now === before) return false;
+      log(`building catalogue from ${settings.library}`);
+      log(await buildPlayer(root, { ...settings, playerPath: catalogue }, undefined, ['--tv']));
+      signatureText = now;
+      return true;
+    },
+  });
+  // The signature is the last accepted scan. A rejected rebuild must not
+  // remember a missing root, or the drive coming back would look unchanged.
+  if (outcome.rescanned && signatureText != null) await writeFile(signatureFile, signatureText);
+  return outcome;
 }
 
 const settings = await readSettings(join(appData, 'settings.json'));
@@ -77,7 +106,11 @@ const settings = await readSettings(join(appData, 'settings.json'));
 // should not take the TV off air while every video is probed. Build first only when there
 // is no catalogue yet or --refresh asks for one.
 const haveCatalogue = await stat(catalogue).then(() => true, () => false);
-if (!haveCatalogue || args.includes('--refresh')) await rebuild(settings, args.includes('--refresh'));
+// An offline root must not publish an empty catalogue, including on --refresh.
+// When a catalogue is already being served, just record whether the roots are
+// up; the background rescan does the real rebuild.
+if (!haveCatalogue || args.includes('--refresh')) await rebuild(settings, true);
+else await rebuildCatalogue({ roots: await configuredRoots(settings), catalogueFile: catalogue, log, build: async () => false });
 // Places saved by the Mac app are laid over the TV's own, so either picks up where the other stopped.
 const appHistoryFile = join(appData, 'playback-history.json');
 let appHistory = null, appHistoryStamp = '';
@@ -141,7 +174,8 @@ async function warmLibrary(videos) {
     }
   } finally { warming = false; }
 }
-const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore, log });
+const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore,
+  libraryRoots: async () => configuredRoots(await readSettings(join(appData, 'settings.json'))), catalogueFile: catalogue, log });
 server.listen(port, host, () => log(`serving ${library.home().channels.length} channels on http://${host}:${port}/`));
 
 // Invited guests: a separate server with no route to the TV's controls (src/guest-server.js).
@@ -161,7 +195,8 @@ async function rescan() {
   if (scanning) return;
   scanning = true;
   try {
-    if (await rebuild(await readSettings(join(appData, 'settings.json')), false)) {
+    const outcome = await rebuild(await readSettings(join(appData, 'settings.json')), false);
+    if (outcome.rescanned) {
       const refreshedVideos = await loadCatalogue(catalogue);
       void warmLibrary(refreshedVideos);
       catalogueHolder.videos = refreshedVideos;

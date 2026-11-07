@@ -6,12 +6,14 @@ check rejects incomplete MP4 containers but is not a full playback/decode test.
 Learned preferences use library-relative paths, even for a staged output file.
 """
 import argparse
+import errno
 import json
 import math
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -240,6 +242,43 @@ def clean_title(stem):
     return re.sub(r"\s*\[[\w-]{8,}\]$", "", stem)
 
 
+# ENOENT: the volume is unmounted. EIO / ENXIO: it is attached but not answering.
+OFFLINE_ERRNO = {errno.ENOENT, errno.EIO, errno.ENXIO}
+
+
+class RootOffline(OSError):
+    def __init__(self, path, err=errno.ENOENT):
+        super().__init__(err, "library root offline", str(path))
+        self.path = str(path)
+
+
+def ensure_root_online(base):
+    """True when `base` is a directory we can read. A missing or dead volume raises."""
+    base = Path(base)
+    try:
+        info = os.stat(base)
+    except OSError as exc:
+        if exc.errno in OFFLINE_ERRNO:
+            raise RootOffline(base, exc.errno) from exc
+        raise
+    if not stat.S_ISDIR(info.st_mode):
+        return False
+    try:
+        with os.scandir(base) as listing:
+            next(listing, None)
+    except OSError as exc:
+        if exc.errno in OFFLINE_ERRNO:
+            raise RootOffline(base, exc.errno) from exc
+        raise
+    return True
+
+
+def _raise_if_offline(base, exc):
+    if isinstance(exc, OSError) and exc.errno in OFFLINE_ERRNO:
+        raise RootOffline(base, exc.errno) from exc
+    raise exc
+
+
 def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, tiers=None, tv=False, cache=None, used=None,
                    checkpoint=None):
     """Gather playable videos from every configured root plus the individual picks.
@@ -268,11 +307,19 @@ def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, t
 
     for root in roots:
         base = Path(root["path"])
-        if not base.is_dir():
+        if not ensure_root_online(base):
             continue
         label = root.get("label", "")
-        for path in sorted(base.rglob("*")):
-            if not path.is_file() or path.suffix.lower() not in MEDIA_SUFFIXES or path.name.startswith("."):
+        try:
+            paths = sorted(base.rglob("*"))
+        except OSError as exc:
+            _raise_if_offline(base, exc)
+        for path in paths:
+            try:
+                is_file = path.is_file()
+            except OSError as exc:
+                _raise_if_offline(base, exc)
+            if not is_file or path.suffix.lower() not in MEDIA_SUFFIXES or path.name.startswith("."):
                 continue
             relative = path.relative_to(base)
             channel = relative.parts[0] if len(relative.parts) > 1 else (label or base.name)
@@ -329,8 +376,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     library = args.library.expanduser().resolve()
     output = (args.output or library / "kids-shuffler.html").expanduser().resolve()
-    if not library.is_dir():
-        parser.error(f"Library directory does not exist: {library}")
+    try:
+        if not ensure_root_online(library):
+            parser.error(f"Library directory does not exist: {library}")
+    except RootOffline as exc:
+        parser.error(f"library root offline: {exc.path}")
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
         parser.error("ffprobe is required to validate the video library")
@@ -345,8 +395,13 @@ def main(argv=None):
     roots = [{"label": "", "path": library, "classify": "shows"}] + roots
     # The kids library going missing or empty must never quietly publish a player
     # built only from the other roots. This is the mount-failure guard.
-    if not any(path.is_file() and path.suffix.lower() in MEDIA_SUFFIXES
-               for path in library.rglob("*")):
+    try:
+        has_media = any(path.is_file() and path.suffix.lower() in MEDIA_SUFFIXES for path in library.rglob("*"))
+    except OSError as exc:
+        if exc.errno in OFFLINE_ERRNO:
+            parser.error(f"library root offline: {library}")
+        raise
+    if not has_media:
         parser.error(f"No playable videos found under {library}; existing output left unchanged")
     cache_path = probe_cache_path(output)
     cache, used = load_probe_cache(cache_path), {}
@@ -359,7 +414,10 @@ def main(argv=None):
         if fresh[0] % 50 == 0:
             save_probe_cache(cache_path, {**cache, **used})
 
-    videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers, args.tv, cache, used, checkpoint)
+    try:
+        videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers, args.tv, cache, used, checkpoint)
+    except RootOffline as exc:
+        parser.error(f"library root offline: {exc.path}")
     save_probe_cache(cache_path, used)
     for name, error in rejected:
         print(f"Excluded {name}: {error}", file=sys.stderr)
