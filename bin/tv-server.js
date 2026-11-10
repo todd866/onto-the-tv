@@ -13,7 +13,7 @@ import { rebuildCatalogue } from '../src/library.js';
 import { buildPlayer } from '../src/shuffler.js';
 import { loadPlaybackHistory } from '../src/playback-history.js';
 import { createArtworkCache } from '../src/library-artwork.js';
-import { createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue } from '../src/tv-server.js';
+import { TV_CHANNELS, createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue } from '../src/tv-server.js';
 import { createSceneStore } from '../src/scenes.js';
 import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
@@ -126,7 +126,7 @@ await reloadAppHistory();
 const history = layeredHistory(await loadPlaybackHistory(join(data, 'playback-history.json')), () => (appHistory ? [appHistory] : []));
 const storage = await createFileStorage(join(data, 'taste-storage.json'));
 const knownSources = new Set((await loadCatalogue(catalogue)).map(video => video.src));
-const watchEvents = await createWatchEventStore({ file: join(data, 'watch-events.jsonl'), knownSources });
+const watchEvents = await createWatchEventStore({ file: join(data, 'watch-events.jsonl'), knownSources, channels: TV_CHANNELS.map(channel => channel.id) });
 const artwork = createArtworkCache({ directory: join(appData, 'artwork'),
   ffmpeg: process.env.FFMPEG || 'ffmpeg', ffprobe: process.env.FFPROBE || 'ffprobe' });
 // The installed TV app embeds this token (tizen/build.sh reads it).

@@ -4,7 +4,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWatchEventStore } from './watch-events.js';
-import { createTvServer } from './tv-server.js';
+import { TV_CHANNELS, createTvServer } from './tv-server.js';
 import { writeFile } from 'node:fs/promises';
 
 const event = (overrides = {}) => ({ src: 'Bluey/a.mp4', channel: '2', audience: '2', sessionId: 'session_1234', sequence: 0, reason: 'start', watchedSeconds: 0, ...overrides });
@@ -27,6 +27,15 @@ test('accepts Rides & Adventures watch events', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'watch-rides-'));
   const store = await createWatchEventStore({ file: join(dir, 'watch.jsonl'), knownSources: new Set(['Knight Rider/one.mp4']) });
   assert.equal(store.record(event({ src: 'Knight Rider/one.mp4', channel: 'rides', audience: 'rides' })).accepted, true);
+});
+
+test('accepts every live TV channel id and single-title library plays', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'watch-live-channels-'));
+  const ids = TV_CHANNELS.map(channel => channel.id);
+  const store = await createWatchEventStore({ file: join(dir, 'watch.jsonl'), knownSources: new Set(['Bluey/a.mp4']), channels: ids });
+  for (const [n, id] of [...ids, 'library'].entries()) assert.equal(store.record(event({ channel: id, audience: id, sessionId: `session_ch_${n}` })).accepted, true, id);
+  for (const id of ['littleones', 'bluey', 'adventures', 'learn', 'shorts', 'trains', 'forjake', 'livesets']) assert.ok(ids.includes(id), id);
+  assert.throws(() => store.record(event({ channel: 'child', audience: 'child', sessionId: 'session_ch_x' })), /Invalid channel/);
 });
 
 test('rejects unknown source, fake channel, backwards time and implausible interval', async () => {

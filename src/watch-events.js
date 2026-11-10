@@ -2,14 +2,18 @@ import { appendFile, readFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 const REASONS = new Set(['start', 'progress', 'pause', 'resume', 'skip', 'ended', 'stop', 'error']);
-const CHANNELS = new Set(['2', '6', 'christmas', 'movies', 'grown', 'music', 'all', 'cartoons', 'sitcoms', 'comedy', 'docs', 'scifi', 'classic', 'bbc', 'standup', 'hophop', 'rides', 'grownups', 'd50', 'd60', 'd70', 'd80', 'd90', 'sports']);
+// Fixed ids that are not entries in TV_CHANNELS (legacy numbered audiences,
+// "all" and single-title library plays). Live channel ids are passed in by the
+// server so a newly added channel cannot silently lose its watch events.
+const CHANNELS = new Set(['library', '2', '6', 'christmas', 'movies', 'grown', 'music', 'all', 'cartoons', 'sitcoms', 'comedy', 'docs', 'scifi', 'classic', 'bbc', 'standup', 'hophop', 'rides', 'grownups', 'd50', 'd60', 'd70', 'd80', 'd90', 'sports']);
 
 function finite(value, name, max = 86400) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > max) throw new Error(`Invalid ${name}.`);
   return value;
 }
 
-export async function createWatchEventStore({ file, knownSources = new Set(), maxEvents = 20000 } = {}) {
+export async function createWatchEventStore({ file, knownSources = new Set(), channels = [], maxEvents = 20000 } = {}) {
+  const allowedChannels = new Set([...CHANNELS, ...channels]);
   const seen = new Set(), sessions = new Map(), pending = [];
   let writes = Promise.resolve();
   let events = 0;
@@ -24,9 +28,9 @@ export async function createWatchEventStore({ file, knownSources = new Set(), ma
     const src = String(input.src || '');
     if (!knownSources.has(src)) throw Object.assign(new Error('Unknown video.'), { status: 404 });
     const channel = String(input.channel || '');
-    if (!CHANNELS.has(channel)) throw Object.assign(new Error('Invalid channel.'), { status: 400 });
+    if (!allowedChannels.has(channel)) throw Object.assign(new Error('Invalid channel.'), { status: 400 });
     const audience = String(input.audience || channel);
-    if (!CHANNELS.has(audience)) throw Object.assign(new Error('Invalid audience.'), { status: 400 });
+    if (!allowedChannels.has(audience)) throw Object.assign(new Error('Invalid audience.'), { status: 400 });
     const sessionId = String(input.sessionId || '');
     if (!/^[A-Za-z0-9_-]{8,128}$/.test(sessionId)) throw Object.assign(new Error('Invalid session.'), { status: 400 });
     if (!Number.isInteger(input.sequence) || input.sequence < 0 || input.sequence > 10000000) throw Object.assign(new Error('Invalid sequence.'), { status: 400 });
