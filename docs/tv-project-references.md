@@ -67,7 +67,10 @@ nothing was changed on the TV.
 - **AeroTizen** lists nothing older than a 2019 Tizen 5.0 set; its Home takeover works from Tizen 6.5. Untested on Tizen 3.
 - **Ways to get rid of the ads, least effort first:**
   1. TV settings: interest-based ads off, viewing information services off, Smart Hub autorun off. Reduces, does not remove.
-  2. Filter the TV's DNS (Samsung ad and telemetry domains). The app reaches the M2 by address (`192.168.20.20:8686`),
+  2. **Set up 14 Nov 2026.** Filter the TV's DNS (Samsung ad and telemetry domains): CoreDNS on the M2, launchd
+     `com.iantodd.onto-tv-dns`, list in `~/.config/onto-tv-dns/blocked.txt`, every query logged to
+     `~/.local/state/onto-tv-dns/queries.log` (read it to see what the TV asks for, then extend the list).
+     The TV must be pointed at it by hand: Settings, General, Network, Network Status, IP Settings, DNS 192.168.20.20. The app reaches the M2 by address (`192.168.20.20:8686`),
      so it is unaffected. Needs a DNS filter on the M2 (port 53, so sudo) or at the router, and the TV pointed at it.
   3. Cut the TV off the internet at the router. The app still works; Samsung's own apps (YouTube, store) stop.
   4. Use the TV as a panel: run Onto the TV on the M2 over HDMI (`scripts/install_tv_shell.sh` exists for this) and never
