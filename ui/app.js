@@ -16,6 +16,9 @@ let libraryLoading;
 let libraryFilter = 'home';
 let playOn = 'tv';
 const outputName = () => playOn === 'mac' ? 'Mac' : 'TV';
+// The Channels tab asks where a card should play, and reports a TV that did not take it.
+window.playOnTarget = () => playOn;
+window.appMessage = (text, fault) => message(text, fault);
 const libraryArtwork = new Map();
 const libraryCards = new Set();
 const artworkObserver = new IntersectionObserver(entries => {

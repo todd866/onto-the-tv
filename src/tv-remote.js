@@ -86,3 +86,21 @@ export async function runTv(options) {
     return { ok: false, code: 1, line: error.message || 'tv remote failed' };
   }
 }
+
+// Play on TV from the Mac app's Channels tab: the lounge TV's own app is told to tune a channel or to
+// play one named episode. Nothing is sent unless that app is on and answering; resolves true, or
+// throws with a line the Mac app can show.
+export async function sendToTv({ origin, action, value, seconds = null, token, fetchImpl = fetch, timeoutMs = 6000, pollMs = 200 }) {
+  if (!token) throw new Error('This Mac is not paired with the TV server.');
+  let command;
+  if (action === 'tune' && typeof value === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(value)) command = { command: 'tune', channel: value };
+  else if (action === 'play' && typeof value === 'string' && value && value.length <= 400) {
+    command = { command: 'play', src: value, positionSeconds: Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : null };
+  } else throw new Error('Unknown TV command.');
+  const result = await runTv({ ...command, ok: true, url: String(origin).replace(/\/$/, ''), token, fetchImpl, timeoutMs, pollMs });
+  if (result.ok) return true;
+  if (result.line === 'no tv') throw new Error('The TV is not on Onto the TV.');
+  if (/ waiting$/.test(result.line)) throw new Error('The TV did not answer.');
+  if (/ failed$/.test(result.line)) throw new Error('The TV did not take it: not on its lineup for who is watching there.');
+  throw new Error(result.line);
+}

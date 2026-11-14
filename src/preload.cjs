@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('tv', {
   saveTaste: input => ipcRenderer.invoke('taste:save', input),
   getTvHome: (viewers, rating) => ipcRenderer.invoke('tv-home:get', viewers, rating ?? null),
   getTvShows: (viewers, rating) => ipcRenderer.invoke('tv-shows:get', viewers, rating ?? null),
+  sendToTv: (origin, action, value, seconds) => ipcRenderer.invoke('tv-remote:send', origin, action, value, seconds ?? null),
   get: () => ipcRenderer.invoke('app:get'),
   openFiles: paths => ipcRenderer.invoke('drop:open', paths),
   seek: (seconds, path) => ipcRenderer.invoke('drop:seek', seconds, path),

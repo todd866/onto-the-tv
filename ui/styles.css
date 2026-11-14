@@ -52,6 +52,9 @@ h1 { margin:0; color:var(--amber); font-size:21px; font-weight:800; letter-spaci
 #channel-search { flex:1 1 9em; width:auto; min-width:8em; max-width:24em; min-height:38px; padding:5px 12px; border:2px solid var(--line); border-radius:12px; background:var(--panel-2); color:var(--text); font-size:14px; }
 #channel-search::placeholder { color:var(--muted); opacity:1; }
 .channel-card .channel-now:empty { display:none; }
+/* Play on TV: the pressed card answers at once, then wears the switch's own TV mark when the TV has it. */
+.channel-card[data-tv]::after { content:"▣ TV"; position:absolute; top:8px; right:8px; padding:3px 9px; border-radius:9px; background:#ffb547; color:#14213d; font-size:13px; font-weight:800; }
+.channel-card[data-tv="sending"]::after { content:""; width:18px; height:18px; padding:0; border:3px solid #f4f1ea66; border-top-color:#ffb547; border-radius:50%; background:none; animation:tuning-spin .9s linear infinite; }
 #channel-refresh { margin-left:auto; padding:5px 9px; } #channel-state { min-width:1.2em; color:var(--amber); font-size:16px; text-align:center; }
 #channel-list { flex:1; min-height:0; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,11.5em),1fr)); align-content:start; gap:12px; margin:0; padding:4px 4px 10px; list-style:none; }
 /* Match the TV's image-backed bezel without squeezing three labels into one line. */

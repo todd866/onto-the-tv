@@ -47,6 +47,21 @@ the show follows it (`play`, `title`, `show`, `at` in the player's address, then
 `onto:desktop-queue`). A new audience never sees the previous audience's results.
 The TV reaches named shows through its Library tile instead.
 
+**Play on** (Mac | TV in the toolbar) applies to Channels too (15 Nov 2026; before, it did
+nothing there). On TV, a card does not open the player here: the lounge TV's own app is told
+to tune that channel (`tune <id>`), or for a found show to play the episode it opens on
+(`play <src>`), through the same command queue as `npm run tv` (`sendToTv` in
+`src/tv-remote.js`, token from this Mac's `tv-server/pairing-token`, which is the M2's). The
+card wears the switch's TV mark once the TV has taken it. A TV that is not on Onto the TV, or
+that has no such channel for who is watching there, says so in the status line and the card is
+left as it was. It never wakes the TV: nothing is sent unless its app is on and answering.
+This path is tested against a simulated TV session only; it had not been run against the
+lounge TV when written.
+
+Channel pictures are made ahead of the cards asking: each `/api/home` starts its lineup's
+pictures (then the next picks'), and the server readies every profile's lineup at start-up
+and after a reload (`createArtWarmer`, one picture at a time behind any viewer's request).
+
 Behind the M2's https address the page's Origin is `https://<host>`; tv-server
 counts the same host on either scheme as same-origin. Until 15 Nov 2026 it did not,
 so every tune from this app was refused (403) and left the TV home in the window.
@@ -92,8 +107,8 @@ checks. `node scripts/check-native-parity.mjs` runs the affected headless checks
 sequentially, including `check-native-channels.mjs` with the real TV model and a
 synthetic catalogue. It covers viewport fit, both themes, audience changes, delayed
 responses, offline retry, prepared artwork reuse, the tuning card, a refused tune,
-Find a show (its own failure, a named play, another audience's results) and the TV
-player handoff. The fixture serves plain http, so the https same-origin
+Find a show (its own failure, a named play, another audience's results), Play on TV
+(a card sent, a found show sent, a TV that is not on) and the TV player handoff. The fixture serves plain http, so the https same-origin
 rule is covered by `src/tv-server.test.js` instead.
 Screenshots are written under `audit/`, which is excluded from Git.
 

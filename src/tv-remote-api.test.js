@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFileStorage, createTvLibrary, createTvServer } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
-import { parseTvArgs, runTv } from './tv-remote.js';
+import { parseTvArgs, runTv, sendToTv } from './tv-remote.js';
 import { fileURLToPath } from 'node:url';
 
 const videos = [
@@ -128,5 +128,38 @@ test('a queued command is acknowledged on the diagnostics poll', async () => {
     }) });
     assert.equal((await ack.json()).command, null);
     assert.equal((await (await fetch(`${base}/api/tv-command?id=${id}`, { headers })).json()).result.status, 'done');
+  } finally { await close(); }
+});
+
+// Play on TV from the Mac app's Channels tab (15 Nov 2026): the switch said TV and did nothing there.
+test('the Mac app tunes the TV to a channel or plays a named episode, and says why when it cannot', async () => {
+  const { base, headers, close } = await boot();
+  const send = (action, value, seconds) => sendToTv({ origin: base + '/', action, value, seconds, token: 'secret', timeoutMs: 1500, pollMs: 30 });
+  const answer = async status => {
+    let command = null;
+    for (let i = 0; i < 60 && !command; i++) { command = (await beat(base, headers)).command; if (!command) await new Promise(resolve => setTimeout(resolve, 30)); }
+    await beat(base, headers, { commandAck: { id: command.id, status } });
+    return command;
+  };
+  try {
+    await assert.rejects(send('tune', 'littleones'), /TV is not on Onto the TV/);
+    await assert.rejects(sendToTv({ origin: base, action: 'tune', value: 'littleones', token: '' }), /not paired/);
+    await assert.rejects(send('tune', '../etc'), /Unknown TV command/);
+    await assert.rejects(send('launch', 'x'), /Unknown TV command/);
+    await beat(base, headers);
+    const tuning = send('tune', 'littleones');
+    const tuned = await answer('done');
+    assert.deepEqual([tuned.action, tuned.channel], ['tune', 'littleones']);
+    assert.equal(await tuning, true);
+    const playing = send('play', 'Kids/Timmy Time.mp4', 84.4);
+    const played = await answer('done');
+    assert.deepEqual([played.action, played.src, played.positionSeconds], ['play', 'Kids/Timmy Time.mp4', 84]);
+    assert.equal(await playing, true);
+    // The TV has no such channel for who is watching there.
+    const refused = send('tune', 'kidsongs');
+    refused.catch(() => {});
+    await answer('failed');
+    await assert.rejects(refused, /did not take it/);
+    await assert.rejects(sendToTv({ origin: base, action: 'tune', value: 'littleones', token: 'wrong' }), /Pair this TV first/);
   } finally { await close(); }
 });

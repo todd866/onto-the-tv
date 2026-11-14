@@ -1,4 +1,5 @@
-import { fetchTvHome, fetchTvShows } from './tv-home-client.js';
+import { fetchTvHome, fetchTvShows, TV_HOME_ORIGINS } from './tv-home-client.js';
+import { sendToTv } from './tv-remote.js';
 import { createBlackbox } from './blackbox.js';
 import { createReportService } from './report-service.js';
 import { createStateTrace, shortArgs } from './report-trace.js';
@@ -268,6 +269,14 @@ handle('taste:save', input => {
 handle('app:get', snapshot);
 handle('tv-home:get', (viewers, rating) => fetchTvHome(viewers, fetch, rating));
 handle('tv-shows:get', (viewers, rating) => fetchTvShows(viewers, fetch, rating));
+// Play on TV from the Channels tab: the lounge TV's own app tunes the channel or plays the named
+// episode, through the server that answered the lineup. This Mac's pairing token is the M2's
+// (the M2 was set up from this Mac's app data); a different token is refused there, and says so.
+handle('tv-remote:send', async (origin, action, value, seconds) => {
+  if (!TV_HOME_ORIGINS.includes(origin)) throw new Error('Unexpected TV server.');
+  const token = (await readFile(join(app.getPath('userData'), 'tv-server', 'pairing-token'), 'utf8').catch(() => '')).trim();
+  return sendToTv({ origin, action, value, seconds, token });
+});
 handle('history:record', async input => {
   if (await recordLocalHistory(playbackHistory, catalogue, input, { casting: channelCasting })) sendState(session.getState());
 });

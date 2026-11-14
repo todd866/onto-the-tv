@@ -40,11 +40,21 @@ try {
       return { ok: true, json: async () => libraryView({ videos: library.catalogue(), history: [], viewers: url.searchParams.get('viewers'), rating: url.searchParams.get('rating') }) };
     }, rating, ['http://localhost:8686']);
   });
+  // The lounge TV, as the Mac app sees it: it takes a command, or is not on.
+  const sentToTv = []; let tvOn = true;
+  await page.exposeFunction('fixtureTv', async (...args) => {
+    sentToTv.push(args);
+    await new Promise(r=>setTimeout(r,120));
+    if (!tvOn) throw new Error("Error invoking remote method 'tv-remote:send': Error: The TV is not on Onto the TV.");
+    return true;
+  });
   await page.addInitScript(() => {
     window.tv = {
       getTvHome: (viewers, rating) => window.fixtureHome(viewers, rating),
       getTvShows: (viewers, rating) => window.fixtureShows(viewers, rating),
-      get:async()=>({hasPlayer:false,library:'Fixture library',tvHost:'',avTransportUrl:'',bindHost:'',tv:{status:'idle',current:null,upcoming:[],history:[]}}),
+      sendToTv: (...args) => window.fixtureTv(...args),
+      setPlayOn: async () => {},
+      get:async()=>({hasPlayer:false,library:'Fixture library',tvHost:'',avTransportUrl:'',bindHost:'',playOn:'mac',tv:{status:'idle',current:null,upcoming:[],history:[]}}),
       onState:()=>{},onMode:()=>{},onError:()=>{},onCast:()=>{},
     };
   });
@@ -247,6 +257,39 @@ try {
   assert.equal(await page.locator('.channel-card').count(),0);
   await page.locator('#channel-search').fill('');
   await page.waitForFunction(()=>document.querySelectorAll('.channel-card').length>1);
+  // Play on TV: the card goes to the lounge TV instead of this window, and wears the TV mark.
+  await page.locator('[data-play-on="tv"]').click();
+  const sendCard = page.locator('.channel-card').nth(1), sendId = await sendCard.getAttribute('data-channel');
+  await sendCard.click();
+  assert.equal(await sendCard.getAttribute('data-tv'),'sending');
+  await page.waitForFunction(id=>document.querySelector(`.channel-card[data-channel="${id}"]`).dataset.tv==='on',sendId);
+  assert.deepEqual(sentToTv.at(-1),['http://localhost:8686','tune',sendId]);
+  assert.equal(await page.locator('#channel-player').isHidden(),true);
+  for (const theme of ['dark','light']) {
+    await page.emulateMedia({colorScheme:theme});
+    await page.screenshot({path:resolve(out,`on-tv-${theme}.png`)});
+  }
+  // A found show sends the episode it opens on.
+  await page.locator('#channel-search').fill('bing');
+  await page.locator('.channel-card .picture-label').first().waitFor();
+  await page.locator('#channel-search').press('Enter');
+  await page.waitForFunction(()=>document.querySelector('.channel-card')?.dataset.tv==='on');
+  assert.deepEqual(sentToTv.at(-1),['http://localhost:8686','play',videos.find(v=>v.channel==='Bing').src,null]);
+  await page.locator('#channel-search').fill('');
+  await page.waitForFunction(()=>document.querySelectorAll('.channel-card').length>1);
+  // A TV that is not on says so, and the card is left as it was.
+  tvOn=false;
+  await page.locator('.channel-card').first().click();
+  await page.waitForFunction(()=>document.querySelector('#status').textContent==='The TV is not on Onto the TV.');
+  assert.equal(await page.locator('.channel-card').first().getAttribute('data-tv'),null);
+  assert.equal(await page.locator('#status').evaluate(el=>el.classList.contains('is-fault')),true);
+  tvOn=true;
+  // Back on Mac, a card plays here again.
+  await page.locator('[data-play-on="mac"]').click();
+  await page.locator('.channel-card').nth(1).click();
+  await page.locator('#channel-tuning').waitFor({state:'hidden'});
+  await page.frames().find(f=>f.url().startsWith('http://localhost:8686/')).locator('#player:visible').waitFor();
+  await page.locator('#channel-back').click();
   // An offline audience change clears earlier cards.
   offline=true;await pick('Jake');
   await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='⚠');

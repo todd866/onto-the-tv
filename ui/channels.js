@@ -42,6 +42,23 @@
     $('channel-state').title = description;
     $('channel-state').setAttribute('aria-label', description);
   }
+  // Play on TV: the lounge TV's own app tunes the channel, or plays the episode a found show opens on.
+  // Nothing plays here; the card wears the TV mark once the TV has taken it.
+  async function onTv(channel, button) {
+    if (!window.tv?.sendToTv || button.dataset.tv === 'sending') return;
+    selectedChannel = channel.id;
+    button.dataset.tv = 'sending';
+    window.appMessage?.('');
+    try {
+      if (channel.play) await window.tv.sendToTv(origin, 'play', channel.play.src, channel.play.resume || null);
+      else await window.tv.sendToTv(origin, 'tune', channel.id);
+      button.dataset.tv = 'on';
+      setTimeout(() => { if (button.dataset.tv === 'on') delete button.dataset.tv; }, 6000);
+    } catch (error) {
+      delete button.dataset.tv;
+      window.appMessage?.(String(error.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), true);
+    }
+  }
   // Tuning: the pressed channel's own card fills the stage in the frame of the click. The player loads
   // behind it and says when it has a picture (or that the server refused); only then does it show.
   const TUNE_WAIT_MS = 12000, HELLO_WAIT_MS = 600;
@@ -162,7 +179,7 @@
       row.append(span('channel-number', channel.number), span('channel-name', channel.name), span('channel-now', show ? `▶ ${show}` : ''));
       button.append(image, row);
     }
-    button.onclick = () => tune(channel);
+    button.onclick = () => (window.playOnTarget?.() === 'tv' ? onTv(channel, button) : tune(channel));
     button.addEventListener('focus', () => hero(channel));
     button.addEventListener('mouseenter', () => hero(channel));
     withArt(image, channel.now?.art);
