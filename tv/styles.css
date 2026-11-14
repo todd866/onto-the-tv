@@ -336,6 +336,9 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
   .opt { padding: 0 8px; font-size: 28px; }
 }
 
+/* Inside the Mac app's window this page is the player only: browsing stays in the Mac app, so the
+   TV-scale home never shows there (it did when a tune failed, 15 Nov 2026). */
+.desktop-frame #home { display:none !important; }
 /* Same player inside the native control surface, at desktop density. */
 .desktop-embedded #osd { left:12px; right:12px; bottom:12px; padding:10px 14px; border-radius:14px; }
 .desktop-embedded #osd-title { padding-top:0; margin-bottom:8px; flex-wrap:wrap; gap:6px; }

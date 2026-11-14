@@ -17,7 +17,22 @@ h1 { margin:0; color:var(--amber); font-size:21px; font-weight:800; letter-spaci
 .modes { display:flex; gap:3px; padding:3px; background:var(--bg); border:2px solid var(--line); border-radius:10px; }
 .modes button { border:0; background:transparent; color:var(--muted); font-size:12px; padding:6px 10px; white-space:nowrap; } .modes button.selected { background:var(--amber); color:#14213d; }
 #library-toggle { border:0; background:transparent; color:var(--amber); font-size:19px; padding:5px; }
-#local-view { flex:1; min-height:0; display:flex; flex-direction:column; } #channel-player { width:100%; height:100%; flex:1; min-height:0; display:block; border:0; } #empty-library { height:100%; display:grid; place-items:center; }
+#local-view { flex:1; min-height:0; display:flex; flex-direction:column; } #channel-player { width:100%; height:100%; flex:1; min-height:0; display:block; border:0; }
+/* The player and its tuning card share one stage. The card is the channel's own picture and readout: it answers
+   the click at once and lifts when the player reports a picture. A failed tune stays on it, with Retry. */
+#channel-stage { flex:1; min-height:0; display:grid; background:#0b1428; }
+#channel-stage:has(#channel-player[hidden]) { display:none; }
+#channel-stage > * { grid-area:1/1; min-width:0; min-height:0; }
+#channel-tuning { position:relative; z-index:1; display:flex; flex-direction:column; justify-content:flex-end; overflow:hidden; background:#0b1428; color:#f4f1ea; }
+#tuning-picture { position:absolute; inset:0; opacity:.6; }
+#tuning-picture img { display:block; width:100%; height:100%; object-fit:cover; }
+#tuning-readout { position:relative; column-gap:14px; padding:70px 24px 20px; border-radius:0; }
+#tuning-readout .channel-number { font-size:40px; } #tuning-readout .channel-name { font-size:28px; } #tuning-readout .channel-now { margin-top:4px; font-size:17px; }
+#tuning-state { position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border:5px solid #f4f1ea55; border-top-color:#ffb547; border-radius:50%; animation:tuning-spin .9s linear infinite; }
+#channel-tuning.is-fault #tuning-state { display:none; }
+#tuning-retry { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); max-width:calc(100% - 32px); padding:10px 16px; border-color:#ff8c82; background:#14213d; color:#f4f1ea; font-size:15px; overflow-wrap:anywhere; }
+@keyframes tuning-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { #tuning-state { animation-duration:4s; } } #empty-library { height:100%; display:grid; place-items:center; }
 
 /* Channel home: one compact control row and a deliberately scrolling card grid. */
 #channel-home { flex:1; min-height:0; display:flex; flex-direction:column; padding:12px 16px 16px; gap:10px; }

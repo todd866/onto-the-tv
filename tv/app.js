@@ -151,7 +151,14 @@
     try { return match ? decodeURIComponent(match[1]) : ''; } catch (e) { return ''; }
   }
   var desktopChannel = desktopQuery ? desktopParam('channel') : '';
-  if (desktopQuery) document.body.classList.add('desktop-embedded');
+  if (desktopQuery) { document.body.classList.add('desktop-embedded'); document.body.classList.add('desktop-frame'); }
+  // The Mac app owns browsing and faults: its window shows this page only once something plays.
+  // hello tells it this copy reports playing and errors (an older copy does neither).
+  function tellDesktop(type, status) {
+    if (!desktopQuery) return;
+    try { window.parent.postMessage({ type: type, status: status || 0 }, '*'); } catch (e) {}
+  }
+  tellDesktop('onto:desktop-hello');
   function storedViewers() {
     if (GUEST) return null;   // the server applies the guest's own ceiling
     if (desktopQuery) return desktopParam('viewers');
@@ -817,6 +824,7 @@
       mediaState = 'offline';
       diag('offline', { page: 'home', state: 'offline' });
       if (PACKAGED) return findServer();
+      tellDesktop('onto:desktop-error', error && error.status);
       fail(error);
     });
   }
@@ -1614,6 +1622,7 @@
     if (GUEST && $('player').hidden && !guestEntry) { guestEntry = true; try { history.pushState({ ontoPlayer: 1 }, ''); } catch (e) {} }
     $('player').hidden = false;
     document.body.classList.add('playing');
+    tellDesktop('onto:desktop-playing');
     hideAdChip();
     hideIntro();
     hideUpNext();
@@ -1837,7 +1846,7 @@
     // press, before the server is asked what is next.
     if (reason === 'skip' && previousId === channel.id) showSkipping();
     var body = nextBody(channel, fromItem, reason);
-    return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { showStreamError('tune'); return; } stopPlayback(); fail(error); });
+    return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { if (!play.item) tellDesktop('onto:desktop-error', error && error.status); showStreamError('tune'); return; } stopPlayback(); fail(error); });
   }
 
   function saveProgress(completed) {

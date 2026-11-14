@@ -9,8 +9,9 @@
 
 ## Shared channel behaviour
 
-Channels reads `http://localhost:8686/api/home` through a narrowly scoped Electron
-IPC handler. Channel numbers, names, now-playing picks and the rating ceiling come
+Channels reads `/api/home` through a narrowly scoped Electron IPC handler: from the M2
+(the TV box, the whole library) at its tailnet https address, falling back to this
+Mac's own server on `http://localhost:8686`. Channel numbers, names, now-playing picks and the rating ceiling come
 from the server. Empty or disallowed channels stay hidden; numbers are never
 renumbered. This uses the running TV server's catalogue, independently of whether
 the native app has a generated local shuffler file.
@@ -27,6 +28,17 @@ session-only viewer selection. Its next-show and channel-change requests retain
 that selection. Back, leaving Channels, or changing viewers closes the player.
 This replaces the separate generated shuffler iframe in Channels. Library and TV
 mode retain their existing local-file casting controls.
+
+The pressed channel's own card (picture, number, name, show) fills the stage in the
+frame of the click and lifts when the player reports a picture. A refused or
+unanswered tune stays on that card with Retry; the reason is in its tooltip. The
+TV-scale home is never shown inside the native window: the player page hides it
+there and reports `onto:desktop-hello`, `-playing` and `-error` to the app. Once the
+picture is up, keys go to the player, so Space pauses.
+
+Behind the M2's https address the page's Origin is `https://<host>`; tv-server
+counts the same host on either scheme as same-origin. Until 15 Nov 2026 it did not,
+so every tune from this app was refused (403) and left the TV home in the window.
 
 Both surfaces use bundled Nunito, navy/amber colours, image-backed rounded bezel
 cards and amber person toggles. Desktop keeps two compact control rows above the
@@ -68,7 +80,9 @@ remain available during playback and stop it before changing the audience.
 checks. `node scripts/check-native-parity.mjs` runs the affected headless checks
 sequentially, including `check-native-channels.mjs` with the real TV model and a
 synthetic catalogue. It covers viewport fit, both themes, audience changes, delayed
-responses, offline retry, prepared artwork reuse and the TV player handoff.
+responses, offline retry, prepared artwork reuse, the tuning card, a refused tune
+and the TV player handoff. The fixture serves plain http, so the https same-origin
+rule is covered by `src/tv-server.test.js` instead.
 Screenshots are written under `audit/`, which is excluded from Git.
 
 The headless scripts accept `PLAYWRIGHT_MODULE`; the native channel check also

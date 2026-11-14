@@ -19,7 +19,7 @@ const videos = [
 const saved = new Map();
 const library = createTvLibrary({ videos, history: {get:()=>0, list:()=>[]}, storage:{getItem:k=>saved.get(k), setItem:(k,v)=>saved.set(k,v)}, random:()=>0 });
 const browser = await chromium.launch({headless:true, executablePath:process.env.CHROMIUM_EXECUTABLE, channel:process.env.CHROMIUM_EXECUTABLE ? undefined : 'chrome', args:['--mute-audio']});
-let offline = false, delay = 0, calls = [], next = [], artRequests = 0;
+let offline = false, delay = 0, calls = [], next = [], artRequests = 0, nextDelay = 0, nextStatus = 200;
 try {
   const page = await browser.newPage();
   const errors = []; page.on('pageerror', error => errors.push(error.message));
@@ -41,6 +41,8 @@ try {
     if (url.pathname === '/api/home') return route.fulfill({json:library.home(url.searchParams.get('viewers'),url.searchParams.get('rating'))});
     if (url.pathname === '/api/next') {
       const body=route.request().postDataJSON();next.push(body);
+      if (nextDelay) await new Promise(r=>setTimeout(r,nextDelay));
+      if (nextStatus !== 200) return route.fulfill({status:nextStatus,json:{error:'Pair this TV first.'}});
       return route.fulfill({json:library.next(body.channel,body)});
     }
     if (url.pathname === '/api/scenes') return route.fulfill({json:{cuts:[],thumbs:[],segments:[]}});
@@ -68,7 +70,7 @@ try {
   await page.evaluate(()=>document.fonts.ready);
   assert.equal(await page.evaluate(()=>document.fonts.check('700 14px Nunito')),true);
   await page.waitForFunction(()=>[...document.querySelectorAll('.channel-card')].every(el=>el.querySelector('img')?.naturalWidth));
-  assert.deepEqual(await page.locator('.channel-number').allTextContents(),library.home('dad').channels.map(c=>String(c.number)));
+  assert.deepEqual(await page.locator('#channel-list .channel-number').allTextContents(),library.home('dad').channels.map(c=>String(c.number)));
   assert.equal(await page.locator('#channel-rating .default').textContent(),'M');
   const screenshots=[];
   for (const theme of ['dark','light']) {
@@ -129,13 +131,28 @@ try {
   await page.keyboard.press('Home');
   assert.equal(await page.locator('.channel-card').first().evaluate(el=>el===document.activeElement),true);
   // Real TV app receives the audience, and its /api/next request retains it.
+  // The pressed channel's own card answers the click at once and holds until the player has a picture.
+  nextDelay=600;
+  const pressed = await page.locator('.channel-card').nth(1).getAttribute('data-channel');
   await page.locator('.channel-card').nth(1).click();
   await page.waitForFunction(()=>!document.querySelector('#channel-player').hidden);
+  assert.equal(await page.locator('#channel-tuning').isVisible(),true);
+  assert.equal(await page.locator('#tuning-name').textContent(),library.home('sam,mum,dad').channels.find(c=>c.id===pressed).name);
+  await page.waitForFunction(()=>document.querySelector('#tuning-picture img')?.naturalWidth);
+  for (const theme of ['dark','light']) {
+    await page.emulateMedia({colorScheme:theme});
+    await assertViewport(page,{primary:['#channel-tuning'],controls:['#channel-back','#tuning-readout']});
+    await page.screenshot({path:resolve(out,`tuning-${theme}.png`)});
+  }
   for (let i=0;i<50 && !next.length;i++) await page.waitForTimeout(100);
   assert.ok(next.length,'embedded TV player must request an episode');
   assert.equal(next.at(-1).viewers,'sam,mum,dad');
   const frame = page.frames().find(f=>f.url().startsWith('http://localhost:8686/'));
   await frame.locator('#player:visible').waitFor();
+  await page.locator('#channel-tuning').waitFor({state:'hidden'});
+  nextDelay=0;
+  // The TV-scale home is never part of the Mac window.
+  assert.equal(await frame.locator('#home').evaluate(el=>getComputedStyle(el).display),'none');
   for (const theme of ['dark','light']) {
     await page.emulateMedia({colorScheme:theme});
     await assertViewport(page,{primary:['#channel-player'],controls:['#channel-back','#channel-profile']});
@@ -156,6 +173,26 @@ try {
   await page.locator('#channel-back').click();
   assert.equal(await page.locator('#channel-player').getAttribute('src'),'about:blank');
   assert.equal(await page.locator('.channel-card').nth(1).evaluate(el=>el===document.activeElement),true);
+  // A refused tune (the M2 answered 403 behind its https address until 15 Nov 2026) stays on the
+  // channel's card with Retry: never the TV home with a hidden error.
+  nextStatus=403;
+  await page.locator('.channel-card').nth(1).click();
+  await page.locator('#tuning-retry').waitFor();
+  assert.match(await page.locator('#tuning-retry').getAttribute('title'),/403/);
+  const refused = page.frames().find(f=>f.url().startsWith('http://localhost:8686/'));
+  assert.equal(await refused.locator('#home').evaluate(el=>getComputedStyle(el).display),'none');
+  assert.equal(await refused.locator('#player').isVisible(),false);
+  for (const theme of ['dark','light']) {
+    await page.emulateMedia({colorScheme:theme});
+    await assertViewport(page,{primary:['#channel-tuning'],controls:['#channel-back','#tuning-retry']});
+    await page.screenshot({path:resolve(out,`fault-${theme}.png`)});
+  }
+  nextStatus=200;
+  await page.locator('#tuning-retry').click();
+  await page.locator('#channel-tuning').waitFor({state:'hidden'});
+  await page.frames().find(f=>f.url().startsWith('http://localhost:8686/')).locator('#player:visible').waitFor();
+  await page.locator('#channel-back').click();
+  assert.equal(await page.locator('#channel-tuning').isVisible(),false);
   // An offline audience change clears earlier cards.
   offline=true;await pick('Jake');
   await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='⚠');

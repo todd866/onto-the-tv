@@ -42,7 +42,25 @@
     $('channel-state').title = description;
     $('channel-state').setAttribute('aria-label', description);
   }
+  // Tuning: the pressed channel's own card fills the stage in the frame of the click. The player loads
+  // behind it and says when it has a picture (or that the server refused); only then does it show.
+  const TUNE_WAIT_MS = 12000, HELLO_WAIT_MS = 600;
+  let tuned = null, tuneTimer = 0, helloTimer = 0, playerSaysHello = false;
+  function endTuning() {
+    clearTimeout(tuneTimer); clearTimeout(helloTimer);
+    $('channel-tuning').hidden = true;
+  }
+  function tuneFault(detail) {
+    if (!tuned || $('channel-tuning').hidden) return;
+    clearTimeout(tuneTimer);
+    $('channel-tuning').classList.add('is-fault');
+    $('tuning-retry').hidden = false;
+    $('tuning-retry').title = detail;
+    $('tuning-retry').setAttribute('aria-label', `${tuned.name} unavailable: ${detail} Retry`);
+    $('tuning-retry').focus();
+  }
   function stop() {
+    endTuning(); tuned = null;
     if (!$('channel-player').hidden) {
       $('channel-player').src = 'about:blank';
       $('channel-player').hidden = true;
@@ -51,18 +69,35 @@
     }
   }
   function tune(channel) {
-    selectedChannel = channel.id;
+    selectedChannel = channel.id; tuned = channel; playerSaysHello = false;
     const url = new URL('/', origin);
     url.searchParams.set('desktop', '1');
     url.searchParams.set('viewers', viewers.join(','));
     if (rating) url.searchParams.set('rating', rating);
     url.searchParams.set('channel', channel.id);
+    $('tuning-number').textContent = channel.number;
+    $('tuning-name').textContent = channel.name;
+    $('tuning-show').textContent = channel.now?.show ? `▶ ${channel.now.show}` : '';
+    $('tuning-picture').replaceChildren();
+    withArt($('tuning-picture'), channel.now?.art);
+    $('channel-tuning').classList.remove('is-fault');
+    $('tuning-retry').hidden = true;
+    $('channel-tuning').hidden = false;
     $('channel-player').src = url.href;
     $('channel-player').hidden = false;
     $('channel-home').hidden = true;
     $('channel-back').hidden = false;
     $('channel-back').focus();
+    clearTimeout(tuneTimer); clearTimeout(helloTimer);
+    tuneTimer = setTimeout(() => tuneFault('No answer from the TV server.'), TUNE_WAIT_MS);
   }
+  // A player page from before 15 Nov 2026 reports nothing: show it as soon as it has loaded.
+  $('channel-player').addEventListener('load', () => {
+    if (!tuned || $('channel-tuning').hidden) return;
+    clearTimeout(helloTimer);
+    helloTimer = setTimeout(() => { if (!playerSaysHello) endTuning(); }, HELLO_WAIT_MS);
+  });
+  $('tuning-retry').onclick = () => { if (tuned) tune(tuned); };
   function picture(path) {
     // Only the server's artwork route is usable, never a supplied external URL.
     if (typeof path !== 'string' || !path.startsWith('/art?')) return null;
@@ -230,7 +265,19 @@
     event.preventDefault(); cards[index].focus();
   });
   window.addEventListener('message', event => {
-    if (event.origin === origin && event.source === $('channel-player').contentWindow && event.data?.type === 'onto:desktop-home') { stop(); returnFocus(); }
+    if (event.origin !== origin || event.source !== $('channel-player').contentWindow) return;
+    const type = event.data?.type;
+    if (type === 'onto:desktop-home') { stop(); returnFocus(); }
+    if (type === 'onto:desktop-hello') playerSaysHello = true;
+    if (type === 'onto:desktop-playing' && !$('channel-tuning').hidden) {
+      endTuning();
+      // Keys now belong to the player: Space pauses instead of pressing Back.
+      try { $('channel-player').contentWindow.focus(); } catch { /* stays on Back */ }
+    }
+    if (type === 'onto:desktop-error') {
+      const status = Number(event.data.status) || 0;
+      tuneFault(status === 403 ? 'The TV server refused this app (403).' : status ? `The TV server answered ${status}.` : 'No answer from the TV server.');
+    }
   });
   paintProfile();
   window.channelView = { refresh, stop, enter() { if (!loaded && !loading) void refresh(); } };
