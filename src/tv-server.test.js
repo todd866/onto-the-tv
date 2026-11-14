@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TV_CHANNELS, applyScoredChannelWeight, channelScoresSignaturePart, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseChannelScores, parseRange, scoredRotationWeight } from './tv-server.js';
+import { TV_CHANNELS, applyScoredChannelWeight, channelScoresSignaturePart, mergeChannelScores, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseChannelScores, parseRange, scoredRotationWeight } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 
 const videos = [
@@ -983,4 +983,14 @@ test('two cards never show the same show after a tune moves a channel on', async
     assert.notEqual(cartoons, little, `round ${i}`);
     library.next(i % 2 ? 'cartoons' : 'littleones', { viewers: 'sam' });
   }
+});
+
+test('score files from several tools merge by channel, a later file replacing an earlier one\'s channel', () => {
+  const stationsFile = parseChannelScores(JSON.stringify({ channels: { triplej: { items: { 'a.mp4': { score: 0.9 } } }, dance: { items: { 'old.mp4': { score: 0.1 } } } } }));
+  const measured = parseChannelScores(JSON.stringify({ channels: { dance: { items: { 'b.mp4': { score: 0.7 } } } } }));
+  const merged = mergeChannelScores([stationsFile, null, measured]);
+  assert.deepEqual(Object.keys(merged).sort(), ['dance', 'triplej']);
+  assert.deepEqual(Object.keys(merged.dance.items), ['b.mp4']);
+  assert.equal(merged.triplej.items['a.mp4'].score, 0.9);
+  assert.equal(mergeChannelScores([null, null]), null);
 });

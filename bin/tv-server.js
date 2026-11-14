@@ -14,7 +14,7 @@ import { rebuildCatalogue } from '../src/library.js';
 import { buildPlayer } from '../src/shuffler.js';
 import { loadPlaybackHistory } from '../src/playback-history.js';
 import { createArtworkCache } from '../src/library-artwork.js';
-import { TV_CHANNELS, channelScoresSignaturePart, createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue, parseChannelScores } from '../src/tv-server.js';
+import { TV_CHANNELS, channelScoresSignaturePart, createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue, mergeChannelScores, parseChannelScores } from '../src/tv-server.js';
 import { createSceneStore } from '../src/scenes.js';
 import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
@@ -45,10 +45,18 @@ function channelScoresPath(settings) {
   return settings.channelScoresPath || join(appData, 'channel-scores.json');
 }
 
+// channel-scores.json is rewritten whole by the tool that scores the stations. Other scorers each keep a
+// file in channel-scores.d/ beside it (scripts/measure_dance.py writes dance.json), read in name order.
+async function channelScoresFiles(settings) {
+  const main = channelScoresPath(settings), extra = main.replace(/\.json$/, '') + '.d';
+  const names = (await readdir(extra).catch(() => [])).filter(name => name.endsWith('.json') && !name.startsWith('.')).sort();
+  return [main, ...names.map(name => join(extra, name))];
+}
+
 async function loadChannelScores(settings) {
-  const path = channelScoresPath(settings);
-  const text = await readFile(path, 'utf8').catch(() => '');
-  return parseChannelScores(text);
+  const parsed = [];
+  for (const path of await channelScoresFiles(settings)) parsed.push(parseChannelScores(await readFile(path, 'utf8').catch(() => '')));
+  return mergeChannelScores(parsed);
 }
 
 async function signature(settings) {
@@ -70,9 +78,9 @@ async function signature(settings) {
       if (child) parts.push(`${entry.name}:${child.mtimeMs}`);
     }
   }
-  const scoresPath = channelScoresPath(settings);
-  const scoresInfo = await stat(scoresPath).catch(() => null);
-  parts.push(channelScoresSignaturePart(scoresPath, scoresInfo));
+  for (const scoresPath of await channelScoresFiles(settings)) {
+    parts.push(channelScoresSignaturePart(scoresPath, await stat(scoresPath).catch(() => null)));
+  }
   return parts.sort().join('\n');
 }
 

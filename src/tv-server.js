@@ -248,6 +248,14 @@ export function parseChannelScores(text) {
   return Object.keys(out).length ? out : null;
 }
 
+// Several tools score channels (the stations' rotation, the measured Dance lights): each writes its own
+// file, and a later file replaces an earlier one's channel whole.
+export function mergeChannelScores(list) {
+  const out = Object.create(null);
+  for (const scores of list) if (scores) for (const [channelId, channel] of Object.entries(scores)) out[channelId] = channel;
+  return Object.keys(out).length ? out : null;
+}
+
 export function channelScoresSignaturePart(path, info) {
   return `channel-scores:${path}:${info ? `${info.mtimeMs}:${info.size}` : 'missing'}`;
 }
