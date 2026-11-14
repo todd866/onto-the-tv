@@ -36,6 +36,17 @@ TV-scale home is never shown inside the native window: the player page hides it
 there and reports `onto:desktop-hello`, `-playing` and `-error` to the app. Once the
 picture is up, keys go to the player, so Space pauses.
 
+**Find a show** (the field in the Channels row) names a show instead of taking what a
+channel has on: on 15 Nov 2026 the only way to play Ms Rachel from this Mac was to
+hope Little Ones had her staged, and this Mac's own Library tab holds none of the
+M2's library. The field lists the current audience's shows from the same server
+(`/api/library`, trimmed in `tv-home-client.js`), filters them as each letter lands,
+and shows them as the same cards in the current layout; Enter plays the first. A show
+opens on the episode last left part-way, else the first unfinished one, and the rest of
+the show follows it (`play`, `title`, `show`, `at` in the player's address, then
+`onto:desktop-queue`). A new audience never sees the previous audience's results.
+The TV reaches named shows through its Library tile instead.
+
 Behind the M2's https address the page's Origin is `https://<host>`; tv-server
 counts the same host on either scheme as same-origin. Until 15 Nov 2026 it did not,
 so every tune from this app was refused (403) and left the TV home in the window.
@@ -80,8 +91,9 @@ remain available during playback and stop it before changing the audience.
 checks. `node scripts/check-native-parity.mjs` runs the affected headless checks
 sequentially, including `check-native-channels.mjs` with the real TV model and a
 synthetic catalogue. It covers viewport fit, both themes, audience changes, delayed
-responses, offline retry, prepared artwork reuse, the tuning card, a refused tune
-and the TV player handoff. The fixture serves plain http, so the https same-origin
+responses, offline retry, prepared artwork reuse, the tuning card, a refused tune,
+Find a show (its own failure, a named play, another audience's results) and the TV
+player handoff. The fixture serves plain http, so the https same-origin
 rule is covered by `src/tv-server.test.js` instead.
 Screenshots are written under `audit/`, which is excluded from Git.
 

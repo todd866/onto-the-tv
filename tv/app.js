@@ -148,9 +148,11 @@
   var desktopQuery = /(?:^|[?&])desktop=1(?:&|$)/.test(location.search) && window.parent !== window;
   function desktopParam(name) {
     var match = new RegExp('(?:^|[?&])' + name + '=([^&]*)').exec(location.search);
-    try { return match ? decodeURIComponent(match[1]) : ''; } catch (e) { return ''; }
+    try { return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : ''; } catch (e) { return ''; }
   }
   var desktopChannel = desktopQuery ? desktopParam('channel') : '';
+  // Find a show in the Mac app: one named episode instead of a channel.
+  var desktopPlay = desktopQuery ? desktopParam('play') : '';
   if (desktopQuery) { document.body.classList.add('desktop-embedded'); document.body.classList.add('desktop-frame'); }
   // The Mac app owns browsing and faults: its window shows this page only once something plays.
   // hello tells it this copy reports playing and errors (an older copy does neither).
@@ -799,6 +801,12 @@
     if (bridge && typeof bridge.connect === 'function') { try { bridge.connect(SERVER); } catch (e) {} }
     diag('connected', { page: 'home', state: 'ready' });
     render();
+    if (desktopPlay && window.ontoPlayLibrary) {
+      var wanted = desktopPlay;
+      desktopPlay = '';
+      window.ontoPlayLibrary({ src: wanted, title: desktopParam('title'), show: desktopParam('show'), resume: Number(desktopParam('at')) || 0 });
+      return;
+    }
     if (desktopChannel) {
       var requestedChannel = desktopChannel;
       desktopChannel = '';
@@ -1002,7 +1010,7 @@
     paintTrackToggles();
     if (media.paused()) $('osd-play').classList.add('is-paused');
     else $('osd-play').classList.remove('is-paused');
-    $('osd-next').hidden = play.mode === 'single';
+    $('osd-next').hidden = play.mode === 'single' && !(play.nextQueue && play.nextQueue[0]);
   }
   function paintChannel(channel) {
     var digits = $('osd-num-digits'), name = $('osd-chname');
@@ -3017,6 +3025,18 @@
     if (from === 'player') showOsd();
     else moveFocus(0, 0);
   };
+  // The Mac app follows the episode it asked for with the rest of that show.
+  window.addEventListener('message', function (event) {
+    var list, queue = [], i;
+    if (!desktopQuery || event.source !== window.parent || !event.data || event.data.type !== 'onto:desktop-queue') return;
+    list = event.data.queue;
+    if (!play || !list || !list.length) return;
+    for (i = 0; i < list.length && queue.length < 60; i++) {
+      if (list[i] && typeof list[i].src === 'string' && list[i].src) queue.push({ src: list[i].src, title: typeof list[i].title === 'string' ? list[i].title : '' });
+    }
+    play.nextQueue = queue;
+    updateOsd();
+  });
   window.ontoPlayLibrary = function (item) {
     if (!item || !item.src) return;
     tuneRequest++;

@@ -34,9 +34,9 @@
     const cards = [...$('channel-list').querySelectorAll('button')];
     (cards.find(el => el.dataset.channel === selectedChannel) || cards[0])?.focus();
   }
-  function state(symbol, description) {
+  function state(symbol, description, retry = 'Channels unavailable · Retry') {
     $('channel-state').textContent = symbol;
-    $('channel-feedback').textContent = symbol === '⚠' ? 'Channels unavailable · Retry' : symbol === '∅' ? description : '';
+    $('channel-feedback').textContent = symbol === '⚠' ? retry : symbol === '∅' ? description : '';
     $('channel-feedback').hidden = !['⚠', '∅'].includes(symbol);
     $('channel-feedback').disabled = symbol !== '⚠';
     $('channel-state').title = description;
@@ -74,7 +74,13 @@
     url.searchParams.set('desktop', '1');
     url.searchParams.set('viewers', viewers.join(','));
     if (rating) url.searchParams.set('rating', rating);
-    url.searchParams.set('channel', channel.id);
+    if (channel.play) {
+      // A named episode from Find a show; the rest of the show follows once it is up.
+      url.searchParams.set('play', channel.play.src);
+      url.searchParams.set('title', channel.play.title);
+      url.searchParams.set('show', channel.name);
+      if (channel.play.resume) url.searchParams.set('at', String(channel.play.resume));
+    } else url.searchParams.set('channel', channel.id);
     $('tuning-number').textContent = channel.number;
     $('tuning-name').textContent = channel.name;
     $('tuning-show').textContent = channel.now?.show ? `▶ ${channel.now.show}` : '';
@@ -124,8 +130,11 @@
     panel.hidden = false;
     const image = span('hero-picture', '');
     const copy = span('hero-copy', '');
-    copy.append(span('hero-channel', `${channel.number} · ${channel.name}`), span('hero-show', channel.now?.show || '—'));
-    if (channel.now?.title) copy.append(span('hero-title', channel.now.title));
+    const found = Boolean(channel.play);
+    copy.append(span('hero-channel', found ? `${channel.episodes} ${channel.episodes === 1 ? 'episode' : 'episodes'}` : `${channel.number} · ${channel.name}`),
+      span('hero-show', found ? channel.name : channel.now?.show || '—'));
+    const detail = found ? channel.now.show : channel.now?.title;
+    if (detail) copy.append(span('hero-title', detail));
     if (channel.now?.minutes) copy.append(span('hero-length', minutes(channel.now)));
     if (channel.now?.next) copy.append(span('hero-next', nextLine(channel.now)));
     panel.replaceChildren(image, copy);
@@ -135,20 +144,22 @@
     const layout = layoutOf();
     const button = document.createElement('button'); button.type = 'button'; button.className = `channel-card layout-${layout}`;
     button.dataset.channel = channel.id;
-    const show = channel.now?.show || '—';
-    button.title = [`${channel.number} · ${channel.name}`, show, channel.now?.title, minutes(channel.now), nextLine(channel.now)].filter(Boolean).join('\n');
-    button.setAttribute('aria-label', `Play channel ${channel.number}, ${channel.name}: ${show}${channel.now?.title ? ', ' + channel.now.title : ''}`);
+    const found = Boolean(channel.play);
+    const show = channel.now?.show || (found ? '' : '—');
+    button.title = [found ? channel.name : `${channel.number} · ${channel.name}`, show, channel.now?.title, minutes(channel.now), nextLine(channel.now)].filter(Boolean).join('\n');
+    button.setAttribute('aria-label', found ? `Play ${channel.name}${show ? ': ' + show : ''}`
+      : `Play channel ${channel.number}, ${channel.name}: ${show}${channel.now?.title ? ', ' + channel.now.title : ''}`);
     const image = span('channel-picture', '');
     if (layout === 'guide') {
       const name = span('guide-channel', ''); name.append(span('channel-number', channel.number), span('channel-name', channel.name));
-      const now = span('guide-now', ''); now.append(span('guide-show', show), span('guide-title', [channel.now?.title, minutes(channel.now)].filter(Boolean).join(' · ')));
+      const now = span('guide-now', ''); now.append(span('guide-show', show || channel.name), span('guide-title', [channel.now?.title, minutes(channel.now)].filter(Boolean).join(' · ')));
       const next = span('guide-next', channel.now?.next ? `${channel.now.next.show}${channel.now.next.title ? ' · ' + channel.now.next.title : ''}` : '');
       button.append(image, name, now, next);
     } else if (layout === 'pictures') {
       button.append(image, span('picture-label', channel.name));
     } else {
       const row = span('channel-readout', '');
-      row.append(span('channel-number', channel.number), span('channel-name', channel.name), span('channel-now', `▶ ${show}`));
+      row.append(span('channel-number', channel.number), span('channel-name', channel.name), span('channel-now', show ? `▶ ${show}` : ''));
       button.append(image, row);
     }
     button.onclick = () => tune(channel);
@@ -211,9 +222,64 @@
     $('channel-picker').hidden = false;
     people.querySelector(`[data-profile="${profile.id}"]`)?.focus();
   }
+  // Find a show: this audience's shows from the same server, filtered here as each letter lands.
+  let shows = null, showsFor = '', showsAsked = '', query = '';
+  const audienceKey = () => `${viewers.join(',')}|${rating || ''}`;
+  async function loadShows(again = false) {
+    const key = audienceKey();
+    if (!window.tv?.getTvShows || (shows && showsFor === key) || (showsAsked === key && !again)) return;
+    showsAsked = key;
+    if (query) state('↻', 'Loading shows');
+    try {
+      const result = await window.tv.getTvShows(viewers, rating);
+      if (audienceKey() !== key) return;
+      if (!ORIGINS.includes(result.origin)) throw new Error('Unexpected TV server.');
+      if (result.origin !== origin) { art.clear(); origin = result.origin; }
+      shows = result.shows; showsFor = key;
+    } catch (error) {
+      if (audienceKey() !== key) return;
+      showsAsked = '';
+      if (query) state('⚠', `Shows unavailable: ${error.message}`, 'Shows unavailable · Retry');
+      return;
+    }
+    if (query) render();
+  }
+  // The episode a show opens on: the one last left part-way, else the first not finished.
+  function opening(show) {
+    const left = show.episodes.filter(item => item.resume).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    return left || show.episodes.find(item => !item.completed) || show.episodes[0];
+  }
+  function showTile(show, first) {
+    const at = show.episodes.indexOf(first);
+    const rest = [...show.episodes.slice(at + 1), ...show.episodes.slice(0, at)];
+    return { id: `show:${show.title}`, number: '', name: show.title, episodes: show.episodes.length,
+      now: { show: first.title === show.title ? '' : first.title, title: '', minutes: first.minutes, art: first.art || show.art,
+        next: rest[0] ? { show: rest[0].title, title: '' } : null },
+      play: first, queue: rest.slice(0, 60).map(item => ({ src: item.src, title: item.title })) };
+  }
+  function matches() {
+    const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    const has = value => { const lower = value.toLocaleLowerCase(); return words.every(word => lower.includes(word)); };
+    const ranked = [[], [], []];
+    // Another audience's shows are never offered while this one's are on their way.
+    for (const show of (showsFor === audienceKey() && shows) || []) {
+      if (has(show.title)) ranked[show.title.toLocaleLowerCase().startsWith(words[0]) ? 0 : 1].push(showTile(show, opening(show)));
+      else {
+        // A show whose name does not match still answers for an episode that does.
+        const named = show.episodes.find(item => has(item.title));
+        if (named) ranked[2].push(showTile(show, named));
+      }
+    }
+    return ranked.flat().slice(0, 60);
+  }
+  function tiles() { return query ? matches() : lineup; }
   function render() {
-    $('channel-list').replaceChildren(...lineup.map(card));
-    hero(lineup[0]);
+    const list = tiles();
+    $('channel-list').replaceChildren(...list.map(card));
+    hero(list[0]);
+    if (!query) return;
+    if (!shows || showsFor !== audienceKey()) { if ($('channel-state').textContent !== '⚠') state('↻', 'Loading shows'); }
+    else state(list.length ? '' : '∅', list.length ? '' : 'No show by that name');
   }
   async function refresh(changed = false) {
     if (!window.tv?.getTvHome) return;
@@ -231,9 +297,9 @@
       const paths = new Set(home.channels.map(channel => channel.now?.art));
       for (const path of art.keys()) if (!paths.has(path)) art.delete(path);
       lineup = home.channels;
-      render();
       loaded = true;
-      state(home.channels.length ? '' : '∅', home.channels.length ? '' : 'No channels for this rating');
+      if (query) { render(); void loadShows(); }
+      else { render(); state(home.channels.length ? '' : '∅', home.channels.length ? '' : 'No channels for this rating'); }
     } catch (error) {
       if (request !== generation) return;
       state('⚠', `Channels unavailable: ${error.message}. Use Refresh channels to retry.`);
@@ -248,9 +314,25 @@
       event.preventDefault(); people[(at + (event.key === 'ArrowRight' ? 1 : people.length - 1)) % people.length].focus();
     }
   });
-  $('channel-refresh').onclick = () => { stop(); void refresh(); };
+  $('channel-refresh').onclick = () => { stop(); shows = null; showsAsked = ''; void refresh(); };
   $('channel-back').onclick = () => { stop(); returnFocus(); };
-  $('channel-feedback').onclick = () => { stop(); void refresh(); };
+  $('channel-feedback').onclick = () => { stop(); if (query && loaded) void loadShows(true); else void refresh(); };
+  $('channel-search').addEventListener('focus', () => void loadShows());
+  $('channel-search').addEventListener('input', () => {
+    const next = $('channel-search').value.trim();
+    if (next === query) return;
+    const was = query; query = next;
+    stop();
+    if (query) void loadShows();
+    render();
+    if (was && !query) state(lineup.length ? '' : '∅', lineup.length ? '' : 'No channels for this rating');
+  });
+  $('channel-search').addEventListener('keydown', event => {
+    const first = $('channel-list').querySelector('button');
+    if (!first || !query) return;
+    if (event.key === 'ArrowDown') { event.preventDefault(); first.focus(); }
+    if (event.key === 'Enter') { event.preventDefault(); first.click(); }
+  });
   $('channel-list').addEventListener('keydown', event => {
     const cards = [...$('channel-list').querySelectorAll('button')];
     const current = cards.indexOf(document.activeElement);
@@ -271,6 +353,7 @@
     if (type === 'onto:desktop-hello') playerSaysHello = true;
     if (type === 'onto:desktop-playing' && !$('channel-tuning').hidden) {
       endTuning();
+      if (tuned?.queue?.length) event.source.postMessage({ type: 'onto:desktop-queue', queue: tuned.queue }, origin);
       // Keys now belong to the player: Space pauses instead of pressing Back.
       try { $('channel-player').contentWindow.focus(); } catch { /* stays on Back */ }
     }

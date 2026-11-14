@@ -48,6 +48,10 @@ h1 { margin:0; color:var(--amber); font-size:21px; font-weight:800; letter-spaci
 #channel-rating button[data-rating="PG"][aria-pressed="true"] { background:#f5d90a; color:#14213d; }
 #channel-rating button[data-rating="M"][aria-pressed="true"] { background:#e5484d; color:#fff; }
 #channel-viewers button[aria-pressed="true"] svg { fill:currentColor; }
+/* Find a show: names a show instead of taking what a channel has on. */
+#channel-search { flex:1 1 9em; width:auto; min-width:8em; max-width:24em; min-height:38px; padding:5px 12px; border:2px solid var(--line); border-radius:12px; background:var(--panel-2); color:var(--text); font-size:14px; }
+#channel-search::placeholder { color:var(--muted); opacity:1; }
+.channel-card .channel-now:empty { display:none; }
 #channel-refresh { margin-left:auto; padding:5px 9px; } #channel-state { min-width:1.2em; color:var(--amber); font-size:16px; text-align:center; }
 #channel-list { flex:1; min-height:0; overflow:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,11.5em),1fr)); align-content:start; gap:12px; margin:0; padding:4px 4px 10px; list-style:none; }
 /* Match the TV's image-backed bezel without squeezing three labels into one line. */

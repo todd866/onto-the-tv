@@ -1,4 +1,4 @@
-import { fetchTvHome } from './tv-home-client.js';
+import { fetchTvHome, fetchTvShows } from './tv-home-client.js';
 import { createBlackbox } from './blackbox.js';
 import { createReportService } from './report-service.js';
 import { createStateTrace, shortArgs } from './report-trace.js';
@@ -267,6 +267,7 @@ handle('taste:save', input => {
 });
 handle('app:get', snapshot);
 handle('tv-home:get', (viewers, rating) => fetchTvHome(viewers, fetch, rating));
+handle('tv-shows:get', (viewers, rating) => fetchTvShows(viewers, fetch, rating));
 handle('history:record', async input => {
   if (await recordLocalHistory(playbackHistory, catalogue, input, { casting: channelCasting })) sendState(session.getState());
 });

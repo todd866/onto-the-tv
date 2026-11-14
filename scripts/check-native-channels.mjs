@@ -5,6 +5,8 @@ import { resolve, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 import { createTvLibrary } from '../src/tv-server.js';
+import { libraryView } from '../src/tv-library-api.js';
+import { fetchTvShows } from '../src/tv-home-client.js';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || pathToFileURL(resolve(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')).href);
 const { assertViewport } = await import(process.env.VIEWPORT_MODULE || new URL('./lib/viewport-fit.mjs', import.meta.url).href);
 const out = resolve('audit/native-channels');
@@ -29,9 +31,19 @@ try {
     if (offline) throw new Error('offline');
     return { ...result, origin: 'http://localhost:8686' };
   });
+  // The real show-list client over the real library model, with the fixture catalogue.
+  let showCalls = 0, showsOffline = false;
+  await page.exposeFunction('fixtureShows', (viewers, rating) => {
+    showCalls++;
+    return fetchTvShows(viewers, async url => {
+      if (showsOffline) throw new Error('offline');
+      return { ok: true, json: async () => libraryView({ videos: library.catalogue(), history: [], viewers: url.searchParams.get('viewers'), rating: url.searchParams.get('rating') }) };
+    }, rating, ['http://localhost:8686']);
+  });
   await page.addInitScript(() => {
     window.tv = {
       getTvHome: (viewers, rating) => window.fixtureHome(viewers, rating),
+      getTvShows: (viewers, rating) => window.fixtureShows(viewers, rating),
       get:async()=>({hasPlayer:false,library:'Fixture library',tvHost:'',avTransportUrl:'',bindHost:'',tv:{status:'idle',current:null,upcoming:[],history:[]}}),
       onState:()=>{},onMode:()=>{},onError:()=>{},onCast:()=>{},
     };
@@ -193,6 +205,48 @@ try {
   await page.frames().find(f=>f.url().startsWith('http://localhost:8686/')).locator('#player:visible').waitFor();
   await page.locator('#channel-back').click();
   assert.equal(await page.locator('#channel-tuning').isVisible(),false);
+  // Find a show: a show named in the row plays itself, not whatever a channel has on.
+  showsOffline=true;
+  await page.locator('#channel-search').fill('bing');
+  await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='⚠');
+  assert.equal(await page.locator('.channel-card').count(),0);
+  showsOffline=false;await page.locator('#channel-feedback').click();
+  await page.locator('.channel-card').first().waitFor();
+  assert.deepEqual(await page.locator('.channel-card .picture-label').allTextContents(),['Bing']);
+  await page.waitForFunction(()=>document.querySelector('.channel-card .channel-picture img')?.naturalWidth);
+  for (const theme of ['dark','light']) {
+    await page.emulateMedia({colorScheme:theme});
+    await assertViewport(page,{primary:['#channel-home'],controls:['#channel-search','#channel-profile','#channel-refresh']});
+    await page.screenshot({path:resolve(out,`find-${theme}.png`)});
+  }
+  const asked=next.length;
+  await page.locator('#channel-search').press('Enter');
+  assert.equal(await page.locator('#tuning-name').textContent(),'Bing');
+  await page.locator('#channel-tuning').waitFor({state:'hidden'});
+  const named = page.frames().find(f=>f.url().startsWith('http://localhost:8686/'));
+  assert.equal(new URL(named.url()).searchParams.get('play'),videos.find(v=>v.channel==='Bing').src);
+  await named.locator('#player:visible').waitFor();
+  assert.equal(next.length,asked,'a named show is not a channel pick');
+  await page.locator('#channel-back').click();
+  // A grown-up show is not offered to Sam, and clearing the field brings the channels back.
+  await page.locator('#channel-search').fill('good place');
+  await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='∅');
+  assert.equal(await page.locator('.channel-card').count(),0);
+  await page.locator('#channel-search').fill('');
+  await page.waitForFunction(()=>document.querySelectorAll('.channel-card').length>1 && document.querySelector('#channel-state').textContent==='');
+  // Ian's lineup, by contrast, finds it; switching back to Sam must not leave it on screen.
+  await pick('Ian');await rated('M');
+  await page.locator('#channel-search').fill('good place');
+  await page.locator('.channel-card').first().waitFor();
+  for (const theme of ['dark','light']) {
+    await page.emulateMedia({colorScheme:theme});
+    await page.screenshot({path:resolve(out,`find-now-${theme}.png`)});
+  }
+  await pick('Sam');await rated('G');
+  await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='∅');
+  assert.equal(await page.locator('.channel-card').count(),0);
+  await page.locator('#channel-search').fill('');
+  await page.waitForFunction(()=>document.querySelectorAll('.channel-card').length>1);
   // An offline audience change clears earlier cards.
   offline=true;await pick('Jake');
   await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='⚠');
