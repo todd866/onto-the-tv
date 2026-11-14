@@ -54,3 +54,21 @@ preinstalled bloat where firmware allows.
   press); (3) its signing/install CLI as an alternative to our M2 `vd_appinstall` path.
 - If picked up: TV work needs Ian's go-ahead (never 21:00–07:00); start read-only (list apps/bloat), report before
   removing or installing anything.
+
+## Replacing Tizen on the UA65MU8000 (looked into 14 Nov 2026)
+
+Ian: "I literally get ads on my tv … there needs to be an open source Tizen 3 replacement." First pass, web only;
+nothing was changed on the TV.
+
+- **No replacement OS turned up.** Searches found no open-source firmware for any Samsung Tizen TV, only tools that
+  run on top of the stock system. SamyGO roots exist per series and firmware (J up to fw 1480, K up to 1169); no
+  M-series (2017) root was found, and the forum's standing advice is never to take a firmware update. Not yet
+  checked: the SamyGO M-series section itself, against this TV's exact firmware string.
+- **AeroTizen** lists nothing older than a 2019 Tizen 5.0 set; its Home takeover works from Tizen 6.5. Untested on Tizen 3.
+- **Ways to get rid of the ads, least effort first:**
+  1. TV settings: interest-based ads off, viewing information services off, Smart Hub autorun off. Reduces, does not remove.
+  2. Filter the TV's DNS (Samsung ad and telemetry domains). The app reaches the M2 by address (`192.168.20.20:8686`),
+     so it is unaffected. Needs a DNS filter on the M2 (port 53, so sudo) or at the router, and the TV pointed at it.
+  3. Cut the TV off the internet at the router. The app still works; Samsung's own apps (YouTube, store) stop.
+  4. Use the TV as a panel: run Onto the TV on the M2 over HDMI (`scripts/install_tv_shell.sh` exists for this) and never
+     open Smart Hub. The lounge remote is infra-red to the TV, so the M2 would need an IR receiver to hear it.
