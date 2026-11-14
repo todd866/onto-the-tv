@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TV_CHANNELS, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
+import { TV_CHANNELS, applyScoredChannelWeight, channelScoresSignaturePart, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseChannelScores, parseRange, scoredRotationWeight } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 
 const videos = [
@@ -175,6 +175,47 @@ test('Rides & Adventures matches its shows and applies a PG channel rating', asy
   assert.throws(() => library.next('rides', { viewers: 'sam,jake' }), /empty/);
   const misplaced = createTvLibrary({ videos: rides.map(item => ({ ...item, tier: 'shared' })), history, storage });
   assert.equal(misplaced.home('sam').channels.some(channel => channel.id === 'rides'), false);
+});
+
+test('triple j and Double J take members and weights from the score file', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-'));
+  const history = await loadPlaybackHistory(join(dir, 'history.json'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  const inFile = { src: 'music/Artist/Artist - Song [vid].mp4', file: '/m/music/Artist/Song.mp4', title: 'Song', channel: 'Artist', tier: 'music', duration: 240 };
+  const outFile = { src: 'music/Other/Other - Track [x].mp4', file: '/m/music/Other/Track.mp4', title: 'Track', channel: 'Other', tier: 'music', duration: 240 };
+  const kids = { ...inFile, src: 'music/Kids/Kids - Bop [k].mp4', tier: 'shared', channel: 'Kids' };
+  const scores = {
+    triplej: { items: { [inFile.src]: { score: 0.92 }, [kids.src]: { score: 0.8 }, 'missing/in-library.mp4': { score: 1 } } },
+    doublej: { items: {} },
+  };
+  assert.equal(inTvGenre(inFile, 'triplej', scores), true);
+  assert.equal(inTvGenre(outFile, 'triplej', scores), false);
+  assert.equal(inTvGenre(inFile, 'triplej'), false);
+  assert.equal(inTvGenre(kids, 'triplej', scores), false);
+  assert.equal(inTvGenre({ ...inFile, src: 'ads/80s/ad.mp4' }, 'triplej', scores), false);
+  const empty = createTvLibrary({ videos: [inFile, outFile], history, storage, random: () => 0 });
+  assert.equal(empty.home('dad').channels.some(channel => channel.id === 'triplej'), false);
+  const library = createTvLibrary({ videos: [inFile, outFile], history, storage, channelScores: scores, random: () => 0 });
+  assert.equal(countTvChannelVideos([inFile, outFile], 'triplej', scores), 1);
+  const live = { src: 'music/Live/tiny desk set.mp4', file: '/m/Live/set.mp4', title: 'Set', channel: 'tiny desk', tier: 'music', duration: 1800 };
+  const withLive = createTvLibrary({ videos: [inFile, live], history, storage, channelScores: scores, random: () => 0 });
+  const dadIds = withLive.home('dad').channels.map(channel => channel.id);
+  assert.ok(dadIds.includes('triplej') && dadIds.includes('livesets'));
+  assert.ok(dadIds.indexOf('triplej') < dadIds.indexOf('livesets'));
+  const card = withLive.home('dad').channels.find(channel => channel.id === 'triplej');
+  assert.equal(card.about, 'triple j — on rotation, picked for you');
+  assert.equal(applyScoredChannelWeight(1, 1), 2);
+  assert.equal(applyScoredChannelWeight(1, 0), 0.4);
+  assert.equal(scoredRotationWeight(7), scoredRotationWeight(1));
+  assert.equal(parseChannelScores('not json'), null);
+  assert.equal(parseChannelScores(JSON.stringify({ channels: [] })), null);
+  assert.equal(parseChannelScores(JSON.stringify({ channels: { triplej: { items: { 'a.mp4': { score: 'nope' } } } } })), null);
+  const scoreSeven = { channels: { triplej: { items: { 'a.mp4': { score: 7 } } } } };
+  const clamped = parseChannelScores(JSON.stringify(scoreSeven));
+  assert.equal(clamped.triplej.items['a.mp4'].score, 1);
+  const partA = channelScoresSignaturePart('/tmp/scores.json', { mtimeMs: 1, size: 10 });
+  const partB = channelScoresSignaturePart('/tmp/scores.json', { mtimeMs: 2, size: 10 });
+  assert.notEqual(partA, partB);
 });
 
 test('progress: surfing is not history, a real watch resumes', async () => {
