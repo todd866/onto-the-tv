@@ -20,6 +20,18 @@ async function setup() {
   return { dir, history, storage, library: createTvLibrary({ videos, history, storage, random: () => 0 }) };
 }
 
+test('prefetch reads the staged channel item without consuming it', async () => {
+  const { library } = await setup();
+  library.home('sam');
+  const first = library.next('cartoons', { viewers: 'sam', prefetch: true });
+  const again = library.next('cartoons', { viewers: 'sam', prefetch: true });
+  assert.equal(again.src, first.src);
+  assert.equal(again.prefetch, true);
+  const taken = library.next('cartoons', { viewers: 'sam' });
+  assert.equal(taken.src, first.src);
+  assert.notEqual(library.next('cartoons', { viewers: 'sam' }).src, first.src);
+});
+
 test('only home-network addresses are served', () => {
   for (const address of ['127.0.0.1', '::1', '192.168.20.14', '::ffff:10.0.0.5', '172.20.1.1', '100.96.209.126', 'fd7a:115c::1', 'fe80::1'])
     assert.equal(isHomeAddress(address), true, address);

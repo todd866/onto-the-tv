@@ -4,6 +4,18 @@ import { createDiagnosticsStore } from './tv-diagnostics.js';
 
 const payload = (session = 's1', event = 'playing') => ({ session, event, build: 'dev-1', page: 'player', engine: 'video', position: 3, duration: 10, paused: false, hidden: false, state: 'playing' });
 
+test('key_latency records the milliseconds and drops programme identity', () => {
+  const store = createDiagnosticsStore({ now: () => 1000 });
+  const saved = store.record({ ...payload(), event: 'key_latency', input: 'arrows', latencyMs: 18.4, title: 'Timmy Time', src: 'secret.mp4' });
+  assert.equal(saved.event, 'key_latency');
+  assert.equal(saved.latencyMs, 18);
+  assert.equal(saved.input, 'arrows');
+  assert.equal(saved.title, undefined);
+  assert.equal(saved.src, undefined);
+  assert.throws(() => store.record({ ...payload(), event: 'key_latency', latencyMs: -1 }), /latency/);
+  assert.throws(() => store.record({ ...payload(), event: 'key_latency', latencyMs: 60001 }), /latency/);
+});
+
 test('diagnostics validates bounded schema and removes server identity', () => {
   const store = createDiagnosticsStore({ now: () => 1000 });
   const result = store.record({ ...payload(), server: 'http://evil/path?secret=yes' });

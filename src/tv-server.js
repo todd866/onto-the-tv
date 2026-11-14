@@ -1,4 +1,5 @@
 import { createTvCommands } from './tv-commands.js';
+import { createPlayNext } from './play-next.js';
 import { createServer } from 'node:http';
 import { createReadStream, readFileSync, writeFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
@@ -852,6 +853,15 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const queued = takeQueued(channelId, options);
     if (queued !== undefined) { remember(channelId, queued); return finish(queued, channelId, ids, rating); }
     const key = stageKey(channelId, ids, rating);
+    // A preview may fetch the staged episode without consuming it, so a cancelled
+    // press does not change what the channel plays next.
+    if (options.prefetch === true) {
+      if (!staged.has(key)) return { src: '', title: '', show: '', duration: 0, resume: 0, queue: [], prefetch: true };
+      const item = describe(videos[staged.get(key)]);
+      item.queue = [{ kind: 'show', src: item.src, breaks: [] }];
+      item.prefetch = true;
+      return item;
+    }
     if (!options.current && staged.has(key)) {
       const index = staged.get(key);
       staged.delete(key);
@@ -941,8 +951,43 @@ export async function streamFile(request, response, file, mediaCache) {
  * `token` is the pairing secret the installed TV app sends.
  */
 export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), sceneStore = null,
-  consoleLauncher = createConsoleLauncher(), libraryRoots = null, catalogueFile = null, log = () => {} }) {
-  const tvCommands = createTvCommands();
+  consoleLauncher = createConsoleLauncher(), libraryRoots = null, catalogueFile = null, playNextFile = null, log = () => {} }) {
+  const allowSrc = src => { try { library.video(src); return true; } catch { return false; } };
+  const tvCommands = createTvCommands({ allowSrc });
+  const playNext = createPlayNext({ file: playNextFile, allowSrc });
+  let nowPlaying = { src: null, position: 0, channel: null, profile: null };
+  function librarySrc(src) {
+    if (typeof src !== 'string' || src.length < 1 || src.length > 400 || src.includes('..') || src.includes('\\') || src.includes('\0') || src.startsWith('/') || /%2e%2e/i.test(src) || /^[a-z][a-z0-9+.-]*:/i.test(src)) return null;
+    return allowSrc(src) ? src : null;
+  }
+  function readNow(body) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+    let profile = null;
+    if (body.profile != null) {
+      if (typeof body.profile !== 'string' || !/^[A-Za-z0-9._-]{1,32}$/.test(body.profile)) return null;
+      profile = body.profile;
+    }
+    let channel = null;
+    if (body.channel != null) {
+      const channelBody = body.channel;
+      if (!channelBody || typeof channelBody !== 'object' || Array.isArray(channelBody)) return null;
+      const id = channelBody.id == null ? '' : String(channelBody.id);
+      const name = channelBody.name == null ? '' : String(channelBody.name);
+      if (id.length > 64 || name.length > 80) return null;
+      let number = null;
+      if (channelBody.number != null) {
+        if (typeof channelBody.number !== 'number' || !Number.isInteger(channelBody.number) || channelBody.number < 0 || channelBody.number > 999) return null;
+        number = channelBody.number;
+      }
+      channel = { id, number, name };
+    }
+    const position = body.position == null ? 0 : body.position;
+    if (typeof position !== 'number' || !Number.isFinite(position) || position < 0 || position > 86400) return null;
+    if (body.src == null || body.src === '') return { src: null, position: Math.round(position), channel, profile };
+    const src = librarySrc(body.src);
+    if (!src) return null;
+    return { src, position: Math.round(body.position), channel, profile };
+  }
   let dirty = false;
   const save = () => {
     if (!dirty) return Promise.resolve();
@@ -1010,6 +1055,28 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         dirty = true;
         await watchEvents.flush();
         return send(response, 200, result);
+      }
+      if (path === '/api/play-next') {
+        if (!token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
+        response.setHeader('Cache-Control', 'no-store');
+        if (request.method === 'GET') return send(response, 200, await playNext.list());
+        if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' });
+        const body = await readBody(request);
+        const src = librarySrc(body.src);
+        if (!src) return send(response, 400, { error: 'Invalid source.' });
+        const saved = body.consume === true ? await playNext.consume(src) : await playNext.add(src);
+        if (!saved) return send(response, 400, { error: 'Invalid source.' });
+        return send(response, 200, saved);
+      }
+      if (path === '/api/now-playing') {
+        if (!token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
+        response.setHeader('Cache-Control', 'no-store');
+        if (request.method === 'GET') return send(response, 200, nowPlaying);
+        if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' });
+        const next = readNow(await readBody(request));
+        if (!next) return send(response, 400, { error: 'Invalid now playing.' });
+        nowPlaying = next;
+        return send(response, 200, nowPlaying);
       }
       if (path === '/api/tv-command') {
         if (!token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });

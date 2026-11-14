@@ -46,6 +46,45 @@ test('failed telemetry and faulty samplers cannot throw into playback', () => {
   assert.doesNotThrow(() => h.timers[0]());
 });
 
+test('a play command is delivered with its source and position', async () => {
+  const h = harness();
+  h.window.ontoTVAction = (action, command) => { h.played = { action, command }; return null; };
+  h.requests[0].request.status = 200;
+  h.requests[0].request.responseText = JSON.stringify({ command: { id: 'c1', action: 'play', expiresAt: Date.now() + 60000, src: 'Kids/Timmy.mp4', positionSeconds: 42 } });
+  h.requests[0].request.onloadend();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.played.action, 'play');
+  assert.equal(h.played.command.src, 'Kids/Timmy.mp4');
+  assert.equal(h.played.command.positionSeconds, 42);
+});
+
+test('pause, seek and tune are delivered and acknowledged', async () => {
+  const h = harness();
+  const seen = [];
+  h.window.ontoTVAction = (action, command) => { seen.push({ action, command }); return null; };
+  h.requests[0].request.status = 200;
+  h.requests[0].request.responseText = JSON.stringify({ command: { id: 'p1', action: 'pause', expiresAt: Date.now() + 60000 } });
+  h.requests[0].request.onloadend();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(seen[0].action, 'pause');
+  assert.equal(h.requests.at(-1).body.commandAck.status, 'done');
+  h.requests.at(-1).request.status = 200;
+  h.requests.at(-1).request.responseText = JSON.stringify({ command: { id: 's1', action: 'seek', seconds: 40, expiresAt: Date.now() + 60000 } });
+  h.requests.at(-1).request.onloadend();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(seen[1].command.seconds, 40);
+  h.requests.at(-1).request.status = 200;
+  h.requests.at(-1).request.responseText = JSON.stringify({ command: { id: 't1', action: 'tune', channel: 5, expiresAt: Date.now() + 60000 } });
+  h.requests.at(-1).request.onloadend();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(seen[2].command.channel, 5);
+  h.requests.at(-1).request.status = 200;
+  h.requests.at(-1).request.responseText = JSON.stringify({ command: { id: 'bad', action: 'eval', expiresAt: Date.now() + 60000 } });
+  h.requests.at(-1).request.onloadend();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(seen.length, 3);
+});
+
 test('controller evidence survives subsequent heartbeats without device data loss', () => {
   const h = harness();
   const controller = {supported:true,count:1,devices:[{index:0,id:'USB Gamepad',mapping:'unknown',buttons:12,axes:4}],lastInput:'button-0',error:'none'};

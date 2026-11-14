@@ -77,7 +77,7 @@ test('the TV server\'s controls are not reachable from the guest app', async () 
   const { base, code, close } = await setup();
   try {
     const cookie = await signIn(base, code);
-    for (const path of ['/api/tv-command', '/api/diagnostics', '/api/game/state', '/api/console/launch', '/api/media-cache', '/api/progress-all', '/scene-thumb', '/uke/audio/x', '/api/tv-command?x=1'])
+    for (const path of ['/api/tv-command', '/api/diagnostics', '/api/play-next', '/api/now-playing', '/api/game/state', '/api/console/launch', '/api/media-cache', '/api/progress-all', '/scene-thumb', '/uke/audio/x', '/api/tv-command?x=1'])
     {
       const status = (await post(base, path, cookie, {})).status;
       assert.ok(status === 404 || status === 405, `${path} → ${status}`);

@@ -14,7 +14,7 @@
 
   var KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 10009, ESC: 27, BACKSPACE: 8,
     PLAYPAUSE: 10252, PLAY: 415, PAUSE: 19, STOP: 413, FF: 417, RW: 412, NEXT: 10233, PREV: 10232,
-    CH_UP: 427, CH_DOWN: 428, SPACE: 32, SUBT: 0 };
+    CH_UP: 427, CH_DOWN: 428, SPACE: 32, SUBT: 0, INFO: 457 };
   var ANTENNA_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 28" focusable="false"><path d="M8 24 L40 4 L72 24" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   var PERSON_SVG = '<svg class="person-off" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="18" r="10"/><path d="M12 54c2-16 10-22 20-22s18 6 20 22"/></svg><svg class="person-on" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor"><circle cx="32" cy="18" r="11"/><path d="M10 56c2-18 12-26 22-26s20 8 22 26z"/></svg>';
   var PLAY_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round" d="M11 6 L26 16 L11 26 Z"/></svg>';
@@ -47,6 +47,17 @@
   var upNextTimer = 0, errorTimer = 0, sweepTimer = 0, seekPreview = null, resumeIndex = 0, sweepDir = 0;
   var upNextCard = null, seekCtrl = null, errorCtrl = null;
   var sessionIntro = {}, showStack = [];
+  var watchBack = window.ontoWatchBack ? window.ontoWatchBack.create() : null;
+  var channelArm = window.ontoChannelArm ? window.ontoChannelArm.create() : null;
+  var armTimer = 0, armedRequest = 0, prefetchTimer = 0, continueOpen = false, continueIndex = 0;
+  var overlayFocus = '', transportIndex = 1;
+  var homeCache = {}, channelPrefetch = {};
+  try {
+    if (watchBack) {
+      var savedBack = JSON.parse(localStorage.getItem('onto.back.v1') || 'null');
+      if (savedBack) watchBack.load(savedBack);
+    }
+  } catch (eBack) {}
   var lastPlayingDiagnostic = 0;
   var mediaState = 'starting', lastProgressAt = 0, previousMediaTime = 0;
   var watchTracker = null, watchDelivery = null;
@@ -60,6 +71,16 @@
     if (bridge && typeof bridge.emit === 'function') {
       try { bridge.emit(event, fields || {}); } catch (e) {}
     }
+  }
+  function answer(started, input) {
+    var stamp = started || Date.now();
+    var report = function () {
+      var ms = Date.now() - stamp;
+      if (ms < 0 || ms > 60000) return;
+      diag('key_latency', { latencyMs: ms, input: input || 'arrows' });
+    };
+    if (window.requestAnimationFrame) window.requestAnimationFrame(function () { window.requestAnimationFrame(report); });
+    else setTimeout(report, 32);
   }
   function diagnosticSample() {
     if (gameState) return { page: 'games', game: gameState.game, state: gameState.state, engine: 'video', paused: gameState.state === 'paused', position: 0, duration: 0 };
@@ -574,7 +595,8 @@
       button.appendChild(bezel);
     }
     button.addEventListener('click', function () {
-      var topRows = rows.length && rows[0].kind === 'viewers' ? 1 : 0;
+      var topRows = 0, rowIndex;
+      for (rowIndex = 0; rowIndex < rows.length; rowIndex++) if (rows[rowIndex].kind !== 'channels') topRows++;
       focus = { row: Math.floor(index / columnCount()) + topRows, col: index % columnCount() };
       moveFocus(0, 0);
       activate(item);
@@ -677,6 +699,7 @@
       badge.className = 'rating';
     }
     paintClock();
+    var resumeEls = paintResumeRow();
     var cards = gridCards();
     var holder = $('channels');
     holder.className = 'layout-' + layoutMode();
@@ -690,6 +713,7 @@
       var controls = viewers.querySelectorAll('.viewer');
       rows.push({ kind: 'viewers', els: controls });
     }
+    if (resumeEls.length) rows.push({ kind: 'resume', els: resumeEls });
     for (var start = 0; start < holder.children.length; start += columnCount()) {
       var slice = [];
       for (var n = start; n < holder.children.length && n < start + columnCount(); n++) slice.push(holder.children[n]);
@@ -742,33 +766,43 @@
       if (el.getAttribute('data-layout')) return chooseLayout(el.getAttribute('data-layout'));
       return chooseRating(el.getAttribute('data-rating'));
     }
+    if (row.kind === 'resume') return playResume(el._entry);
     activate(el._item);
   }
-  function loadHome() {
-    mediaState = 'connecting';
-    var request = ++homeRequest;
-    return api(homePath()).then(function (home) {
-      if (request !== homeRequest) return;
-      data = home || {};
-      if (!data.channels) data.channels = [];
-      if (!data.viewers || !data.viewers.length) data.viewers = FALLBACK_VIEWERS;
-      ensureWatchDelivery().drain();
-      mediaState = 'ready';
-      status('');
-      var bridge = window.ontoDiagnostics;
-      if (bridge && typeof bridge.connect === 'function') { try { bridge.connect(SERVER); } catch (e) {} }
-      diag('connected', { page: 'home', state: 'ready' });
-      render();
-      if (desktopChannel) {
-        var requestedChannel = desktopChannel;
-        desktopChannel = '';
-        for (var c = 0; c < data.channels.length; c++) {
-          if (data.channels[c].id === requestedChannel) { startChannel(data.channels[c]); return; }
-        }
-        window.parent.postMessage({ type: 'onto:desktop-home' }, '*');
+  function applyHome(home, request) {
+    if (request !== homeRequest) return;
+    data = home || {};
+    if (!data.channels) data.channels = [];
+    if (!data.viewers || !data.viewers.length) data.viewers = FALLBACK_VIEWERS;
+    ensureWatchDelivery().drain();
+    mediaState = 'ready';
+    status('');
+    var bridge = window.ontoDiagnostics;
+    if (bridge && typeof bridge.connect === 'function') { try { bridge.connect(SERVER); } catch (e) {} }
+    diag('connected', { page: 'home', state: 'ready' });
+    render();
+    if (desktopChannel) {
+      var requestedChannel = desktopChannel;
+      desktopChannel = '';
+      for (var c = 0; c < data.channels.length; c++) {
+        if (data.channels[c].id === requestedChannel) { startChannel(data.channels[c]); return; }
       }
+      window.parent.postMessage({ type: 'onto:desktop-home' }, '*');
+    }
+  }
+  function loadHome() {
+    var path = homePath();
+    var request = ++homeRequest;
+    if (homeCache[path]) {
+      try { applyHome(JSON.parse(homeCache[path]), request); } catch (eCache) { mediaState = 'connecting'; }
+    } else mediaState = 'connecting';
+    return api(path).then(function (home) {
+      if (request !== homeRequest) return;
+      try { homeCache[path] = JSON.stringify(home); } catch (eStore) {}
+      applyHome(home, request);
     }).catch(function (error) {
       if (request !== homeRequest) return;
+      if (homeCache[path]) return;
       mediaState = 'offline';
       diag('offline', { page: 'home', state: 'offline' });
       if (PACKAGED) return findServer();
@@ -915,7 +949,14 @@
   function showOsd() {
     osd.classList.remove('hidden');
     clearTimeout(osdTimer);
-    osdTimer = setTimeout(function () { if (!media.paused() && !playerOverlay()) osd.classList.add('hidden'); }, OSD_MS);
+    osdTimer = setTimeout(function () {
+      if (!media.paused() && !playerOverlay()) {
+        osd.classList.add('hidden');
+        overlayFocus = '';
+        closeContinue();
+        clearTransportFocus();
+      }
+    }, OSD_MS);
   }
   function updateOsd() {
     if (!play || !play.item) return;
@@ -1047,6 +1088,13 @@
     if (last && last.item && last.item.src === play.item.src && last.channelId === channelId) return;
     showStack.push({ channelId: channelId, item: play.item, time: typeof play.showTime === 'number' ? play.showTime : (play.item.resume || 0) });
     if (showStack.length > 30) showStack.shift();
+    var snap = snapshotPlaying();
+    if (snap && watchBack) {
+      watchBack.leave(profileId, snap, Date.now());
+      persistBack();
+      paintBackChip();
+      warmMedia(snap.src);
+    }
   }
   function textChoices() {
     var list = [], i, tracks, sidecars = (play && play.sidecars) || [];
@@ -1457,8 +1505,7 @@
           else if (!$('skip-intro').hidden && play && play.pendingIntro) skipIntro();
           else if (!$('skip-intro').hidden && play && play.pendingCredits) skipCredits();
           else togglePause();
-        } else if (action.key === 'up') stepChannel(1);
-        else if (action.key === 'down') stepChannel(-1);
+        }         else if (action.key === 'up' || action.key === 'down') showOsd();
         else if (action.key === 'play') { media.play(); watchEvent('resume'); showOsd(); }
         else if (action.key === 'subt') { cycleSubs(); if (optionOpen) paintOptions(); }
       }
@@ -1476,8 +1523,8 @@
   function navKey(code) {
     if (code === KEY.LEFT || code === KEY.RW) return 'left';
     if (code === KEY.RIGHT || code === KEY.FF) return 'right';
-    if (code === KEY.UP || code === KEY.CH_UP) return 'up';
-    if (code === KEY.DOWN || code === KEY.CH_DOWN) return 'down';
+    if (code === KEY.UP) return 'up';
+    if (code === KEY.DOWN) return 'down';
     if (code === KEY.ENTER || code === KEY.PLAYPAUSE || code === KEY.SPACE) return 'ok';
     if (code === KEY.PLAY) return 'play';
     if (KEY.SUBT && code === KEY.SUBT) return 'subt';
@@ -1553,6 +1600,11 @@
     closeOptions();
     $('jump-strip').hidden = true;
     lastPlayingDiagnostic = 0;
+    closeContinue();
+    dismissArm();
+    noteCurrent();
+    schedulePrefetch();
+    paintBackChip();
     if (!restoring && window.ontoPlayerExtras && window.ontoPlayerExtras.resumeOffer(item.resume || 0)) {
       showResumePrompt(item);
       return;
@@ -1718,14 +1770,7 @@
     startQueued(play.item);
   }
 
-  function startChannel(channel, fromItem, reason) {
-    var request = ++tuneRequest;
-    var previousId = play && play.channel ? play.channel.id : '';
-    if (play && play.item && (!fromItem || play.channel !== channel)) watchEvent('stop');
-    if (play && play.item && play.channel && play.channel.id !== channel.id) rememberShow();
-    if (!previousId || previousId !== channel.id) showTuning(channel);
-    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel };
-    paintChannel(channel);
+  function nextBody(channel, fromItem, reason) {
     var body = { channel: channel.id };
     var viewers = storedViewers(), rating = storedRating();
     if (viewers !== null) body.viewers = viewers;
@@ -1734,9 +1779,30 @@
       body.current = fromItem.src;
       body.reason = reason;
       body.time = Math.floor(playbackPosition());
-      body.watched = Math.floor(Math.max(0, play.watchedSeconds || 0));
-      body.duration = Math.floor(fromItem.duration || (play.airing === 'show' ? media.duration() : 0) || 0);
+      body.watched = Math.floor(Math.max(0, play && play.watchedSeconds || 0));
+      body.duration = Math.floor(fromItem.duration || (play && play.airing === 'show' ? media.duration() : 0) || 0);
     }
+    return body;
+  }
+  function beginShown(channel, item) {
+    var previousId = play && play.channel ? play.channel.id : '';
+    if (play && play.item && play.channel !== channel) watchEvent('stop');
+    if (play && play.item && play.channel && play.channel.id !== channel.id) rememberShow();
+    if (!previousId || previousId !== channel.id) showTuning(channel);
+    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: (play && play.nextQueue) || [] };
+    paintChannel(channel);
+    load(item);
+  }
+  function startChannel(channel, fromItem, reason) {
+    var request = ++tuneRequest;
+    var previousId = play && play.channel ? play.channel.id : '';
+    dismissArm();
+    if (play && play.item && (!fromItem || play.channel !== channel)) watchEvent('stop');
+    if (play && play.item && play.channel && play.channel.id !== channel.id) rememberShow();
+    if (!previousId || previousId !== channel.id) showTuning(channel);
+    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: (play && play.nextQueue) || [] };
+    paintChannel(channel);
+    var body = nextBody(channel, fromItem, reason);
     return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { showStreamError('tune'); return; } stopPlayback(); fail(error); });
   }
 
@@ -1745,19 +1811,47 @@
     play.lastSave = Date.now();
     post('/api/progress', { src: play.item.src, positionSeconds: completed ? 0 : playbackPosition(),
       durationSeconds: play.item.duration || media.duration(), completed: !!completed }).catch(function () {});
+    reportNow();
+  }
+  function reportNow() {
+    if (!TOKEN) return;
+    var body, channel;
+    if (!play || !play.item || $('player').hidden) body = { src: null, position: 0, channel: null, profile: profileId };
+    else {
+      channel = play.channel || {};
+      body = {
+        src: play.item.src,
+        position: Math.round(playbackPosition() || 0),
+        channel: { id: channel.id || '', number: typeof channel.number === 'number' ? channel.number : null, name: channel.name || '' },
+        profile: profileId
+      };
+    }
+    post('/api/now-playing', body).catch(function () {});
   }
 
   function next(reason) {
     if (!play) return;
     var current = play.item;
+    var queued = play.nextQueue && play.nextQueue[0];
     watchEvent(reason === 'ended' ? 'ended' : 'skip');
     saveProgress(reason === 'ended');
+    if (queued) {
+      playResume({
+        src: queued.src, title: queued.title || basename(queued.src), show: queued.title || basename(queued.src),
+        art: '/art?src=' + q(queued.src), positionSeconds: 0, queued: true,
+        channel: play.channel, mode: play.mode || 'channel'
+      });
+      return;
+    }
     if (play.mode === 'channel') return startChannel(play.channel, current, reason);
     stopPlayback();
   }
 
   function stopPlayback() {
     tuneRequest++;
+    dismissArm();
+    closeContinue();
+    noteCurrent();
     hideTuning();
     clearTimeout(navTimer);
     clearTimeout(stripTimer);
@@ -1778,6 +1872,7 @@
     if (desktopQuery) window.parent.postMessage({ type: 'onto:desktop-home' }, '*');
     play = null; mediaState = 'ready';
     media.stop();
+    reportNow();
     document.body.classList.remove('playing');
     $('player').hidden = true;
     $('home').hidden = false;
@@ -1789,6 +1884,7 @@
     if (media.paused()) { media.play(); watchEvent('resume'); } else media.pause();
     updateOsd();
     showOsd();
+    reportNow();
   }
 
   media.on('time', function () {
@@ -1848,17 +1944,22 @@
   // Guest back: the on-screen button and the phone's own back gesture both return to channels.
   var guestEntry = false;
   function guestBack() {
-    if (guestEntry) { history.back(); return; }
-    stopPlayback();
+    if (GUEST && guestEntry) { history.back(); return; }
+    undoOrHome();
   }
   $('osd-back').addEventListener('click', guestBack);
+  if ($('back-chip')) $('back-chip').addEventListener('click', undoOrHome);
+  if ($('channel-preview')) $('channel-preview').addEventListener('click', function () {
+    var decision = channelArm ? channelArm.ok() : null;
+    if (decision && decision.type === 'commit') commitChannel(decision.target);
+  });
   window.addEventListener('popstate', function () {
     if (!GUEST) return;
     guestEntry = false;
     if (!$('player').hidden) stopPlayback();
   });
   $('osd-play').addEventListener('click', togglePause);
-  $('osd-prev-scene').addEventListener('click', function () { commitJump(-1); });
+  $('osd-prev-scene').addEventListener('click', function () { previousShow(); });
   $('osd-next-scene').addEventListener('click', function () { commitJump(1); });
   $('osd-options').addEventListener('click', openOptions);
   $('osd-next').addEventListener('click', function () { next('skip'); });
@@ -1885,7 +1986,84 @@
   window.addEventListener('pagehide', function () { if (play) watchEvent('stop'); });
   document.addEventListener('visibilitychange', function () { if (!play) return; watchEvent(document.hidden || media.paused() ? 'pause' : 'resume'); });
 
-  window.ontoTVAction = function (action) {
+  function basename(src) {
+    var parts = String(src || '').split('/');
+    return parts.length ? parts[parts.length - 1] : '';
+  }
+  function playRemote(command) {
+    var position = command.positionSeconds, list, i;
+    if (position == null && watchBack) {
+      list = watchBack.continueList(profileId);
+      for (i = 0; i < list.length; i++) if (list[i].src === command.src) { position = list[i].positionSeconds; break; }
+    }
+    if (typeof position !== 'number' || position !== position || position < 0) position = 0;
+    dismissArm();
+    closeContinue();
+    if (window.ontoGames && window.ontoGames.isOpen && window.ontoGames.isOpen() && window.ontoGames.close) window.ontoGames.close();
+    if (window.ontoLibrary && window.ontoLibrary.abandon) window.ontoLibrary.abandon();
+    if (play && play.item) rememberShow();
+    tuneRequest++;
+    var channel = { id: 'continue', number: '', name: '' };
+    var queue = play && play.nextQueue ? play.nextQueue.slice() : [];
+    showTuning(channel);
+    play = { mode: 'single', channel: channel, nextQueue: queue };
+    paintChannel(channel);
+    load({
+      src: command.src,
+      title: basename(command.src),
+      show: basename(command.src),
+      art: '/art?src=' + q(command.src),
+      resume: position,
+      duration: 0,
+      queue: [{ kind: 'show', src: command.src, breaks: [] }]
+    }, true);
+    showOsd();
+  }
+  function channelFromCommand(command) {
+    var list = data.channels || [], i, want = command && command.channel;
+    for (i = 0; i < list.length; i++) {
+      if (list[i].app) continue;
+      if (typeof want === 'number' && list[i].number === want) return list[i];
+      if (String(list[i].id) === String(want) || String(list[i].number) === String(want)) return list[i];
+    }
+    return null;
+  }
+  window.ontoTVAction = function (action, command) {
+    var channel;
+    if (action === 'play') {
+      if (!command || typeof command.src !== 'string' || !command.src || command.src.indexOf('..') >= 0) return Promise.reject(new Error('no src'));
+      playRemote(command);
+      return null;
+    }
+    if (action === 'queue-next') {
+      if (!command || typeof command.src !== 'string' || !command.src || command.src.indexOf('..') >= 0) return Promise.reject(new Error('no src'));
+      if (!play || $('player').hidden) { playRemote(command); return null; }
+      play.nextQueue = play.nextQueue || [];
+      play.nextQueue.push({ src: command.src, title: basename(command.src) });
+      showOsd();
+      return null;
+    }
+    if (action === 'pause') { if (play) media.pause(); showOsd(); reportNow(); return null; }
+    if (action === 'resume') { if (play) { media.play(); watchEvent('resume'); } showOsd(); reportNow(); return null; }
+    if (action === 'seek') {
+      if (!play || !command || typeof command.seconds !== 'number') return Promise.reject(new Error('no seek'));
+      applySeek(command.seconds);
+      reportNow();
+      return null;
+    }
+    if (action === 'home') { if (window.ontoHome) window.ontoHome(); else stopPlayback(); return null; }
+    if (action === 'tune') {
+      channel = channelFromCommand(command);
+      if (!channel) return Promise.reject(new Error('no channel'));
+      if ($('player').hidden) activate(channel);
+      else commitChannel(channel);
+      return null;
+    }
+    if (action === 'back') {
+      if ((osd && !osd.classList.contains('hidden')) || continueOpen || overlayFocus) closeOverlay();
+      else undoOrHome();
+      return null;
+    }
     if (action === 'uke-open' || action === 'uke-phone') {
       tuneRequest++;
       if (play) { watchEvent('stop'); saveProgress(false); play=null; media.stop(); }
@@ -1900,21 +2078,417 @@
     var cards = gridCards();
     for (var i = 0; i < cards.length; i++) {
       if (cards[i].number !== number) continue;
+      if (!$('player').hidden && play && !cards[i].app) { armChannel(cards[i]); return true; }
       if (play && !cards[i].app) saveProgress(false);
       activate(cards[i]);
       return true;
     }
     return false;
   }
-  function stepChannel(direction) {
+  function channelByStep(direction) {
     var list = (data.channels || []).slice().sort(function (a, b) { return a.number - b.number; });
-    if (!play || !play.channel || list.length < 2) { showOsd(); return; }
-    var index = 0;
-    for (var i = 0; i < list.length; i++) if (list[i].id === play.channel.id) index = i;
+    if (!play || !play.channel || list.length < 2) return null;
+    var index = -1, i;
+    for (i = 0; i < list.length; i++) if (list[i].id === play.channel.id) index = i;
+    if (index < 0) return null;
     var nextIndex = (index + direction + list.length) % list.length;
-    if (list[nextIndex].id === play.channel.id) { showOsd(); return; }
-    saveProgress(false);
-    startChannel(list[nextIndex]);
+    if (list[nextIndex].id === play.channel.id || list[nextIndex].app) return null;
+    return list[nextIndex];
+  }
+  function stepChannel(direction) {
+    var target = channelByStep(direction);
+    if (!target) { showOsd(); return; }
+    armChannel(target);
+  }
+
+  function persistBack() {
+    if (!watchBack) return;
+    try { localStorage.setItem('onto.back.v1', JSON.stringify(watchBack.save())); } catch (e) {}
+  }
+  function snapshotPlaying() {
+    if (!play || !play.item || play.airing === 'ad') return null;
+    var item = play.item;
+    var channel = play.channel || { id: '', number: '', name: '' };
+    return {
+      src: item.src,
+      title: item.title || item.show || '',
+      show: item.show || item.title || '',
+      art: item.art || (channel.now && channel.now.art) || ('/art?src=' + q(item.src)),
+      positionSeconds: playbackPosition(),
+      duration: item.duration || (media && media.duration ? media.duration() : 0) || 0,
+      channel: { id: channel.id || '', number: channel.number, name: channel.name || '' },
+      mode: play.mode || 'channel'
+    };
+  }
+  function noteCurrent() {
+    var snap = snapshotPlaying();
+    if (!snap || !watchBack) return;
+    watchBack.note(profileId, snap);
+    persistBack();
+  }
+  function warmMedia(src) {
+    if (!src) return;
+    try { var img = new Image(); img.src = artUrl('/art?src=' + q(src)); } catch (e) {}
+    try { fetch(fileUrl('media', src), { headers: { Range: 'bytes=0-1023' } }).catch(function () {}); } catch (e2) {}
+  }
+  function warmChannel(channel) {
+    if (!channel || channel.app) return;
+    var known = channelPrefetch[channel.id];
+    if (known && known.item && known.item.src && Date.now() - known.at < 20000) return;
+    var body = nextBody(channel);
+    body.prefetch = true;
+    post('/api/next', body).then(function (item) {
+      if (item && item.src) channelPrefetch[channel.id] = { at: Date.now(), item: item };
+    }).catch(function () {});
+  }
+  function schedulePrefetch() {
+    clearTimeout(prefetchTimer);
+    prefetchTimer = setTimeout(function () {
+      if ($('player').hidden || !play || !play.channel) return;
+      warmChannel(channelByStep(1));
+      warmChannel(channelByStep(-1));
+    }, 500);
+  }
+  function resumeButton(entry) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'resume';
+    button.tabIndex = -1;
+    button._entry = entry;
+    var name = entry.show || entry.title || '';
+    var place = entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
+    button.setAttribute('aria-label', 'Continue ' + name + ' ' + place);
+    var bezel = document.createElement('span');
+    bezel.className = 'bezel';
+    var img = document.createElement('img');
+    img.className = 'art';
+    img.alt = '';
+    bezel.appendChild(img);
+    var art = entry.art || (entry.src ? '/art?src=' + q(entry.src) : '');
+    if (art) loadArt(img, artUrl(art));
+    var copy = document.createElement('span');
+    copy.className = 'resume-copy';
+    var title = document.createElement('span');
+    title.className = 'resume-title';
+    title.textContent = name;
+    var at = document.createElement('span');
+    at.className = 'resume-at';
+    at.textContent = entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
+    copy.appendChild(title);
+    copy.appendChild(at);
+    bezel.appendChild(copy);
+    button.appendChild(bezel);
+    button.addEventListener('click', function () { playResume(entry); });
+    return button;
+  }
+  function paintResumeInto(holder, entries) {
+    if (!holder) return [];
+    holder.innerHTML = '';
+    var els = [], i;
+    for (i = 0; i < entries.length; i++) {
+      var button = resumeButton(entries[i]);
+      holder.appendChild(button);
+      els.push(button);
+    }
+    return els;
+  }
+  function resumeEntries() {
+    var list = watchBack ? watchBack.continueList(profileId).slice(0) : [];
+    return list;
+  }
+  function queuedEntries() {
+    var queue = play && play.nextQueue || [], list = [], i, item;
+    for (i = 0; i < queue.length; i++) {
+      item = queue[i];
+      if (!item || !item.src) continue;
+      list.push({
+        src: item.src, title: item.title || basename(item.src), show: item.title || basename(item.src),
+        art: '/art?src=' + q(item.src), positionSeconds: 0, duration: 0, queued: true,
+        channel: (play && play.channel) || { id: 'next', number: '', name: '' }, mode: (play && play.mode) || 'single'
+      });
+    }
+    return list;
+  }
+  function continueEntries() { return resumeEntries().concat(queuedEntries()); }
+  function paintResumeRow() {
+    var holder = $('resume-row');
+    var entries = resumeEntries();
+    if (!holder) return [];
+    if (!entries.length) { holder.hidden = true; holder.innerHTML = ''; return []; }
+    holder.hidden = false;
+    return paintResumeInto(holder, entries);
+  }
+  function focusContinue(index) {
+    var els = $('continue-strip') ? $('continue-strip').children : [];
+    if (!els.length) return;
+    if (index < 0) index = 0;
+    if (index >= els.length) index = els.length - 1;
+    continueIndex = index;
+    var i;
+    for (i = 0; i < els.length; i++) els[i].classList.toggle('focused', i === index);
+    try { els[index].focus(); } catch (e) {}
+  }
+  function closeContinue() {
+    continueOpen = false;
+    var holder = $('continue-strip');
+    if (holder) { holder.hidden = true; holder.innerHTML = ''; }
+  }
+  function toggleContinue() {
+    if (continueOpen) { closeContinue(); return; }
+    dismissArm();
+    var holder = $('continue-strip');
+    var entries = continueEntries();
+    if (!holder || !entries.length) { showOsd(); return; }
+    continueOpen = true;
+    paintResumeInto(holder, entries);
+    holder.hidden = false;
+    focusContinue(0);
+    showOsd();
+  }
+  function paintPreview(channel, ready) {
+    var card = $('channel-preview');
+    if (!card || !channel) return;
+    card.hidden = false;
+    var number = channel.number != null && channel.number !== '' ? String(channel.number) : '';
+    var name = channel.name || '';
+    var showName = channel.now && channel.now.show || '';
+    $('channel-preview-num').textContent = number;
+    $('channel-preview-name').textContent = name;
+    $('channel-preview-show').textContent = showName;
+    card.setAttribute('aria-label', (number ? number + ' ' : '') + name + (showName ? ' ' + showName : ''));
+    var img = $('channel-preview-art');
+    if (channel.now && channel.now.art) loadArt(img, artUrl(channel.now.art));
+    var spin = $('channel-preview-spin');
+    if (spin) spin.hidden = !!ready;
+  }
+  function hidePreview() {
+    var card = $('channel-preview');
+    if (card) card.hidden = true;
+  }
+  function dismissArm() {
+    clearTimeout(armTimer);
+    armedRequest = 0;
+    if (channelArm) channelArm.cancel();
+    hidePreview();
+  }
+  function onArmTick() {
+    if (!channelArm) return;
+    var decision = channelArm.tick(Date.now());
+    if (decision.type === 'wait') { armTimer = setTimeout(onArmTick, Math.max(0, decision.commitAt - Date.now())); return; }
+    if (decision.type === 'commit') commitChannel(decision.target);
+  }
+  function armChannel(channel) {
+    if (!channelArm || !channel || channel.app) return;
+    var decision = channelArm.press(channel, Date.now());
+    if (decision.type === 'cancel') {
+      clearTimeout(armTimer);
+      hidePreview();
+      if ($('tune-num')) $('tune-num').hidden = true;
+      return;
+    }
+    if (decision.type !== 'preview') return;
+    var request = ++tuneRequest;
+    armedRequest = request;
+    var known = channelPrefetch[channel.id];
+    paintPreview(channel, !!(known && known.item && known.item.src));
+    clearTimeout(armTimer);
+    armTimer = setTimeout(onArmTick, Math.max(0, decision.commitAt - Date.now()));
+    var body = nextBody(channel);
+    body.prefetch = true;
+    post('/api/next', body).then(function (item) {
+      if (item && item.src) channelPrefetch[channel.id] = { at: Date.now(), item: item };
+      if (armedRequest !== request) return;
+      paintPreview(channel, true);
+    }).catch(function () {});
+  }
+  function commitChannel(channel) {
+    clearTimeout(armTimer);
+    armedRequest = 0;
+    hidePreview();
+    if (channelArm) channelArm.cancel();
+    if (!channel) return;
+    var known = channelPrefetch[channel.id];
+    if (known && known.item && known.item.src && Date.now() - known.at < 20000) {
+      var request = ++tuneRequest;
+      beginShown(channel, known.item);
+      var body = nextBody(channel);
+      post('/api/next', body).then(function (item) {
+        if (request !== tuneRequest || !play || !play.item || !item || !item.src) return;
+        if (item.src !== play.item.src || (item.queue && item.queue[0] && item.queue[0].kind === 'ad' && media.time() < 2)) load(item);
+      }).catch(function () {});
+      return;
+    }
+    startChannel(channel);
+  }
+  function playResume(entry) {
+    if (!entry || !entry.src) return;
+    closeContinue();
+    dismissArm();
+    var queue = play && play.nextQueue ? play.nextQueue.slice() : [];
+    var channel = entry.channel || {};
+    channel = { id: channel.id || 'continue', number: channel.number != null ? channel.number : '', name: channel.name || entry.show || '' };
+    var item = {
+      src: entry.src,
+      title: entry.title || entry.show || '',
+      show: entry.show || entry.title || '',
+      art: entry.art || ('/art?src=' + q(entry.src)),
+      resume: entry.positionSeconds || 0,
+      duration: entry.duration || 0,
+      queue: [{ kind: 'show', src: entry.src, breaks: [] }]
+    };
+    tuneRequest++;
+    if (play && play.item && play.item.src !== entry.src) rememberShow();
+    showTuning(channel);
+    play = { mode: entry.mode || (channel.id && channel.id !== 'continue' ? 'channel' : 'single'), channel: channel, nextQueue: queue };
+    if (entry.queued) {
+      play.nextQueue = queue.filter(function (queued) { return queued.src !== entry.src; });
+      if (TOKEN) post('/api/play-next', { src: entry.src, consume: true }).catch(function () {});
+    }
+    paintChannel(channel);
+    load(item, true);
+    warmMedia(entry.src);
+  }
+  function restoreEntry(entry) { playResume(entry); }
+  function undoOrHome() {
+    dismissArm();
+    closeContinue();
+    var entry = watchBack ? watchBack.undo(profileId, Date.now()) : null;
+    if (watchBack) persistBack();
+    paintBackChip();
+    if (entry) { restoreEntry(entry); return; }
+    stopPlayback();
+  }
+  function paintBackChip() {
+    var chip = $('back-chip');
+    if (!chip) return;
+    var entry = watchBack && $('player') && !$('player').hidden ? watchBack.chip(profileId, Date.now()) : null;
+    if (!entry) { chip.hidden = true; return; }
+    chip.hidden = false;
+    var title = entry.show || entry.title || '';
+    var label = $('back-chip-title');
+    if (label) label.textContent = title;
+    chip.setAttribute('aria-label', 'Back to ' + title);
+    var img = $('back-chip-art');
+    var art = entry.art || (entry.src ? '/art?src=' + q(entry.src) : '');
+    if (img && art) loadArt(img, artUrl(art));
+  }
+  function showDigitHold(text) {
+    var bug = $('tune-num'), digits = $('tune-digits');
+    if (!bug || !digits || $('player').hidden) return;
+    digits.textContent = text;
+    bug.hidden = false;
+  }
+  function transportEls() {
+    var ids = [], els = [], i, el;
+    if (GUEST) ids.push('osd-back');
+    ids.push('osd-prev-scene', 'osd-play', 'osd-next', 'osd-options');
+    for (i = 0; i < ids.length; i++) {
+      el = $(ids[i]);
+      if (!el || el.hidden) continue;
+      els.push(el);
+    }
+    return els;
+  }
+  function clearTransportFocus() {
+    var els = transportEls(), i;
+    for (i = 0; i < els.length; i++) els[i].classList.remove('focused');
+  }
+  function paintTransportFocus() {
+    var els = transportEls(), i;
+    if (!els.length) return;
+    if (transportIndex < 0) transportIndex = 0;
+    if (transportIndex >= els.length) transportIndex = els.length - 1;
+    for (i = 0; i < els.length; i++) els[i].classList.toggle('focused', i === transportIndex);
+    try { els[transportIndex].focus(); } catch (e) {}
+  }
+  function clearContinueFocus() {
+    var els = $('continue-strip') ? $('continue-strip').children : [], i;
+    for (i = 0; i < els.length; i++) els[i].classList.remove('focused');
+  }
+  function focusTransportRow() {
+    overlayFocus = 'transport';
+    clearContinueFocus();
+    paintTransportFocus();
+    showOsd();
+  }
+  function focusContinueRow() {
+    var holder = $('continue-strip'), entries = continueEntries();
+    clearTransportFocus();
+    showOsd();
+    if (!holder || !entries.length) { overlayFocus = ''; return; }
+    overlayFocus = 'continue';
+    continueOpen = true;
+    paintResumeInto(holder, entries);
+    holder.hidden = false;
+    focusContinue(Math.max(0, continueIndex));
+  }
+  function closeOverlay() {
+    overlayFocus = '';
+    closeContinue();
+    clearTransportFocus();
+    clearTimeout(osdTimer);
+    if (osd) osd.classList.add('hidden');
+  }
+  function seekBy(seconds) {
+    var duration, at;
+    if (!play) return;
+    if (play.airing === 'ad') { if (seconds > 0) skipBreak(); showOsd(); return; }
+    duration = durationNow();
+    at = media.time() + seconds;
+    if (at < 0) at = 0;
+    if (duration > 1 && at > duration - 1) at = duration - 1;
+    applySeek(at);
+    reportNow();
+  }
+  function activateTransport() {
+    var els = transportEls(), el = els[transportIndex];
+    if (!el) return;
+    if (el.id === 'osd-back') { undoOrHome(); return; }
+    if (el.id === 'osd-prev-scene') previousShow();
+    else if (el.id === 'osd-play') togglePause();
+    else if (el.id === 'osd-next') next('skip');
+    else if (el.id === 'osd-options') openOptions();
+    showOsd();
+  }
+  function applyRemote(action) {
+    var target, chosen;
+    if (!action || action.type === 'none' || action.type === 'digit') return;
+    if (action.type === 'show') { overlayFocus = ''; clearTransportFocus(); showOsd(); return; }
+    if (action.type === 'focus' && action.row === 'transport') { focusTransportRow(); return; }
+    if (action.type === 'focus') { focusContinueRow(); return; }
+    if (action.type === 'move' && action.row === 'transport') {
+      transportIndex += action.delta;
+      paintTransportFocus();
+      showOsd();
+      return;
+    }
+    if (action.type === 'move') { focusContinue(continueIndex + action.delta); showOsd(); return; }
+    if (action.type === 'seek') { seekBy(action.seconds); return; }
+    if (action.type === 'play-pause') {
+      if (inAd()) { skipBreak(); showOsd(); return; }
+      togglePause();
+      return;
+    }
+    if (action.type === 'activate') {
+      if (overlayFocus === 'continue' || continueOpen) {
+        chosen = $('continue-strip') && $('continue-strip').children[continueIndex];
+        if (chosen && chosen._entry) playResume(chosen._entry);
+        return;
+      }
+      activateTransport();
+      return;
+    }
+    if (action.type === 'play') { if (play) { media.play(); watchEvent('resume'); } showOsd(); reportNow(); return; }
+    if (action.type === 'pause') { if (play) media.pause(); showOsd(); reportNow(); return; }
+    if (action.type === 'stop') { dismissArm(); closeOverlay(); stopPlayback(); return; }
+    if (action.type === 'next') { next('skip'); return; }
+    if (action.type === 'previous') { previousShow(); return; }
+    if (action.type === 'close') { closeOverlay(); return; }
+    if (action.type === 'back') { dismissArm(); undoOrHome(); return; }
+    if (action.type === 'tune') {
+      target = channelByStep(action.direction);
+      if (target) armChannel(target); else showOsd();
+    }
   }
 
   // ---------- keys ----------
@@ -1932,10 +2506,15 @@
     if (consoleState) { if (consoleKey(key)) event.preventDefault(); return; }
     if (pickerOpen) { if (pickerKey(key)) event.preventDefault(); return; }
     if (!$('setup').hidden) return;
+    var started = Date.now();
+    var input = (key >= 48 && key <= 57) ? 'number' : (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) ? 'back' : (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) ? 'ok' : 'arrows';
+    if (!event.repeat) answer(started, input);
     if (key >= 48 && key <= 57) {
+      if (event.repeat) { event.preventDefault(); return; }
       // Digits tune like a TV: wait briefly for a second digit when one could follow.
       clearTimeout(digitTimer);
       digitBuffer += String(key - 48);
+      showDigitHold(digitBuffer);
       var typed = Number(digitBuffer), longer = false, cardsNow = gridCards();
       for (var d = 0; d < cardsNow.length; d++) {
         var n = String(cardsNow[d].number);
@@ -1949,15 +2528,14 @@
     var playing = !$('player').hidden;
     if (!playing && play && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { stopPlayback(); event.preventDefault(); return; }
     if (playing) {
+      var action, optionName, resumeName, armed;
       if (upNextCard && upNextCard.active() && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { cancelUpNext(); event.preventDefault(); return; }
       if (optionOpen && (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE)) { closeOptions(); event.preventDefault(); return; }
-      if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE || key === KEY.STOP) { stopPlayback(); event.preventDefault(); return; }
       if (play && play.resumePending) {
-        var resumeName = navKey(key);
+        resumeName = navKey(key);
         if (resumeName === 'left') { focusResume(-1); event.preventDefault(); return; }
         if (resumeName === 'right') { focusResume(1); event.preventDefault(); return; }
         if (resumeName === 'ok') { acceptResume(); event.preventDefault(); return; }
-        if (resumeName !== 'up' && resumeName !== 'down') { event.preventDefault(); return; }
       }
       if (play && play.errorOn) {
         if (navKey(key) === 'ok') retryPlayback();
@@ -1965,13 +2543,23 @@
         return;
       }
       if (upNextCard && upNextCard.active() && navKey(key) === 'ok') { acceptUpNext(); event.preventDefault(); return; }
-      if (key === KEY.PAUSE) { media.pause(); showOsd(); event.preventDefault(); return; }
-      if (key === KEY.NEXT) { next('skip'); event.preventDefault(); return; }
-      if (key === KEY.PREV) { previousShow(); event.preventDefault(); return; }
-      var name = navKey(key);
-      if (!name) return;
-      if (optionOpen) { handleOptionKey(name); event.preventDefault(); return; }
-      onNav({ type: 'down', key: name, time: Date.now(), ad: inAd() });
+      if (!optionOpen && !event.repeat && (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) && channelArm) {
+        armed = channelArm.ok();
+        if (armed.type === 'commit') { commitChannel(armed.target); event.preventDefault(); return; }
+      }
+      if (optionOpen) {
+        optionName = navKey(key);
+        if (optionName) { handleOptionKey(optionName); event.preventDefault(); return; }
+      }
+      action = window.ontoRemoteMap.decide({
+        overlay: osd.classList.contains('hidden') ? 'hidden' : 'open',
+        focus: overlayFocus,
+        repeat: !!event.repeat
+      }, key);
+      applyRemote(action);
+      if (!action || action.type === 'none') return;
+      event.preventDefault();
+      return;
     } else {
       if (key === KEY.LEFT) moveFocus(0, -1);
       else if (key === KEY.RIGHT) moveFocus(0, 1);
@@ -1991,18 +2579,12 @@
     if (consoleState) return;
     clearInterval(sweepTimer);
     sweepDir = 0;
-    var name = navKey(event.keyCode);
-    if (!name) return;
-    if (play && play.errorOn) return;
-    if (play && play.resumePending && name !== 'up' && name !== 'down') return;
-    if (upNextCard && upNextCard.active() && name === 'ok') return;
-    onNav({ type: 'up', key: name, time: Date.now(), ad: inAd() });
   });
 
   // Media keys reach the app only once registered (Tizen). SUBT is mapped when the TV exposes it.
   if (window.tizen && tizen.tvinputdevice) {
     var remoteKeys = ['MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind',
-      'MediaTrackNext', 'MediaTrackPrevious', 'ChannelUp', 'ChannelDown',
+      'MediaTrackNext', 'MediaTrackPrevious', 'ChannelUp', 'ChannelDown', 'Info',
       '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
     var supported = [];
     try { supported = tizen.tvinputdevice.getSupportedKeys() || []; } catch (e) { supported = []; }
@@ -2011,6 +2593,10 @@
       if (subtName && /caption|subtitle|subt/i.test(subtName)) {
         remoteKeys.push(subtName);
         KEY.SUBT = supported[subtIndex].code;
+      }
+      if (subtName && /^info$/i.test(subtName)) {
+        remoteKeys.push(subtName);
+        KEY.INFO = supported[subtIndex].code;
       }
     }
     remoteKeys.forEach(function (name) {
@@ -2066,6 +2652,7 @@
   paintBodyProfile();
   paintClock();
   setInterval(paintClock, 1000);
+  setInterval(paintBackChip, 1000);
   setInterval(watchBand, 30000);
   loadHome();
 })();

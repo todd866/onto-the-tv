@@ -43,6 +43,7 @@
       body.hidden = !!document.hidden;
       if (commandAck) body.commandAck = commandAck;
       if (fields.errorCode) body.errorCode = fields.errorCode;
+      if (typeof fields.latencyMs === 'number' && isFinite(fields.latencyMs) && fields.latencyMs >= 0 && fields.latencyMs <= 60000) body.latencyMs = Math.round(fields.latencyMs);
       if (event === 'heartbeat') queue = queue.filter(function (item) { return item.event !== 'heartbeat'; });
       queue.push(body);
       if (queue.length > 32) queue.shift();
@@ -51,13 +52,20 @@
   }
   function runCommand(command) {
     if (!command || typeof command.id !== 'string' || command.id.length > 64 ||
-        ['uke-open','uke-phone','uke-follow','uke-state'].indexOf(command.action) < 0 ||
+        ['uke-open','uke-phone','uke-follow','uke-state','play','queue-next','pause','resume','seek','home','tune','back'].indexOf(command.action) < 0 ||
         typeof command.expiresAt !== 'number' || command.expiresAt <= Date.now() || handled[command.id]) return;
+    if ((command.action === 'play' || command.action === 'queue-next') && (typeof command.src !== 'string' || !command.src || command.src.indexOf('..') >= 0)) return;
+    if (command.action === 'seek' && (typeof command.seconds !== 'number' || command.seconds !== command.seconds || command.seconds < 0 || command.seconds > 86400)) return;
+    if (command.action === 'tune') {
+      var channel = command.channel, numberOk = typeof channel === 'number' && channel === Math.floor(channel) && channel >= 0 && channel <= 999;
+      var idOk = typeof channel === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(channel);
+      if (!numberOk && !idOk) return;
+    }
     handled[command.id] = true;
     var ids=Object.keys(handled); if(ids.length>32) delete handled[ids[0]];
     Promise.resolve().then(function () {
       if (!window.ontoTVAction) throw Error('Unavailable');
-      return window.ontoTVAction(command.action);
+      return window.ontoTVAction(command.action, command);
     }).then(function (uke) {
       commandAck={id:command.id,status:'done'}; emit('uke_state',{uke:uke});
     },function () {
