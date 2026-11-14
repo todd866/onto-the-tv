@@ -27,7 +27,13 @@ fi
 [ -n "$TOKEN" ] || { echo "no pairing token: start bin/tv-server.js once on the server Mac"; exit 1; }
 
 mkdir -p "$APP"
-cp "$ROOT"/tv/index.html "$ROOT"/tv/app.js "$ROOT"/tv/player.js "$ROOT"/tv/nav.js "$ROOT"/tv/watch-tracker.js "$ROOT"/tv/watch-delivery.js "$ROOT"/tv/diagnostics.js "$ROOT"/tv/gamepad.js "$ROOT"/tv/remote-games.js "$ROOT"/tv/game-bridge.js "$ROOT"/tv/couch.js "$ROOT"/tv/uke.js "$ROOT"/tv/number-rover.js "$ROOT"/tv/number-rover.css "$ROOT"/tv/remote-games.css "$ROOT"/tv/styles.css "$HERE"/config.xml "$HERE"/icon.png "$APP"/
+# Every script and stylesheet the page loads ships: a hand-kept list here once left out remote-map.js and three
+# others, and the TV got a build whose player ignored the remote (14 Nov 2026).
+cp "$ROOT"/tv/index.html "$HERE"/config.xml "$HERE"/icon.png "$APP"/
+for f in "$ROOT"/tv/*.js "$ROOT"/tv/*.css; do
+  case "${f##*/}" in *.test.js|config.js|uke-probe.js) continue ;; esac
+  cp "$f" "$APP"/
+done
 mkdir -p "$APP/fonts"
 cp "$ROOT"/tv/fonts/Nunito-Bold.woff "$ROOT"/tv/fonts/Nunito-ExtraBold.woff "$APP/fonts/"
 UKE_ROOT="${UKE_ROOT:-$ROOT/../uke}"
@@ -58,6 +64,15 @@ servers=$(printf '"%s",' "${ADDRESSES[@]}"); servers="[${servers%,}]"
 BUILD=$(cat "$ROOT"/tv/*.js "$ROOT"/tv/index.html "$ROOT"/tv/*.css "$HERE/config.xml" "$HERE/icon.png" "$COUCH_SOURCE/couch.js" "$COUCH_SOURCE/couch.css" "$COUCH_SOURCE/couch.html" "$APP"/uke/* | shasum -a 256 | cut -c1-16)
 ONTO_COUCH_ADDRESS="$COUCH_ADDRESS" ONTO_COUCH_TOKEN="$COUCH_TOKEN" ONTO_BUILD_TOKEN="$TOKEN" ONTO_BUILD_SERVERS="$(printf '%s\n' "${ADDRESSES[@]}")" ONTO_BUILD_ID="$BUILD" python3 -c 'import os,json; print("window.ONTO_CONFIG = " + json.dumps({"servers":os.environ["ONTO_BUILD_SERVERS"].splitlines(),"token":os.environ["ONTO_BUILD_TOKEN"],"couchServer":os.environ["ONTO_COUCH_ADDRESS"],"couchToken":os.environ["ONTO_COUCH_TOKEN"],"port":8686,"build":os.environ["ONTO_BUILD_ID"]}) + ";")' > "$APP/config.js"
 chmod 600 "$APP/config.js"
+# Refuse to package a page that points at a file the package does not hold.
+python3 - "$APP" <<'PYCHECK'
+import re, sys
+from pathlib import Path
+app = Path(sys.argv[1]); page = (app / 'index.html').read_text()
+missing = [ref for ref in re.findall(r'(?:src|href)="([^":#?]+\.(?:js|css))"', page) if not (app / ref).is_file()]
+if missing: sys.exit('index.html loads files missing from the package: ' + ', '.join(missing))
+PYCHECK
+
 # Samsung's web APIs (AVPlay) load only inside an installed app.
 perl -0pi -e 's|<script src="config.js"></script>|<script src="\$WEBAPIS/webapis/webapis.js"></script>\n<script src="config.js"></script>|' "$APP/index.html"
 echo "app files: $APP (servers $servers)"

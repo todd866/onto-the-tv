@@ -4,7 +4,8 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE || '/Users/iantodd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs'));
-const root = fileURLToPath(new URL('../tv/', import.meta.url));
+// TV_UI_ROOT points the same check at a packaged build (tizen/build/app) instead of the source folder.
+const root = process.env.TV_UI_ROOT ? path.resolve(process.env.TV_UI_ROOT) + path.sep : fileURLToPath(new URL('../tv/', import.meta.url));
 const out = process.env.TV_UI_OUTPUT || '/tmp/onto-tv-control-overlay';
 await mkdir(out, { recursive: true });
 
