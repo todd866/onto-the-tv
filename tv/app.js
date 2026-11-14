@@ -2075,6 +2075,17 @@
       return null;
     }
     if (action === 'home') { if (window.ontoHome) window.ontoHome(); else stopPlayback(); return null; }
+    // Reload: pick up a new interface from the server. What is on comes back where it was.
+    if (action === 'reload') {
+      try {
+        if (play && play.item && play.item.src && !$('player').hidden) {
+          window.localStorage.setItem('onto.reload.resume', JSON.stringify({ src: play.item.src, positionSeconds: Math.max(0, Math.floor(media.time()) - 2), at: Date.now() }));
+        }
+      } catch (e) {}
+      if (play && play.item) saveProgress(false);
+      setTimeout(function () { location.reload(); }, 400);
+      return null;
+    }
     if (action === 'tune') {
       channel = channelFromCommand(command);
       if (!channel) return Promise.reject(new Error('no channel'));
@@ -2891,6 +2902,18 @@
       queue: [{ kind: 'show', src: item.src, breaks: [] }]
     });
   };
+  // After a reload for a new interface, put back what was on.
+  (function () {
+    var held = null;
+    try { held = JSON.parse(window.localStorage.getItem('onto.reload.resume') || 'null'); window.localStorage.removeItem('onto.reload.resume'); } catch (e) { held = null; }
+    if (!held || typeof held.src !== 'string' || !held.src || !(Date.now() - held.at < 120000)) return;
+    var tries = 0;
+    (function again() {
+      tries++;
+      if (!SERVER) { if (tries < 40) setTimeout(again, 250); return; }
+      try { window.ontoTVAction('play', { src: held.src, positionSeconds: held.positionSeconds }); } catch (e) {}
+    }());
+  }());
   loadLayoutStore();
   syncProfileFromStorage();
   paintBodyProfile();

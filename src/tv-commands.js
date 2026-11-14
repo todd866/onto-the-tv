@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-const ACTIONS = new Set(['uke-open','uke-phone','uke-follow','uke-state','play','queue-next','pause','resume','seek','home','tune','back']);
-const BARE = new Set(['pause','resume','home','back']);
+const ACTIONS = new Set(['uke-open','uke-phone','uke-follow','uke-state','play','queue-next','pause','resume','seek','home','tune','back','reload']);
+const BARE = new Set(['pause','resume','home','back','reload']);
 function srcText(body) {
   const src = body && body.src;
   if (typeof src !== 'string' || src.length < 1 || src.length > 400 || src.includes('..') || src.includes('\\') || src.includes('\0') || src.startsWith('/') || /%2e%2e/i.test(src) || /^[a-z][a-z0-9+.-]*:/i.test(src)) return null;

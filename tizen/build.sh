@@ -64,14 +64,38 @@ servers=$(printf '"%s",' "${ADDRESSES[@]}"); servers="[${servers%,}]"
 BUILD=$(cat "$ROOT"/tv/*.js "$ROOT"/tv/index.html "$ROOT"/tv/*.css "$HERE/config.xml" "$HERE/icon.png" "$COUCH_SOURCE/couch.js" "$COUCH_SOURCE/couch.css" "$COUCH_SOURCE/couch.html" "$APP"/uke/* | shasum -a 256 | cut -c1-16)
 ONTO_COUCH_ADDRESS="$COUCH_ADDRESS" ONTO_COUCH_TOKEN="$COUCH_TOKEN" ONTO_BUILD_TOKEN="$TOKEN" ONTO_BUILD_SERVERS="$(printf '%s\n' "${ADDRESSES[@]}")" ONTO_BUILD_ID="$BUILD" python3 -c 'import os,json; print("window.ONTO_CONFIG = " + json.dumps({"servers":os.environ["ONTO_BUILD_SERVERS"].splitlines(),"token":os.environ["ONTO_BUILD_TOKEN"],"couchServer":os.environ["ONTO_COUCH_ADDRESS"],"couchToken":os.environ["ONTO_COUCH_TOKEN"],"port":8686,"build":os.environ["ONTO_BUILD_ID"]}) + ";")' > "$APP/config.js"
 chmod 600 "$APP/config.js"
-# Refuse to package a page that points at a file the package does not hold.
-python3 - "$APP" <<'PYCHECK'
-import re, sys
-from pathlib import Path
-app = Path(sys.argv[1]); page = (app / 'index.html').read_text()
-missing = [ref for ref in re.findall(r'(?:src|href)="([^":#?]+\.(?:js|css))"', page) if not (app / ref).is_file()]
-if missing: sys.exit('index.html loads files missing from the package: ' + ', '.join(missing))
-PYCHECK
+# The installed page is a loader (tv/boot.js): it builds the interface from the server's live copy, and from the
+# copy packaged here when no server answers. boot-local.js is that packaged copy, as data.
+ONTO_BUILD_ID="$BUILD" node --input-type=module - "$ROOT" "$APP" <<'NODELOCAL'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+const [root, app] = process.argv.slice(2);
+const { parsePage } = await import(join(root, 'src/tv-live.js'));
+const page = parsePage(readFileSync(join(root, 'tv/index.html'), 'utf8'));
+// Refuse to package a page that points at a file the package does not hold.
+const missing = [...page.styles.map(style => style.href), ...page.scripts, 'boot.js', 'config.js'].filter(name => !existsSync(join(app, name)));
+if (missing.length) { console.error('the page loads files missing from the package: ' + missing.join(', ')); process.exit(1); }
+writeFileSync(join(app, 'boot-local.js'), 'window.ONTO_LOCAL = ' + JSON.stringify({ build: process.env.ONTO_BUILD_ID, ...page }) + ';\n');
+writeFileSync(join(app, 'index.html'), `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1">
+<title>Onto the TV</title>
+<meta name="theme-color" content="#0b1428">
+<style>html, body { margin: 0; background: #0b1428; }</style>
+</head>
+<body>
+<script src="config.js"></script>
+<script src="boot-local.js"></script>
+<script src="boot.js"></script>
+</body>
+</html>
+`);
+NODELOCAL
+# The loader takes scripts, styles and fonts from the server addresses this build knows, and nowhere else.
+ORIGINS="${ADDRESSES[*]}" perl -0pi -e 's|script-src \x27self\x27;|script-src \x27self\x27 $ENV{ORIGINS};|; s|style-src \x27self\x27 \x27unsafe-inline\x27;|style-src \x27self\x27 \x27unsafe-inline\x27 $ENV{ORIGINS}; font-src \x27self\x27 data: $ENV{ORIGINS};|' "$APP/config.xml"
+grep -q "font-src" "$APP/config.xml" || { echo "could not widen the content security policy" >&2; exit 1; }
 
 # Samsung's web APIs (AVPlay) load only inside an installed app.
 perl -0pi -e 's|<script src="config.js"></script>|<script src="\$WEBAPIS/webapis/webapis.js"></script>\n<script src="config.js"></script>|' "$APP/index.html"

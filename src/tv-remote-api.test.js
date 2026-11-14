@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createFileStorage, createTvLibrary, createTvServer } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 import { parseTvArgs, runTv } from './tv-remote.js';
+import { fileURLToPath } from 'node:url';
 
 const videos = [
   { src: 'Kids/Timmy Time.mp4', file: '/m/Kids/Timmy Time.mp4', title: 'Timmy', channel: 'Kids', tier: 'preschool', duration: 600 },
@@ -23,6 +24,29 @@ async function boot() {
   const headers = { 'Content-Type': 'application/json', 'X-Onto-Token': 'secret' };
   return { base, headers, file, close: () => new Promise(resolve => server.close(resolve)) };
 }
+
+test('the live interface manifest needs the token; fonts do not', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-live-'));
+  const history = await loadPlaybackHistory(join(dir, 'history.json'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  const library = createTvLibrary({ videos, history, storage, random: () => 0 });
+  const uiRoot = fileURLToPath(new URL('../tv', import.meta.url));
+  const server = createTvServer({ library, history, storage, uiRoot, token: 'secret', playNextFile: join(dir, 'play-next.json') });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.equal((await fetch(`${base}/api/tv-live`)).status, 403);
+    const reply = await fetch(`${base}/api/tv-live`, { headers: { 'X-Onto-Token': 'secret' } });
+    assert.equal(reply.status, 200);
+    const page = await reply.json();
+    assert.match(page.build, /^live-/);
+    assert.ok(page.scripts.includes('app.js') && typeof page.body === 'string');
+    // A cross-origin page (the installed app) may fetch a font without the token, and nothing else.
+    assert.equal((await fetch(`${base}/fonts/Nunito-Bold.woff`, { headers: { Origin: 'file://' } })).status, 200);
+    assert.equal((await fetch(`${base}/api/home`, { headers: { Origin: 'file://' } })).status, 403);
+    assert.equal((await fetch(`${base}/app.js`, { headers: { Origin: 'file://' } })).status, 403);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
 
 test('play-next and now-playing are token-gated and keep the queue on disk', async () => {
   const { base, headers, file, close } = await boot();

@@ -52,7 +52,7 @@
   }
   function runCommand(command) {
     if (!command || typeof command.id !== 'string' || command.id.length > 64 ||
-        ['uke-open','uke-phone','uke-follow','uke-state','play','queue-next','pause','resume','seek','home','tune','back'].indexOf(command.action) < 0 ||
+        ['uke-open','uke-phone','uke-follow','uke-state','play','queue-next','pause','resume','seek','home','tune','back','reload'].indexOf(command.action) < 0 ||
         typeof command.expiresAt !== 'number' || command.expiresAt <= Date.now() || handled[command.id]) return;
     if ((command.action === 'play' || command.action === 'queue-next') && (typeof command.src !== 'string' || !command.src || command.src.indexOf('..') >= 0)) return;
     if (command.action === 'seek' && (typeof command.seconds !== 'number' || command.seconds !== command.seconds || command.seconds < 0 || command.seconds > 86400)) return;

@@ -1,4 +1,4 @@
-const VERBS = new Set(['now', 'play', 'next', 'pause', 'resume', 'seek', 'tune', 'back']);
+const VERBS = new Set(['now', 'play', 'next', 'pause', 'resume', 'seek', 'tune', 'back', 'reload']);
 
 export function parseTvArgs(argv) {
   const rest = [];
@@ -10,7 +10,7 @@ export function parseTvArgs(argv) {
     else rest.push(argv[i]);
   }
   const command = rest[0] || '';
-  if (!VERBS.has(command)) return { ok: false, line: 'now | play <src> [seconds] | next <src> | pause | resume | seek <s> | tune <ch> | back', code: 2 };
+  if (!VERBS.has(command)) return { ok: false, line: 'now | play <src> [seconds] | next <src> | pause | resume | seek <s> | tune <ch> | back | reload', code: 2 };
   if ((command === 'play' || command === 'next') && !rest[1]) return { ok: false, line: command + ' needs a src', code: 2 };
   if (command === 'seek' && !(Number(rest[1]) >= 0)) return { ok: false, line: 'seek needs seconds', code: 2 };
   if (command === 'tune' && !rest[1]) return { ok: false, line: 'tune needs a channel', code: 2 };

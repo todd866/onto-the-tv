@@ -1,4 +1,5 @@
 import { createTvCommands } from './tv-commands.js';
+import { liveManifest } from './tv-live.js';
 import { createPlayNext } from './play-next.js';
 import { createServer } from 'node:http';
 import { createReadStream, readFileSync, writeFileSync } from 'node:fs';
@@ -1048,7 +1049,9 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         // <video> and <img> cannot send headers, so only /media and /art take the token in the URL.
         const fileToken = path === '/media' || path === '/art' || path === '/subs' || path === '/scene-thumb' || path.startsWith('/uke/audio/');
         const offered = request.headers['x-onto-token'] || (fileToken ? url.searchParams.get('t') : '');
-        if (!sameSecret(offered, token)) {
+        // The interface's fonts are public files; a stylesheet taken from here by the installed app fetches them cross-origin.
+        const openFont = request.method === 'GET' && /^\/fonts\/[A-Za-z0-9._-]+\.woff$/.test(path);
+        if (!openFont && !sameSecret(offered, token)) {
           return send(response, 403, { error: 'Pair this TV first.' });
         }
         response.setHeader('Access-Control-Allow-Origin', origin);
@@ -1171,6 +1174,12 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         const item = library.next(String(params.channel || ''), params);
         dirty = true;
         return send(response, 200, item);
+      }
+      if (path === '/api/tv-live') {
+        if (!token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
+        if (request.method !== 'GET') return send(response, 405, { error: 'Method not allowed.' });
+        response.setHeader('Cache-Control', 'no-store');
+        return send(response, 200, await liveManifest(uiRoot));
       }
       if (path === '/api/like') {
         if (request.method === 'GET') return send(response, 200, library.liked(url.searchParams.get('src') || ''));
