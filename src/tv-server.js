@@ -374,6 +374,20 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     } catch { return {}; }
   }
   function liked(src) { return { src: video(src).video.src, liked: !!likes()[src] }; }
+  // Everything this audience may watch that has been liked, newest first: the home screen's way back to it.
+  function likedList(ids, rating, limit = 30) {
+    const held = likes(), out = [];
+    for (const [src, like] of Object.entries(held).sort((a, b) => (b[1].at || 0) - (a[1].at || 0))) {
+      const index = bySrc.get(src);
+      if (index === undefined) continue;
+      const channelId = channelsOf(videos[index]).find(id => poolFor(id, ids, rating).includes(index));
+      if (!channelId) continue;
+      const channel = CHANNEL_BY_ID.get(channelId);
+      out.push({ ...describe(videos[index]), channel: { id: channel.id, number: channel.number, name: channel.name } });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
   function like({ src, channel, viewers, liked: want } = {}) {
     const { video: item } = video(src);
     const all = likes(), held = all[item.src];
@@ -620,6 +634,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const staging = channels.slice().sort((a, b) => variety.get(a.id) - variety.get(b.id));
     for (const channel of staging) {
       const stage = stageKey(channel.id, ids, rating);
+      // The card shows what OK will put on: the episode left on this channel, when there is one.
+      const left = leftOn(channel.id, ids, rating);
+      if (left !== undefined) staged.set(stage, left);
       if (!staged.has(stage)) staged.set(stage, chooseIndex(channel.id, ids, { rating, billing: true, avoid: billed }));
       billed.add(videos[staged.get(stage)].channel || 'Other');
       // What comes after the card's pick, for the guide and the "now on" panel; it becomes the
@@ -638,6 +655,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       rating,
       viewers: TV_VIEWERS.map(person => ({ id: person.id, name: person.name, on: selected.has(person.id) })),
       channels,
+      liked: likedList(ids, rating),
     };
   }
 
@@ -828,6 +846,31 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const played = recent.get(channelId) || [];
     played.push(index);
     recent.set(channelId, played.slice(-RECENT_LIMIT));
+    // Kept on disk too: what each channel last put on, so a channel can pick up what was left on it.
+    const lasts = lastOn();
+    lasts[channelId] = { src: videos[index].src, at: now() };
+    storage.setItem(LAST_ON_KEY, JSON.stringify(lasts));
+  }
+
+  // A channel remembers what you left (Ian, 14 Nov 2026: one arrow press tuned away from a live set 24 minutes in,
+  // and coming back gave a different pick: "never finding that one again"). Coming back to a channel within
+  // LEFT_HOURS resumes the episode last on it, if at least LEFT_SECONDS of it had been watched and it is not
+  // nearly over. Skipping it or letting it end moves the channel on as before.
+  const LAST_ON_KEY = 'onto.tv.lastOn', LEFT_SECONDS = 120, LEFT_HOURS = 12;
+  function lastOn() {
+    try {
+      const parsed = JSON.parse(storage.getItem(LAST_ON_KEY));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch { return {}; }
+  }
+  function leftOn(channelId, ids, rating) {
+    const last = lastOn()[channelId];
+    const index = last && bySrc.get(last.src);
+    if (!last || index === undefined) return undefined;
+    const place = watchMaps().places[videos[index].src];
+    if (!place || place.time < LEFT_SECONDS || now() - place.updated > LEFT_HOURS * 3600000) return undefined;
+    if (!poolFor(channelId, ids, rating).includes(index)) return undefined;
+    return index;
   }
 
   function queueFor(channel, show, ids, rating = null) {
@@ -886,6 +929,11 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const queued = takeQueued(channelId, options);
     if (queued !== undefined) { remember(channelId, queued); return finish(queued, channelId, ids, rating); }
     const key = stageKey(channelId, ids, rating);
+    // Tuning in (not moving on from an episode): the episode left on this channel comes back first.
+    if (!options.current) {
+      const left = leftOn(channelId, ids, rating);
+      if (left !== undefined) staged.set(key, left);
+    }
     // A preview may fetch the staged episode without consuming it, so a cancelled
     // press does not change what the channel plays next.
     if (options.prefetch === true) {
@@ -988,10 +1036,26 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       if (!away || score > away.score) away = { score, index: best, channel };
     }
     if (away) { used.add(away.index); add('elsewhere', away.channel.name, away.index, away.channel); }
+    // The directions chosen most often lead the tray.
+    const taken = directionTally();
+    tiles.sort((a, b) => (taken[b.kind] || 0) - (taken[a.kind] || 0));
     return { channel: channelId, from: current === undefined ? '' : videos[current].src, tiles };
   }
+  const DIRECTION_KEY = 'onto.tv.directionKinds';
+  function directionTally() {
+    try {
+      const parsed = JSON.parse(storage.getItem(DIRECTION_KEY));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch { return {}; }
+  }
+  function directionChosen(kind) {
+    if (!['more', 'new', 'favourite', 'long', 'short', 'elsewhere'].includes(kind)) return;
+    const taken = directionTally();
+    taken[kind] = (taken[kind] || 0) + 1;
+    storage.setItem(DIRECTION_KEY, JSON.stringify(taken));
+  }
 
-  return { home, show, next, progress, like, liked, directions, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
+  return { home, show, next, progress, like, liked, directions, directionChosen, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
 }
 
 async function readBody(request, limit = 16 * 1024) {
@@ -1252,6 +1316,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
           viewers: text(body.viewers).slice(0, 64), shown, chosen: body.chosen ? { kind: text(body.chosen.kind).slice(0, 24), src: text(body.chosen.src) } : null,
           msOpen: Number.isFinite(body.msOpen) && body.msOpen >= 0 ? Math.min(600000, Math.round(body.msOpen)) : null };
         if (directionsFile) await appendFile(directionsFile, JSON.stringify(entry) + '\n', { mode: 0o600 });
+        if (entry.chosen && library.directionChosen) { library.directionChosen(entry.chosen.kind); dirty = true; }
         return send(response, 200, { ok: true });
       }
       if (path === '/api/tv-live') {

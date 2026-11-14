@@ -788,3 +788,55 @@ test('directions offers different real episodes, never the one playing, and mark
   assert.equal(storage.getItem('kidshuffle.log.v1'), before, 'asking for directions teaches nothing');
   assert.throws(() => library.directions('nope', {}), /Unknown channel/);
 });
+
+test('a channel resumes the episode left on it; a skip or a short look does not hold it', async () => {
+  const { library } = await setup();
+  const viewers = 'sam,jake,mum,dad';
+  const other = library.home(viewers).channels.find(channel => channel.id !== 'cartoons').id;
+  const first = library.next('cartoons', { viewers });
+  // Two minutes in, then away to another channel and back.
+  library.progress({ src: first.src, positionSeconds: 200, durationSeconds: first.duration, completed: false });
+  library.next(other, { viewers });
+  const back = library.next('cartoons', { viewers });
+  assert.equal(back.src, first.src, 'coming back resumes what was left');
+  assert.equal(back.resume, 200);
+  // A preview of the channel shows the same episode, and the home card bills it.
+  assert.equal(library.next('cartoons', { viewers, prefetch: true }).src, first.src);
+  assert.equal(library.next('cartoons', { viewers }).src, first.src, 'the home card and OK agree');
+  // Skipping it moves the channel on: the next episode is now the one the channel holds.
+  const second = library.next('cartoons', { viewers, current: first.src, reason: 'skip', time: 205, watched: 5, duration: first.duration });
+  assert.notEqual(second.src, first.src);
+  library.progress({ src: second.src, positionSeconds: 150, durationSeconds: second.duration, completed: false });
+  library.next(other, { viewers });
+  const third = library.next('cartoons', { viewers });
+  assert.equal(third.src, second.src, 'the channel holds the episode it moved on to, not the skipped one');
+  assert.equal(third.resume, 150);
+});
+
+test('a channel does not hold an episode that was barely started', async () => {
+  const { library } = await setup();
+  const viewers = 'sam,jake,mum,dad';
+  const other = library.home(viewers).channels.find(channel => channel.id !== 'cartoons').id;
+  const first = library.next('cartoons', { viewers });
+  // The same visit with two minutes watched is held (the test above); with one minute it is an ordinary pick,
+  // which the shuffle makes without the resume position being the reason.
+  library.progress({ src: first.src, positionSeconds: 60, durationSeconds: first.duration, completed: false });
+  library.next(other, { viewers });
+  const fresh = await setup();
+  const control = fresh.library.next('cartoons', { viewers });
+  fresh.library.next(other, { viewers });
+  assert.equal(library.next('cartoons', { viewers }).src === first.src, fresh.library.next('cartoons', { viewers }).src === control.src,
+    'a barely started episode changes nothing about what the channel picks');
+});
+
+test('home lists what was liked, newest first, for audiences allowed to watch it', async () => {
+  const { library } = await setup();
+  assert.deepEqual(library.home('mum,dad').liked, []);
+  library.like({ src: 'Films/d.mkv', viewers: 'dad', liked: true });
+  library.like({ src: 'Bluey/a.mp4', viewers: 'dad', liked: true });
+  const grown = library.home('mum,dad').liked;
+  assert.ok(grown.some(item => item.src === 'Films/d.mkv'));
+  for (const item of grown) assert.ok(item.channel && item.channel.id && item.title, JSON.stringify(item));
+  // A child in the room never sees the grown-up film among the likes.
+  assert.ok(!library.home('sam,jake,mum,dad').liked.some(item => item.src === 'Films/d.mkv'));
+});

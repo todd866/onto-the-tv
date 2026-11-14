@@ -74,6 +74,13 @@ map (Up / Down tuned, Left / Right skipped) lost him a live set 24 minutes in wi
   was open. Nothing learns from that file yet.
 - The installed app is a loader (`tv/boot.js`): the interface comes live from the server (`/api/tv-live`), so a change
   here ships with `npm run tv -- reload` on the M2, with no reinstall. Check with `scripts/check-tv-live.mjs`.
+- **A channel remembers what you left** (the fix for the lost live set): tuning back to a channel within 12 hours
+  resumes the episode last on it, where it was, if at least 2 minutes had been watched and it is not nearly over.
+  The home card bills that episode. Skipping it, or letting it end, moves the channel on as before.
+- **Liked on the home screen:** liked episodes follow the half-watched ones in the top row (newest first, up to 30; the
+  row scrolls sideways inside itself). The big panel shows the focused tile in full. OK plays it on its own channel.
+- Pause, play and entering seek mode repaint before the player is asked (its pause call took 700 ms on the TV).
+- The directions chosen most often lead the tray.
 - Like: `POST /api/like` doubles the episode's weight for that audience; a second press takes it back.
 - `npm run tv -- play <src> [seconds]` puts a show back on at a position.
 

@@ -52,6 +52,7 @@ try {
     if (url.pathname === '/api/home') {
       return route.fulfill({ json: {
         ceiling: 'G', defaultCeiling: 'G', rating: null,
+        liked: [{ src: 'music/Cercle/Bonobo.mp4', title: 'Bonobo Solo live at Cercle Odyssey, Paris, France', show: 'Cercle', resume: 1470, duration: 5009, channel: { id: 'music', number: 9, name: 'Music' } }],
         viewers: [
           { id: 'sam', name: 'Sam', on: true }, { id: 'jake', name: 'Jake', on: true },
           { id: 'mum', name: 'Mum', on: true }, { id: 'dad', name: 'Dad', on: true },
@@ -96,6 +97,12 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('http://tv.test/');
   await page.locator('.viewer.focused').waitFor();
+  // Home: what was liked sits in the row after what is half-watched.
+  const homeRow = await page.evaluate(() => [...document.querySelectorAll('#resume-row .resume')].map(tile => ({ liked: tile.classList.contains('liked'), label: tile.getAttribute('aria-label'), line: tile.querySelector('.resume-at').textContent, right: tile.getBoundingClientRect().right })));
+  await fire(40); await fire(39);   // down to the row, right to the liked tile
+  const likedHero = await page.evaluate(() => ({ focused: document.querySelector('#resume-row .resume.focused') ? document.querySelector('#resume-row .resume.focused').classList.contains('liked') : null, hero: document.getElementById('hero').textContent }));
+  await shot('home-liked-dark.png', 'dark');
+  await fire(37); await fire(38);
   // INFO on the home page: the remote, with the keys home uses.
   await fire(457);
   const homeGuide = await page.evaluate(() => ({ open: !document.getElementById('remote-guide').hidden, calls: [...document.querySelectorAll('#remote-guide .rg-word')].map(node => node.textContent) }));
@@ -278,7 +285,7 @@ try {
     await page.waitForTimeout(600);
     afterChoice = await page.evaluate(() => ({ show: document.getElementById('osd-show').textContent.trim(), strip: !document.getElementById('continue-strip').hidden }));
   }
-  console.log(JSON.stringify({ before, oneRight, directions, afterChoice, directionCalls, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seeking, seekArrow, sought, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
+  console.log(JSON.stringify({ before, homeRow, likedHero, oneRight, directions, afterChoice, directionCalls, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seeking, seekArrow, sought, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
   assert.equal(oneRight.calls, 0, 'an arrow while watching never skips');
   assert.equal(oneRight.show, before, 'an arrow while watching leaves the show on');
   assert.equal(oneRight.paused, false, 'an arrow while watching does not pause');
@@ -329,6 +336,13 @@ try {
   assert.equal(row.overlap, false, JSON.stringify(row));
   assert.equal(preview.visible, true);
   assert.equal(preview.same, true);
+  assert.equal(homeRow.length, 2, JSON.stringify(homeRow));
+  assert.equal(homeRow[0].liked, false);
+  assert.equal(homeRow[1].liked, true);
+  assert.equal(homeRow[1].label, 'Liked: Bonobo Solo live at Cercle Odyssey, Paris, France');
+  assert.equal(homeRow[1].line, '\u2665 Cercle');
+  assert.equal(likedHero.focused, true, 'the liked tile takes focus');
+  assert.ok(likedHero.hero.includes('Bonobo Solo live at Cercle Odyssey, Paris, France'), 'the focused tile is shown in full: ' + likedHero.hero);
   assert.ok(directions, 'something was playing for the directions check');
   assert.deepEqual(directions.labels, ['Bluey', 'New to you', 'Favourite', 'Long set', 'Music']);
   assert.equal(directions.focused, 3, 'arrows move along the tiles');

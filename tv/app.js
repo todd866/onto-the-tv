@@ -738,6 +738,17 @@
     if (!el) return;
     el.classList.add('focused');
     try { el.focus(); } catch (e) {}
+    if (row.kind === 'resume') {
+      // The row holds more tiles than fit: it scrolls sideways inside itself to keep the focused one in view.
+      var strip = $('resume-row'), tile = el.getBoundingClientRect(), view = strip.getBoundingClientRect();
+      if (tile.left < view.left + 16) strip.scrollLeft -= view.left + 16 - tile.left;
+      if (tile.right > view.right - 16) strip.scrollLeft += tile.right - view.right + 16;
+      // The big panel shows the focused tile in full: a tile is too narrow for a long title.
+      var held = el._entry;
+      if (held) paintHero({ number: held.liked ? '\u2665' : 'Continue', name: held.liked ? 'Liked' : ('resume ' + clock(held.positionSeconds || 0)),
+        now: { show: held.show || held.title || '', title: held.title && held.title !== held.show ? held.title : '', art: held.art,
+          minutes: held.duration ? Math.max(1, Math.round(held.duration / 60)) : 0 } });
+    }
     if (row.kind === 'channels') {
       var holder = $('channels'), box = el.getBoundingClientRect(), area = holder.getBoundingClientRect();
       var padTop = 36, padBottom = 40;
@@ -1906,11 +1917,26 @@
     if (window.ontoLibrary && window.ontoLibrary.resume()) return;
   }
 
+  // Pause and play answer in the frame of the press: the button and bar repaint first, and the player (whose pause
+  // call took 700 ms on the TV, 14 Nov 2026) is told straight after. Returns whether the picture is now paused.
+  var pendingPause = null;
+  function pausedNow() { return pendingPause === null ? media.paused() : pendingPause; }
   function togglePause() {
-    if (media.paused()) { media.play(); watchEvent('resume'); } else media.pause();
-    updateOsd();
+    var willPause = !pausedNow();
+    pendingPause = willPause;
+    $('osd-play').classList.toggle('is-paused', willPause);
+    $('osd-play').setAttribute('aria-label', willPause ? 'Play' : 'Pause');
     showOsd();
-    reportNow();
+    setTimeout(function () {
+      var want = pendingPause;
+      pendingPause = null;
+      if (!play || want === null) return;
+      if (want !== media.paused()) { if (want) media.pause(); else { media.play(); watchEvent('resume'); } }
+      updateOsd();
+      showOsd();
+      reportNow();
+    }, 0);
+    return willPause;
   }
 
   media.on('time', function () {
@@ -2198,10 +2224,11 @@
     button.className = 'resume';
     button.tabIndex = -1;
     button._entry = entry;
-    var name = entry.direction ? (entry.title || entry.show || '') : (entry.show || entry.title || '');
-    var place = entry.direction ? entry.label : entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
+    var name = (entry.direction || entry.liked) ? (entry.title || entry.show || '') : (entry.show || entry.title || '');
+    var place = entry.direction ? entry.label : entry.liked ? ('\u2665 ' + (entry.show || '')) : entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
     if (entry.direction) button.className = 'resume direction';
-    button.setAttribute('aria-label', entry.direction ? (place + ': ' + name) : ('Continue ' + name + ' ' + place));
+    if (entry.liked) button.className = 'resume liked';
+    button.setAttribute('aria-label', entry.direction ? (place + ': ' + name) : entry.liked ? ('Liked: ' + name) : ('Continue ' + name + ' ' + place));
     button.title = name;
     var bezel = document.createElement('span');
     bezel.className = 'bezel';
@@ -2255,9 +2282,29 @@
     return list;
   }
   function continueEntries() { return resumeEntries().concat(queuedEntries()); }
+  // A tile's channel as this audience sees it (the home screen numbers channels per audience).
+  function channelView(channel) {
+    var list = (data && data.channels) || [], i;
+    if (!channel) return { id: 'continue', number: '', name: '' };
+    for (i = 0; i < list.length; i++) if (list[i].id === channel.id) return { id: list[i].id, number: list[i].number, name: list[i].name };
+    return channel;
+  }
+  // What was liked, after what is half-watched, in the same row: the way back to "that one".
+  function likedEntries(skip) {
+    var list = (data && data.liked) || [], out = [], i, item;
+    for (i = 0; i < list.length; i++) {
+      item = list[i];
+      if (!item || !item.src || skip[item.src]) continue;
+      out.push({ liked: true, src: item.src, title: item.title, show: item.show, art: '/art?src=' + q(item.src),
+        positionSeconds: item.resume || 0, duration: item.duration || 0, channel: channelView(item.channel), mode: 'channel' });
+    }
+    return out;
+  }
   function paintResumeRow() {
     var holder = $('resume-row');
-    var entries = resumeEntries();
+    var entries = resumeEntries(), have = {}, r;
+    for (r = 0; r < entries.length; r++) have[entries[r].src] = true;
+    if (!GUEST) entries = entries.concat(likedEntries(have));
     if (!holder) return [];
     if (!entries.length) { holder.hidden = true; holder.innerHTML = ''; return []; }
     holder.hidden = false;
@@ -2305,7 +2352,7 @@
     for (i = 0; i < offer.tiles.length && i < 5; i++) {
       tile = offer.tiles[i];
       entries.push({ direction: tile.kind, label: tile.label, src: tile.src, title: tile.title, show: tile.show, art: '/art?src=' + q(tile.src),
-        positionSeconds: tile.resume || 0, duration: tile.duration || 0, channel: tile.channel, mode: 'channel' });
+        positionSeconds: tile.resume || 0, duration: tile.duration || 0, channel: channelView(tile.channel), mode: 'channel' });
     }
     dismissArm();
     if (optionOpen) closeOptions();
@@ -2611,7 +2658,7 @@
     if (!el) return;
     if (el.id === 'osd-back') { undoOrHome(); return; }
     if (el.id === 'osd-prev-scene') previousShow();
-    else if (el.id === 'osd-play') { togglePause(); if (!media.paused()) dropFocus(); return; }
+    else if (el.id === 'osd-play') { if (!togglePause()) dropFocus(); return; }
     else if (el.id === 'osd-next') { skipForward(); return; }
     else if (el.id === 'osd-like') { toggleLike(); return; }
     else if (el.id === 'osd-options') openOptions();
@@ -2648,13 +2695,14 @@
     if (inAd()) { if (direction > 0 && !held) skipBreak(); showOsd(); return; }
     duration = durationNow();
     if (!scrub) {
-      scrub = { from: media.time(), target: media.time(), wasPaused: media.paused(), held: 0 };
+      scrub = { from: media.time(), target: media.time(), wasPaused: pausedNow(), held: 0 };
       if (optionOpen) closeOptions();
       clearTransportFocus();
       closeContinue();
       clearContinueFocus();
       overlayFocus = 'seek';
-      if (!scrub.wasPaused) media.pause();
+      // The marker paints first; the picture is held straight after.
+      if (!scrub.wasPaused) setTimeout(function () { if (scrub && play && !media.paused()) media.pause(); }, 0);
     }
     scrub.held = held ? scrub.held + 1 : 0;
     target = scrub.target + direction * scrubStepSeconds(scrub.held);
@@ -2720,8 +2768,7 @@
     if (action.type === 'open') {
       // OK while watching: pause and open the controls. OK again (or on a paused picture) resumes and lets go.
       if (inAd()) { skipBreak(); showOsd(); return; }
-      togglePause();
-      if (media.paused()) { transportIndex = transportHome(); focusTransportRow(); }
+      if (togglePause()) { transportIndex = transportHome(); focusTransportRow(); }
       else dropFocus();
       return;
     }
