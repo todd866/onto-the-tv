@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TV_CHANNELS, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseRange } from './tv-server.js';
@@ -742,4 +742,29 @@ test("Jake's card leads Minecraft, Track Time, cars and RC; rationed shows stay 
 
   const cars = await libraryWith([kid('Oddbods', 'big'), kid('RC Odyssey', 'big'), kid('Bluey', 'shared')]);
   assert.equal(cars.library.home('jake').channels.find(channel => channel.id === 'forjake').now.show, 'RC Odyssey');
+});
+
+test('a like raises the episode on the audience\'s taste and taking it back restores it', async () => {
+  const { dir, storage, library } = await setup();
+  const likes = () => JSON.parse(storage.getItem('onto.tv.likes') || '{}');
+  // The weight as the learner stored it, whichever audience key it went to.
+  const stored = async () => {
+    await storage.flush();
+    const all = JSON.parse(await readFile(join(dir, 'taste.json'), 'utf8'));
+    return Object.entries(all).filter(([key]) => key.startsWith('kidshuffle.weights.')).map(([, value]) => JSON.parse(value)['Films/d.mkv']).filter(value => value !== undefined);
+  };
+  assert.deepEqual(library.liked('Films/d.mkv'), { src: 'Films/d.mkv', liked: false });
+  assert.deepEqual(library.like({ src: 'Films/d.mkv', viewers: 'dad', liked: true }), { src: 'Films/d.mkv', liked: true });
+  assert.equal(likes()['Films/d.mkv'].key, 'grown');
+  assert.equal(likes()['Films/d.mkv'].was, 1);
+  assert.deepEqual(await stored(), [2]);
+  // Liking twice changes nothing.
+  assert.deepEqual(library.like({ src: 'Films/d.mkv', viewers: 'dad', liked: true }), { src: 'Films/d.mkv', liked: true });
+  assert.deepEqual(await stored(), [2]);
+  assert.equal(library.liked('Films/d.mkv').liked, true);
+  // No `liked` given: toggle.
+  assert.deepEqual(library.like({ src: 'Films/d.mkv', viewers: 'dad' }), { src: 'Films/d.mkv', liked: false });
+  assert.deepEqual(await stored(), [1]);
+  assert.deepEqual(likes(), {});
+  assert.throws(() => library.like({ src: 'Nope/x.mp4', liked: true }), /not in this library/);
 });

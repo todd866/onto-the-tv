@@ -1561,6 +1561,7 @@
     watchSequence = 0;
     watchTracker = window.ontoWatchTracker ? window.ontoWatchTracker() : null;
     play.item = item;
+    loadLike(item);
     play.switching = false;
     if (osd) osd.classList.remove('is-skipping');
     play.visitStart = item.resume || 0;
@@ -2399,10 +2400,42 @@
     digits.textContent = text;
     bug.hidden = false;
   }
+  // Like: the heart fills in the same frame as the press; the server is told afterwards and a failure puts it back.
+  function paintLike() {
+    var button = $('osd-like'), on = !!(play && play.item && play.item.liked);
+    if (!button) return;
+    button.hidden = !(play && play.item && play.item.src) || GUEST;
+    button.classList.toggle('is-liked', on);
+    button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    button.setAttribute('aria-label', on ? 'Liked' : 'Like');
+    button.title = on ? 'Liked' : 'Like';
+  }
+  function loadLike(item) {
+    paintLike();
+    if (!item || !item.src || GUEST || typeof item.liked === 'boolean') return;
+    api('/api/like?src=' + q(item.src)).then(function (reply) {
+      if (reply && play && play.item === item && typeof item.liked !== 'boolean') { item.liked = !!reply.liked; paintLike(); }
+    }).catch(function () {});
+  }
+  function toggleLike() {
+    var item = play && play.item, want, body, viewers;
+    if (!item || !item.src || GUEST || inAd()) { showOsd(); return; }
+    want = !item.liked;
+    item.liked = want;
+    paintLike();
+    showOsd();
+    body = { src: item.src, liked: want };
+    if (play.channel && play.channel.id) body.channel = String(play.channel.id);
+    viewers = storedViewers();
+    if (viewers !== null) body.viewers = viewers;
+    post('/api/like', body).then(function (reply) {
+      if (reply && typeof reply.liked === 'boolean' && play && play.item === item) { item.liked = reply.liked; paintLike(); }
+    }).catch(function () { if (play && play.item === item) { item.liked = !want; paintLike(); } });
+  }
   function transportEls() {
     var ids = [], els = [], i, el;
     if (GUEST) ids.push('osd-back');
-    ids.push('osd-prev-scene', 'osd-play', 'osd-next', 'osd-options');
+    ids.push('osd-prev-scene', 'osd-play', 'osd-next', 'osd-like', 'osd-options');
     for (i = 0; i < ids.length; i++) {
       el = $(ids[i]);
       if (!el || el.hidden) continue;
@@ -2425,7 +2458,7 @@
     var line = $('osd-progress'); if (line) line.classList.add('focused');
     showOsd();
   }
-  // Back to plain watching: nothing focused, the arrows surf again. The bar fades on its own timer.
+  // Back to plain watching: nothing focused. The bar fades on its own timer.
   function dropFocus() {
     overlayFocus = '';
     clearTransportFocus();
@@ -2494,6 +2527,7 @@
     if (el.id === 'osd-prev-scene') previousShow();
     else if (el.id === 'osd-play') { togglePause(); if (!media.paused()) dropFocus(); return; }
     else if (el.id === 'osd-next') { skipForward(); return; }
+    else if (el.id === 'osd-like') { toggleLike(); return; }
     else if (el.id === 'osd-options') openOptions();
     showOsd();
   }
@@ -2549,6 +2583,7 @@
     if (action.type === 'play') { if (play) { media.play(); watchEvent('resume'); } showOsd(); reportNow(); return; }
     if (action.type === 'pause') { if (play) media.pause(); showOsd(); reportNow(); return; }
     if (action.type === 'stop') { dismissArm(); closeOverlay(); stopPlayback(); return; }
+    if (action.type === 'like') { toggleLike(); return; }
     if (action.type === 'next') { skipForward(); return; }
     if (action.type === 'previous') { previousShow(); return; }
     if (action.type === 'close') { closeOverlay(); return; }
@@ -2688,7 +2723,7 @@
   // Media keys reach the app only once registered (Tizen). SUBT is mapped when the TV exposes it.
   if (window.tizen && tizen.tvinputdevice) {
     var remoteKeys = ['MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind',
-      'MediaTrackNext', 'MediaTrackPrevious', 'ChannelUp', 'ChannelDown', 'Info',
+      'MediaTrackNext', 'MediaTrackPrevious', 'ChannelUp', 'ChannelDown', 'ColorF1Green', 'Info',
       '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
     var supported = [];
     try { supported = tizen.tvinputdevice.getSupportedKeys() || []; } catch (e) { supported = []; }

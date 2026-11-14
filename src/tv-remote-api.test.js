@@ -60,6 +60,8 @@ test('the tv cli reads now-playing and sends allowlisted actions', async () => {
   try {
     assert.equal(parseTvArgs(['sideways']).code, 2);
     assert.equal(parseTvArgs(['seek', '-3']).code, 2);
+    assert.equal(parseTvArgs(['play', 'Kids/a.mp4', '1455']).positionSeconds, 1455);
+    assert.equal(parseTvArgs(['play', 'Kids/a.mp4']).positionSeconds, null);
     assert.equal((await remote(['now'])).line, 'idle');
     assert.equal((await fetch(`${base}/api/now-playing`, { method: 'POST', headers, body: JSON.stringify({
       src: 'Kids/Timmy Time.mp4', position: 84, channel: { id: 'christmas', number: 5, name: 'Christmas' }, profile: 'all',

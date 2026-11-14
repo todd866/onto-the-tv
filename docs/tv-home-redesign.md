@@ -42,9 +42,16 @@ skip used twice. The map is `tv/remote-map.js` (its header is the spec):
 
 | Mode | Up / Down | Left / Right | OK | Back |
 |---|---|---|---|---|
-| Watching (nothing focused) | channel up / down (tunes 350 ms after the last press) | previous / next on this channel | pause + open controls | leave |
-| Controls: transport row ⏮ ⏸ ⏭ ⋯ | Up: progress line. Down: close | move | press the button | close |
+| Watching (nothing focused) | show the controls, focus on play / pause | show the controls, focus on play / pause | pause + open controls | leave |
+| Controls: transport row ⏮ ⏸ ⏭ ♥ ⋯ | Up: progress line. Down: close | move | press the button | close |
 | Controls: progress line | Up: Continue strip. Down: transport | seek 10 s (30 s held) | resume | close |
+
+**Arrows only move focus (Ian, 14 Nov 2026, afternoon: "arrows should only navigate the ux, they shouldn't trigger
+things").** That morning's map made Up / Down tune and Left / Right skip while watching; one arrow press 24 minutes
+into a live set tuned away and going back gave a different pick. Channels change on CH up / down and the digits;
+◀◀ / ▶▶ seek 30 s; the green key (B) likes what is on from anywhere, and ♥ in the transport row does the same
+(`POST /api/like`: doubles the episode's weight for that audience, a second press takes it back).
+`npm run tv -- play <src> [seconds]` puts a show back on at a position.
 
 Rules: every key acts on press, never on release; nothing waits on the server before the screen changes (a skip stops
 the old item in the same frame); no hold gestures. Gates: `node --test tv/*.test.js`, `scripts/check-tv-overlay.mjs`

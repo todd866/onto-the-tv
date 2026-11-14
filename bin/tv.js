@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Talk to the TV that is on: npm run tv -- now|play <src>|next <src>|pause|resume|seek <s>|tune <ch>|back
+// Talk to the TV that is on: npm run tv -- now|play <src> [seconds]|next <src>|pause|resume|seek <s>|tune <ch>|back
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

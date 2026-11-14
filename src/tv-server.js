@@ -360,7 +360,39 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   function describe(item) {
     const resume = history.get(item.file);
     return { src: item.src, title: item.title || item.src, show: item.channel || '', tier: item.tier,
-      channels: channelsOf(item), duration: item.duration || 0, resume: resume > 5 ? resume : 0 };
+      channels: channelsOf(item), duration: item.duration || 0, resume: resume > 5 ? resume : 0, liked: !!likes()[item.src] };
+  }
+
+  // Likes pressed on the TV: { src: { at, key, was } }. A like doubles the episode's weight on the audience's
+  // taste key (at least to 2); taking it back restores the weight it had.
+  const LIKES_KEY = 'onto.tv.likes';
+  function likes() {
+    try {
+      const parsed = JSON.parse(storage.getItem(LIKES_KEY));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch { return {}; }
+  }
+  function liked(src) { return { src: video(src).video.src, liked: !!likes()[src] }; }
+  function like({ src, channel, viewers, liked: want } = {}) {
+    const { video: item } = video(src);
+    const all = likes(), held = all[item.src];
+    const on = typeof want === 'boolean' ? want : !held;
+    if (on === !!held) return { src: item.src, liked: on };
+    const channelId = TV_CHANNELS.some(entry => entry.id === channel) ? channel : '';
+    const key = on ? ((channelId ? channelTasteKey(channelId, viewerIds(viewers)) : tasteKey(viewerIds(viewers))) || channelId || 'grown') : held.key;
+    const stored = player.readStored(storage, key);
+    const was = player.weightFor(stored, item.src);
+    if (on) {
+      stored[item.src] = Math.min(4, Math.max(2, was * 2));
+      all[item.src] = { at: now(), key, was };
+    } else {
+      stored[item.src] = Number.isFinite(held.was) && held.was > 0 ? held.was : 1;
+      delete all[item.src];
+    }
+    player.saveWeights(storage, key, stored);
+    storage.setItem(LIKES_KEY, JSON.stringify(all));
+    player.appendLog(storage, { t: now(), age: key, src: item.src, reason: on ? 'like' : 'unlike', via: 'tv' });
+    return { src: item.src, liked: on };
   }
 
   function viewerIds(value) {
@@ -899,7 +931,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return channelsOf(item).some(id => ratingAllowed(item, ceiling, blocked, id));
   }
 
-  return { home, show, next, progress, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
+  return { home, show, next, progress, like, liked, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
 }
 
 async function readBody(request, limit = 16 * 1024) {
@@ -1139,6 +1171,13 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         const item = library.next(String(params.channel || ''), params);
         dirty = true;
         return send(response, 200, item);
+      }
+      if (path === '/api/like') {
+        if (request.method === 'GET') return send(response, 200, library.liked(url.searchParams.get('src') || ''));
+        if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' });
+        const result = library.like(await readBody(request));
+        dirty = true;
+        return send(response, 200, result);
       }
       if (path === '/api/progress' && request.method === 'POST') {
         const changed = library.progress(await readBody(request));

@@ -14,18 +14,34 @@ const open = focus => ({ overlay: 'open', focus, repeat: false });
 
 const watching = { overlay: 'hidden', focus: '', repeat: false };
 
-test('watching: up/down change channel, left/right are previous/next, and none of them seek', () => {
+test('watching: an arrow only shows the controls; channels change on the CH keys alone', () => {
   const map = remote();
   for (const state of [watching, open('')]) {
-    assert.deepEqual(plain(map.decide(state, map.KEY.UP)), { type: 'tune', direction: 1 });
-    assert.deepEqual(plain(map.decide(state, map.KEY.DOWN)), { type: 'tune', direction: -1 });
-    assert.deepEqual(plain(map.decide(state, map.KEY.RIGHT)), { type: 'next' });
-    assert.deepEqual(plain(map.decide(state, map.KEY.LEFT)), { type: 'previous' });
+    // The owner lost a live set to one arrow press (14 Nov 2026): no arrow may tune, skip, go back or seek.
+    for (const key of [map.KEY.UP, map.KEY.DOWN, map.KEY.LEFT, map.KEY.RIGHT]) {
+      assert.deepEqual(plain(map.decide(state, key)), { type: 'focus', row: 'transport', fresh: true });
+      assert.equal(map.decide({ ...state, repeat: true }, key).type, 'none');
+    }
     assert.deepEqual(plain(map.decide(state, map.KEY.CH_UP)), { type: 'tune', direction: 1 });
     assert.deepEqual(plain(map.decide(state, map.KEY.CH_DOWN)), { type: 'tune', direction: -1 });
-    // A held key never machine-guns through channels or shows.
-    for (const key of [map.KEY.UP, map.KEY.DOWN, map.KEY.LEFT, map.KEY.RIGHT, map.KEY.CH_UP])
-      assert.equal(map.decide({ ...state, repeat: true }, key).type, 'none');
+    assert.equal(map.decide({ ...state, repeat: true }, map.KEY.CH_UP).type, 'none');
+  }
+});
+
+test('no arrow press in any focus state changes what is playing', () => {
+  const map = remote();
+  const changes = ['tune', 'next', 'previous', 'stop', 'back', 'activate', 'open', 'play', 'pause', 'like'];
+  for (const focus of ['', 'transport', 'scrub', 'continue'])
+    for (const repeat of [false, true])
+      for (const key of [map.KEY.UP, map.KEY.DOWN, map.KEY.LEFT, map.KEY.RIGHT])
+        assert.ok(!changes.includes(map.decide({ overlay: 'open', focus, repeat }, key).type), `${focus || 'watching'} ${key}`);
+});
+
+test('the green key likes from anywhere, once per press', () => {
+  const map = remote();
+  for (const focus of ['', 'transport', 'scrub', 'continue']) {
+    assert.deepEqual(plain(map.decide(open(focus), map.KEY.GREEN)), { type: 'like' });
+    assert.equal(map.decide({ ...open(focus), repeat: true }, map.KEY.GREEN).type, 'none');
   }
 });
 

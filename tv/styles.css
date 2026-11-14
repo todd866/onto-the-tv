@@ -189,6 +189,11 @@ button:focus { outline: none; }
 #osd-keys .icon { width: 64px; height: 64px; display: block; }
 #osd-next-scene { display: none; }
 #osd-play { color: #ffb547; }
+#osd-like .icon-like-on { display: none; }
+#osd-like.is-liked { color: #ff6b6b; }
+#osd-like.is-liked .icon-like-off { display: none; }
+#osd-like.is-liked .icon-like-on { display: block; }
+#osd-like.is-liked:focus, #osd-like.is-liked.focused { color: #b3261e; }
 #osd-play .icon-play { display: none; }
 #osd-play.is-paused .icon-pause { display: none; }
 #osd-play.is-paused .icon-play { display: block; }

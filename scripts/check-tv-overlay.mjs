@@ -12,6 +12,7 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 try {
   const page = await browser.newPage();
   let nextCalls = 0;
+  const likeCalls = [];
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
@@ -32,6 +33,7 @@ try {
     if (url.pathname === '/api/diagnostics') return route.fulfill({ json: { ok: true } });
     if (url.pathname === '/api/now-playing' || url.pathname === '/api/play-next' || url.pathname === '/api/watch' || url.pathname === '/api/progress') return route.fulfill({ json: { ok: true, items: [] } });
     if (url.pathname === '/api/next') { let peek = false; try { peek = !!(route.request().postDataJSON() || {}).prefetch; } catch {} if (!peek) nextCalls++; return route.fulfill({ json: { src: 'Kids/Bluey.mp4', show: 'Bluey', title: 'The Sign', resume: 0, duration: 420 } }); }
+    if (url.pathname === '/api/like') { let want = false; try { want = !!(route.request().postDataJSON() || {}).liked; } catch {} likeCalls.push(route.request().method() + ':' + want); return route.fulfill({ json: { src: 'Kids/Bluey.mp4', liked: want } }); }
     if (url.pathname === '/api/subs') return route.fulfill({ json: { tracks: [] } });
     if (url.pathname === '/api/scenes') return route.fulfill({ json: { cuts: [], thumbs: [], segments: [] } });
     if (url.pathname === '/api/home') {
@@ -93,8 +95,11 @@ try {
     scrub: document.getElementById('osd-progress').classList.contains('focused'),
     elapsed: document.getElementById('osd-elapsed').textContent.trim(),
     show: document.getElementById('osd-show').textContent.trim(),
+    like: document.getElementById('osd-like').classList.contains('focused'),
+    liked: document.getElementById('osd-like').classList.contains('is-liked'),
+    paused: document.getElementById('osd-play').classList.contains('is-paused'),
   }));
-  // Watching: Right is next, at once, with nothing focused.
+  // Watching: an arrow only shows the controls (focus on play/pause). Nothing changes, the picture keeps playing.
   let calls = nextCalls;
   await fire(39);
   await page.waitForTimeout(700);
@@ -131,6 +136,19 @@ try {
   await page.waitForFunction(() => document.getElementById('tune-flash').hidden);
   await shot('transport-dark.png', 'dark');
   await shot('transport-light.png', 'light');
+  // Like: one step right of Next. OK fills the heart in the same frame; the green key takes it back from anywhere.
+  await fire(39);
+  const onLike = await state();
+  await fire(13);
+  const likedNow = await state();
+  await shot('like-dark.png', 'dark');
+  await shot('like-light.png', 'light');
+  await fire(404);
+  const unliked = await state();
+  await fire(404);
+  const reliked = await state();
+  await page.waitForTimeout(100);
+  await fire(37);
   await fire(38);   // Up: the progress line
   const onScrub = await state();
   calls = nextCalls;
@@ -167,9 +185,18 @@ try {
   await page.waitForTimeout(400);
   await shot('preview-dark.png', 'dark');
   await shot('preview-light.png', 'light');
-  console.log(JSON.stringify({ before, oneRight, shown, skipped, onScrub, scrubbed, transport, row, preview, errors }, null, 2));
-  assert.equal(oneRight.calls, 1, 'Right while watching is next');
-  assert.equal(oneRight.play || oneRight.next || oneRight.scrub, false, 'nothing is focused while watching');
+  console.log(JSON.stringify({ before, oneRight, shown, skipped, onLike, likedNow, unliked, reliked, likeCalls, onScrub, scrubbed, transport, row, preview, errors }, null, 2));
+  assert.equal(oneRight.calls, 0, 'an arrow while watching never skips');
+  assert.equal(oneRight.show, before, 'an arrow while watching leaves the show on');
+  assert.equal(oneRight.paused, false, 'an arrow while watching does not pause');
+  assert.equal(oneRight.hidden, false, 'an arrow while watching shows the controls');
+  assert.equal(oneRight.play, true, 'an arrow while watching puts focus on play/pause');
+  assert.equal(onLike.like, true, 'Like is one step right of Next');
+  assert.equal(onLike.liked, false);
+  assert.equal(likedNow.liked, true, 'OK on Like fills the heart');
+  assert.equal(unliked.liked, false, 'the green key takes the like back');
+  assert.equal(reliked.liked, true, 'the green key likes');
+  assert.deepEqual(likeCalls.filter(call => call.startsWith('POST')), ['POST:true', 'POST:false', 'POST:true']);
   assert.equal(shown.hidden, false);
   assert.equal(shown.play, true, 'OK opens the controls on play/pause');
   assert.equal(skipped.calls, 2, 'OK, OK on Next skips twice');
@@ -179,8 +206,8 @@ try {
   assert.equal(scrubbed.calls, 0, 'Right on the progress line seeks, it does not skip');
   assert.notEqual(scrubbed.elapsed, onScrub.elapsed, 'Right on the progress line moves the time');
   assert.equal(transport.buttons.find(button => button.id === 'osd-next').focused, true);
-  assert.deepEqual(transport.buttons.map(button => button.id), ['osd-prev-scene', 'osd-play', 'osd-next', 'osd-options']);
-  assert.deepEqual(transport.buttons.map(button => button.label).filter((_, index) => index !== 1), ['Previous', 'Next', 'Options']);
+  assert.deepEqual(transport.buttons.map(button => button.id), ['osd-prev-scene', 'osd-play', 'osd-next', 'osd-like', 'osd-options']);
+  assert.deepEqual(transport.buttons.map(button => button.label).filter((_, index) => index !== 1), ['Previous', 'Next', 'Like', 'Options']);
   assert.ok(['Play', 'Pause', 'Play or pause'].includes(transport.buttons[1].label));
   assert.ok(transport.buttons.every(button => button.w >= 48), JSON.stringify(transport.buttons));
   assert.ok(transport.trackH >= 18, 'track ' + transport.trackH);

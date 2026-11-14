@@ -10,7 +10,7 @@ export function parseTvArgs(argv) {
     else rest.push(argv[i]);
   }
   const command = rest[0] || '';
-  if (!VERBS.has(command)) return { ok: false, line: 'now | play <src> | next <src> | pause | resume | seek <s> | tune <ch> | back', code: 2 };
+  if (!VERBS.has(command)) return { ok: false, line: 'now | play <src> [seconds] | next <src> | pause | resume | seek <s> | tune <ch> | back', code: 2 };
   if ((command === 'play' || command === 'next') && !rest[1]) return { ok: false, line: command + ' needs a src', code: 2 };
   if (command === 'seek' && !(Number(rest[1]) >= 0)) return { ok: false, line: 'seek needs seconds', code: 2 };
   if (command === 'tune' && !rest[1]) return { ok: false, line: 'tune needs a channel', code: 2 };
@@ -19,6 +19,7 @@ export function parseTvArgs(argv) {
     ok: true, command, url: url.replace(/\/$/, ''), token, code: 0,
     src: command === 'play' || command === 'next' ? rest[1] : '',
     seconds: command === 'seek' ? Math.round(Number(rest[1])) : null,
+    positionSeconds: command === 'play' && Number(rest[2]) >= 0 && rest[2] !== undefined ? Math.round(Number(rest[2])) : null,
     channel,
   };
 }
@@ -69,6 +70,7 @@ export async function runTv(options) {
     if (!session) return { ok: false, code: 1, line: 'no tv' };
     const body = { session, action: parsed.command === 'next' ? 'queue-next' : parsed.command };
     if (parsed.command === 'play' || parsed.command === 'next') body.src = parsed.src;
+    if (parsed.command === 'play' && parsed.positionSeconds != null) body.positionSeconds = parsed.positionSeconds;
     if (parsed.command === 'seek') body.seconds = parsed.seconds;
     if (parsed.command === 'tune') body.channel = parsed.channel;
     const queued = await request(base, token, '/api/tv-command', body, fetchImpl);
