@@ -273,6 +273,27 @@ test('server streams only catalogue files and serves the UI', async () => {
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
+// The Mac app's Channels tab reaches the M2 through Tailscale's HTTPS proxy, which keeps the Host
+// header: the page's Origin is then https://<host>. It refused every POST until 15 Nov 2026.
+test('the server\'s own page stays same-origin behind an HTTPS proxy', async () => {
+  const { dir, history, storage, library } = await setup();
+  const server = createTvServer({ library, history, storage, uiRoot: dir, token: 'secret' });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const host = `127.0.0.1:${server.address().port}`;
+  const post = origin => fetch(`http://${host}/api/next`, { method: 'POST', body: JSON.stringify({ channel: 'cartoons' }),
+    headers: { 'Content-Type': 'application/json', Origin: origin } });
+  try {
+    assert.equal((await post(`http://${host}`)).status, 200);
+    const proxied = await post(`https://${host}`);
+    assert.equal(proxied.status, 200, 'https://<same host> is this server behind a TLS proxy');
+    assert.equal(proxied.headers.get('access-control-allow-origin'), null, 'same-origin needs no CORS grant');
+    assert.equal((await post('https://evil.example')).status, 403);
+    assert.equal((await post('https://127.0.0.1:1')).status, 403, 'another port is another origin');
+    assert.equal((await post(`https://${host}.evil.example`)).status, 403);
+    assert.equal((await post(`ftp://${host}`)).status, 403);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
 test('diagnostics always requires the pairing token, including same-origin and no-origin requests', async () => {
   const { dir, history, storage, library } = await setup();
   await writeFile(join(dir, 'index.html'), 'ok');

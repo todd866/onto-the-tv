@@ -1216,7 +1216,9 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
       // POSTs force a preflight, so other pages cannot change taste or history.
       if (!isHomeHost(request.headers.host)) return send(response, 403, { error: 'Use this Mac’s address.' });
       const origin = request.headers.origin;
-      if (origin && origin !== `http://${request.headers.host}`) {
+      // The same host over https is this server behind a TLS proxy that keeps the Host header
+      // (tailscale serve): the Mac app's Channels tab loads the page that way.
+      if (origin && origin !== `http://${request.headers.host}` && origin !== `https://${request.headers.host}`) {
         if (request.method === 'OPTIONS') {
           response.writeHead(204, { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, DELETE',
             'Access-Control-Allow-Headers': 'Content-Type, X-Onto-Token', 'Access-Control-Max-Age': '600', Vary: 'Origin' });
