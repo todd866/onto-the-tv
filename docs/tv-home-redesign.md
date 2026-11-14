@@ -34,7 +34,25 @@ Starting rating map from the existing folder tiers: preschool and shared → G, 
 - The player overlay shows the channel number and name rather than the raw YouTube title. Text gets larger.
 - Render headless at 1920×1080 and look at it before calling it done.
 
-## Player navigation (Ian, 2026-11-02)
+## Player navigation (Ian, 2026-11-14): SUPERSEDES the 2 Nov table below
+
+Ian: "press a button on the remote and the TV needs to respond *instantly*"; "if the UX slaves left/right to seek
+then it's a shit UX"; there was "no way to skip a song". Telemetry 1–13 Nov: 38 of 73 plays abandoned in under 30 s,
+skip used twice. The map is `tv/remote-map.js` (its header is the spec):
+
+| Mode | Up / Down | Left / Right | OK | Back |
+|---|---|---|---|---|
+| Watching (nothing focused) | channel up / down (tunes 350 ms after the last press) | previous / next on this channel | pause + open controls | leave |
+| Controls: transport row ⏮ ⏸ ⏭ ⋯ | Up: progress line. Down: close | move | press the button | close |
+| Controls: progress line | Up: Continue strip. Down: transport | seek 10 s (30 s held) | resume | close |
+
+Rules: every key acts on press, never on release; nothing waits on the server before the screen changes (a skip stops
+the old item in the same frame); no hold gestures. Gates: `node --test tv/*.test.js`, `scripts/check-tv-overlay.mjs`
+(flow + screenshots), `scripts/measure-tv-latency.mjs` (key-to-screen ms at 1/6 CPU; readings not yet stable).
+Telemetry: every press goes to `<appdata>/tv-server/remote-events.jsonl` on the M2 (key, action, focus, ms to next frame).
+Deployed to the M2 14 Nov 10:27 as `dfbab67`; rollback: `git -C ~/onto-the-tv reset --hard rollback-20261114` + restart.
+
+## Player navigation (Ian, 2026-11-02): superseded, kept for the scene/ads/intro notes
 
 Jump by scene, not by time. The model to follow is Netflix; Amazon's slow scrubbing is what to avoid.
 
