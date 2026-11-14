@@ -1,5 +1,11 @@
-/* Playback remote: the Samsung map. Up and down never change channel. ES5.
-   Skip = Down, OK (two presses, and OK again skips again). Seek = Left/Right at once. Pause = OK. */
+/* Playback remote: the Samsung map (owner, 14 Nov 2026). ES5.
+   Watching (nothing focused): every key acts at once.
+       Up / Down      channel up / down          Left / Right   previous / next on this channel
+       OK             pause and open the controls (OK again resumes)        Back   leave
+   Controls open (something focused): the arrows navigate.
+       transport row  Left / Right move, OK presses, Up to the progress line, Down or Back closes
+       progress line  Left / Right seek 10 s (30 s while held), Down to the transport row, Up to Continue
+   Seeking is deliberately out of the way: it is rare, and Left / Right are the best keys on the remote. */
 window.ontoRemoteMap = (function () {
   var KEY = {
     LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 10009, ESC: 27, BACKSPACE: 8,
@@ -8,10 +14,10 @@ window.ontoRemoteMap = (function () {
   };
 
   function decide(state, keyCode) {
-    var overlay = state && state.overlay === 'open';
-    var focus = overlay && state.focus ? state.focus : '';
+    var focus = state && state.focus ? state.focus : '';
     var repeat = !!(state && state.repeat);
     var key = keyCode;
+    var delta;
 
     if (key === KEY.CH_UP || key === KEY.CH_DOWN) {
       if (repeat) return { type: 'none' };
@@ -32,28 +38,27 @@ window.ontoRemoteMap = (function () {
     if (key === KEY.PREV) return repeat ? { type: 'none' } : { type: 'previous' };
     if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) {
       if (repeat) return { type: 'none' };
-      return { type: overlay || focus ? 'close' : 'back' };
+      return { type: focus ? 'close' : 'back' };
     }
+    if (key === KEY.INFO) return repeat ? { type: 'none' } : { type: 'focus', row: 'transport', fresh: true };
     if (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) {
       if (repeat) return { type: 'none' };
-      return { type: focus ? 'activate' : 'play-pause' };
+      if (focus === 'transport' || focus === 'continue') return { type: 'activate' };
+      return { type: 'open' };
     }
-    // Up or Down from plain playback opens the control bar with the transport row already focused (on Next: the
-    // commonest reason to call the bar up; play/pause is OK without it). Then direction follows the screen: the
-    // Continue strip is drawn above the transport row, so Up goes to it and Down comes back.
-    if (key === KEY.UP || key === KEY.DOWN || key === KEY.INFO) {
+    if (key === KEY.UP || key === KEY.DOWN) {
       if (repeat) return { type: 'none' };
-      if (!focus) return { type: 'focus', row: 'transport', fresh: true };
-      if (focus === 'transport') return key === KEY.DOWN ? { type: 'none' } : { type: 'focus', row: 'continue' };
-      return key === KEY.DOWN ? { type: 'focus', row: 'transport' } : { type: 'none' };
+      if (!focus) return { type: 'tune', direction: key === KEY.UP ? 1 : -1 };
+      if (focus === 'transport') return key === KEY.UP ? { type: 'focus', row: 'scrub' } : { type: 'close' };
+      if (focus === 'scrub') return { type: 'focus', row: key === KEY.UP ? 'continue' : 'transport' };
+      return key === KEY.DOWN ? { type: 'focus', row: 'scrub' } : { type: 'none' };
     }
     if (key === KEY.LEFT || key === KEY.RIGHT) {
-      var delta = key === KEY.RIGHT ? 1 : -1;
-      if (focus === 'transport' || focus === 'continue') {
-        if (repeat) return { type: 'none' };
-        return { type: 'move', row: focus, delta: delta };
-      }
-      return { type: 'seek', seconds: (repeat ? 30 : 10) * delta };
+      delta = key === KEY.RIGHT ? 1 : -1;
+      if (!focus) return repeat ? { type: 'none' } : { type: delta > 0 ? 'next' : 'previous' };
+      if (focus === 'scrub') return { type: 'seek', seconds: (repeat ? 30 : 10) * delta };
+      if (repeat) return { type: 'none' };
+      return { type: 'move', row: focus, delta: delta };
     }
     return { type: 'none' };
   }

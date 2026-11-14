@@ -955,6 +955,7 @@
         overlayFocus = '';
         closeContinue();
         clearTransportFocus();
+        clearScrubFocus();
       }
     }, OSD_MS);
   }
@@ -2100,15 +2101,20 @@
     }
     return false;
   }
+  // The channel one step up or down. Steps from the channel whose card is showing (so Up, Up goes two channels,
+  // not back again) and passes over tiles that are not channels (Games, Console).
   function channelByStep(direction) {
     var list = (data.channels || []).slice().sort(function (a, b) { return a.number - b.number; });
     if (!play || !play.channel || list.length < 2) return null;
-    var index = -1, i;
-    for (i = 0; i < list.length; i++) if (list[i].id === play.channel.id) index = i;
+    var from = (channelArm && channelArm.target && channelArm.target()) || play.channel;
+    var index = -1, i, tries;
+    for (i = 0; i < list.length; i++) if (list[i].id === from.id) index = i;
     if (index < 0) return null;
-    var nextIndex = (index + direction + list.length) % list.length;
-    if (list[nextIndex].id === play.channel.id || list[nextIndex].app) return null;
-    return list[nextIndex];
+    for (tries = 0; tries < list.length; tries++) {
+      index = (index + direction + list.length) % list.length;
+      if (!list[index].app) return list[index];
+    }
+    return null;
   }
   function stepChannel(direction) {
     var target = channelByStep(direction);
@@ -2404,11 +2410,27 @@
     }
     return els;
   }
-  // Where focus lands when the bar is called up: Next, the reason the bar is usually wanted.
+  // Where focus lands when the controls open: play/pause (previous and next are one step either side).
   function transportHome() {
     var els = transportEls(), i;
-    for (i = 0; i < els.length; i++) if (els[i].id === 'osd-next') return i;
+    for (i = 0; i < els.length; i++) if (els[i].id === 'osd-play') return i;
     return 0;
+  }
+  function clearScrubFocus() { var line = $('osd-progress'); if (line) line.classList.remove('focused'); }
+  function focusScrubRow() {
+    overlayFocus = 'scrub';
+    clearTransportFocus();
+    clearContinueFocus();
+    closeContinue();
+    var line = $('osd-progress'); if (line) line.classList.add('focused');
+    showOsd();
+  }
+  // Back to plain watching: nothing focused, the arrows surf again. The bar fades on its own timer.
+  function dropFocus() {
+    overlayFocus = '';
+    clearTransportFocus();
+    clearScrubFocus();
+    closeContinue();
   }
   function clearTransportFocus() {
     var els = transportEls(), i;
@@ -2428,15 +2450,18 @@
   }
   function focusTransportRow() {
     overlayFocus = 'transport';
+    clearScrubFocus();
+    closeContinue();
     clearContinueFocus();
     paintTransportFocus();
     showOsd();
   }
   function focusContinueRow() {
     var holder = $('continue-strip'), entries = continueEntries();
+    if (!holder || !entries.length) { showOsd(); return; }   // nothing to continue: stay on the progress line
     clearTransportFocus();
+    clearScrubFocus();
     showOsd();
-    if (!holder || !entries.length) { overlayFocus = ''; return; }
     overlayFocus = 'continue';
     continueOpen = true;
     paintResumeInto(holder, entries);
@@ -2446,6 +2471,7 @@
   function closeOverlay() {
     overlayFocus = '';
     closeContinue();
+    clearScrubFocus();
     clearTransportFocus();
     clearTimeout(osdTimer);
     if (osd) osd.classList.add('hidden');
@@ -2466,10 +2492,18 @@
     if (!el) return;
     if (el.id === 'osd-back') { undoOrHome(); return; }
     if (el.id === 'osd-prev-scene') previousShow();
-    else if (el.id === 'osd-play') togglePause();
-    else if (el.id === 'osd-next') next('skip');
+    else if (el.id === 'osd-play') { togglePause(); if (!media.paused()) dropFocus(); return; }
+    else if (el.id === 'osd-next') { skipForward(); return; }
     else if (el.id === 'osd-options') openOptions();
     showOsd();
+  }
+  // Right (or Next): the next thing on this channel, at once. With nothing to go to (a single Library film)
+  // the bar shows instead of dropping to the home screen.
+  function skipForward() {
+    if (!play) return;
+    if (inAd()) { skipBreak(); showOsd(); return; }
+    if (play.mode !== 'channel' && !(play.nextQueue && play.nextQueue[0])) { showOsd(); return; }
+    next('skip');
   }
   function applyRemote(action) {
     var target, chosen;
@@ -2478,6 +2512,15 @@
     if (action.type === 'focus' && action.row === 'transport') {
       if (action.fresh) transportIndex = transportHome();
       focusTransportRow();
+      return;
+    }
+    if (action.type === 'focus' && action.row === 'scrub') { focusScrubRow(); return; }
+    if (action.type === 'open') {
+      // OK while watching: pause and open the controls. OK again (or on a paused picture) resumes and lets go.
+      if (inAd()) { skipBreak(); showOsd(); return; }
+      togglePause();
+      if (media.paused()) { transportIndex = transportHome(); focusTransportRow(); }
+      else dropFocus();
       return;
     }
     if (action.type === 'focus') { focusContinueRow(); return; }
@@ -2506,19 +2549,52 @@
     if (action.type === 'play') { if (play) { media.play(); watchEvent('resume'); } showOsd(); reportNow(); return; }
     if (action.type === 'pause') { if (play) media.pause(); showOsd(); reportNow(); return; }
     if (action.type === 'stop') { dismissArm(); closeOverlay(); stopPlayback(); return; }
-    if (action.type === 'next') { next('skip'); return; }
+    if (action.type === 'next') { skipForward(); return; }
     if (action.type === 'previous') { previousShow(); return; }
     if (action.type === 'close') { closeOverlay(); return; }
     if (action.type === 'back') { dismissArm(); undoOrHome(); return; }
     if (action.type === 'tune') {
       target = channelByStep(action.direction);
-      if (target) armChannel(target); else showOsd();
+      if (!target) { showOsd(); return; }
+      // Flipped back onto the channel already playing: drop the card, change nothing.
+      if (play && play.channel && target.id === play.channel.id) { dismissArm(); showOsd(); return; }
+      armChannel(target);
     }
+  }
+
+  // ---------- remote telemetry ----------
+  // One entry per press: the key, what it did, where focus was, and ms from the press to the next painted frame.
+  // Sent in batches to /api/remote-log; never blocks or delays a key.
+  var remoteQueue = [], remoteTimer = 0, remoteSession = 'tv-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  function flushRemote() {
+    clearTimeout(remoteTimer); remoteTimer = 0;
+    if (!remoteQueue.length) return;
+    var batch = remoteQueue.splice(0, 100);
+    if (!TOKEN || GUEST) return;
+    try {
+      post('/api/remote-log', { session: remoteSession, build: String(CONFIG.build || 'dev').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 64), events: batch }).catch(function () {});
+    } catch (e) {}
+  }
+  function logRemote(page, key, type, focusName, repeat, pressedAt) {
+    try {
+      var entry = { t: Date.now(), p: page, k: key, a: type || 'none', f: focusName || '', ms: null };
+      if (repeat) entry.r = true;
+      if (pressedAt && window.performance && performance.now) {
+        (window.requestAnimationFrame || function (f) { setTimeout(f, 16); })(function () {
+          setTimeout(function () { entry.ms = Math.max(0, Math.min(60000, Math.round(performance.now() - pressedAt))); }, 0);
+        });
+      }
+      remoteQueue.push(entry);
+      if (remoteQueue.length > 200) remoteQueue.shift();
+      if (remoteQueue.length >= 25) setTimeout(flushRemote, 50);
+      else if (!remoteTimer) remoteTimer = setTimeout(flushRemote, 15000);
+    } catch (e) {}
   }
 
   // ---------- keys ----------
   document.addEventListener('keydown', function (event) {
     var key = event.keyCode;
+    var pressedAt = window.performance && performance.now ? performance.now() : 0;
     if (window.ontoUke && window.ontoUke.isOpen()) { if (window.ontoUke.key(key)) event.preventDefault(); return; }
     if (window.ontoLibrary && window.ontoLibrary.isOpen()) { window.ontoLibrary.key(key); event.preventDefault(); return; }
     if (window.ontoGames && window.ontoGames.isOpen()) {
@@ -2581,11 +2657,14 @@
         focus: overlayFocus,
         repeat: !!event.repeat
       }, key);
+      logRemote('player', key, action && action.type, overlayFocus, !!event.repeat, pressedAt);
       applyRemote(action);
       if (!action || action.type === 'none') return;
       event.preventDefault();
       return;
     } else {
+      logRemote('home', key, key === KEY.ENTER ? 'home-select' : (key === KEY.LEFT || key === KEY.RIGHT || key === KEY.UP || key === KEY.DOWN) ? 'home-move' :
+        (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) ? 'home-back' : 'none', 'home', !!event.repeat, pressedAt);
       if (key === KEY.LEFT) moveFocus(0, -1);
       else if (key === KEY.RIGHT) moveFocus(0, 1);
       else if (key === KEY.UP) moveFocus(-1, 0);
@@ -2630,6 +2709,7 @@
   }
   // Leaving the app (Home button) saves the place.
   document.addEventListener('visibilitychange', function () {
+    if (document.hidden) flushRemote();
     if (document.hidden && play) { saveProgress(false); media.pause(); }
   });
 

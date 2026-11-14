@@ -1,6 +1,7 @@
-/* A channel press shows a preview and commits after 1.5s, on OK, or cancels. ES5. */
+/* A channel press shows its card at once and tunes after DELAY_MS (long enough only to flip past channels
+   without loading each one; it was 1.5 s until 14 Nov 2026, which read as a slow TV), or at once on OK. ES5. */
 window.ontoChannelArm = (function () {
-  var DELAY_MS = 1500;
+  var DELAY_MS = 350;
 
   function create() {
     var armed = null;
@@ -31,6 +32,7 @@ window.ontoChannelArm = (function () {
         clear();
         return { type: 'commit', target: target };
       },
+      target: function () { return armed ? armed.target : null; },
       cancel: function () { clear(); }
     };
   }

@@ -169,3 +169,7 @@
 #osd.is-skipping #osd-track { -webkit-animation: skip-pulse 0.7s ease-in-out infinite alternate; animation: skip-pulse 0.7s ease-in-out infinite alternate; }
 @-webkit-keyframes skip-pulse { from { opacity: 1; } to { opacity: 0.35; } }
 @keyframes skip-pulse { from { opacity: 1; } to { opacity: 0.35; } }
+
+/* The progress line focused (Up from the transport row): Left/Right seek here and nowhere else. */
+#osd-progress.focused #osd-track { box-shadow: 0 0 0 5px #ffb547; }
+#osd-progress.focused #osd-elapsed { color: #ffb547; }

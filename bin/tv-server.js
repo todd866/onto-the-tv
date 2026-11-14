@@ -3,6 +3,7 @@
 // Uses the app's settings (library folder, show groups, sources) but builds its own
 // catalogue, which also admits formats only the TV plays (MKV, Dolby Digital), and
 // keeps its own taste and watch history in <app data>/tv-server/.
+import { createRemoteLog } from '../src/tv-remote-log.js';
 import { homedir } from 'node:os';
 import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -176,7 +177,8 @@ async function warmLibrary(videos) {
 }
 const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore,
   libraryRoots: async () => configuredRoots(await readSettings(join(appData, 'settings.json'))), catalogueFile: catalogue,
-  playNextFile: join(homedir(), '.local/state/onto-the-tv/play-next.json'), log });
+  playNextFile: join(homedir(), '.local/state/onto-the-tv/play-next.json'),
+  remoteLog: createRemoteLog({ file: join(data, 'remote-events.jsonl') }), log });
 server.listen(port, host, () => log(`serving ${library.home().channels.length} channels on http://${host}:${port}/`));
 
 // Invited guests: a separate server with no route to the TV's controls (src/guest-server.js).
