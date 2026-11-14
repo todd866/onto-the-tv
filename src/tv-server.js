@@ -131,8 +131,20 @@ export const TV_CHANNELS = [
     shows: /^(?:mark rober|johnny harris|veritasium|smarter every ?day|real engineering|wendover|practical engineering|stuff made here|colin furze|kurzgesagt|half as interesting|tom scott|the b1m|outdoor boys|abandoned|restoration|my mechanics|hand tool rescue)/i },
   { id: 'livesets', number: 42, name: 'Live Sets', audience: 'adult',
     shows: /^(?:tiny desk|like a version|cercle|kexp|boiler room|from the basement|bbc live|colors|mahogany|audiotree|live at)/i },
-  { id: 'triplej', number: 43, name: 'triple j', audience: 'adult', scored: true },
-  { id: 'doublej', number: 44, name: 'Double J', audience: 'adult', scored: true },
+  // The radio stations are the grown-ups' (Ian, 15 Nov 2026: "Sam loves music but he doesn't necessarily need
+  // separate triple J and double J categories"): with a child in the room their songs are still on Music.
+  { id: 'triplej', number: 43, name: 'triple j', audience: 'adult', scored: true, adultsOnly: true },
+  { id: 'doublej', number: 44, name: 'Double J', audience: 'adult', scored: true, adultsOnly: true },
+  // Sam's music (same day): "He probably likes kids music, and he definitely loves any kinda danceable techno
+  // type stuff, but simple stuff with flashing lights is probably his jam." Songs is children's music, by show
+  // or by a title that says so. Dance is the house, techno and other four-on-the-floor acts in the music
+  // folders; a measured score (channel-scores "dance": steady beat, flashing lights, simple picture) leans the
+  // picks without deciding who is on the channel.
+  { id: 'kidsongs', number: 45, name: 'Songs', audience: 'kid', kids: true,
+    shows: /^(?:the wiggles|ms ?rachel|emma memma|teeny tiny stevies|super simple songs|justine clarke|lah-?lah|play school songs|bounce patrol|danny go|the kiboomers|little baby bum|mother goose club|cocomelon)/i,
+    titles: /\b(?:songs|nursery rhymes?|sing[- ]?along|lullab(?:y|ies)|karaoke|song contest)\b/i },
+  { id: 'dance', number: 46, name: 'Dance', audience: 'kid', tier: 'music', leaning: true,
+    shows: /^(?:20syl|amtrac|anjunadeep|avicii|axel thesleff|barry can.t swim|ben b[oö]hmer|bicep|big wild|bob moses|bonobo|bronson|bunt|calvin harris|camelphat|caribou|cercle|cerrone|channel tres|chris lake|christian l[oö]ffler|confidence man|cosmo.s midnight|cri|cut copy|darius|daso|diplo|disclosure|dj poolboi|dom dolla|ed banger records|ekcle|elderbrook|eliza rose|enamour|eric prydz|fatboy slim|fcukers|fisher|flight facilities|floating points|flume|four tet|franc moody|frankie knuckles|fred again|french 79|future classic|gener8ion|groove armada|howling|jakatta|jamie xx|jon hopkins|jungle|jungle4eva|justice|kaskade|kaytramin[eé]|kaytranada|kid francescoli|kidnap|klangkarussell|lane 8|lcd soundsystem|le youth|lf system|louis the child|maribou state|marsh|mau p|minimal groove|moby|modjo|m[oø]me|mura masa|new order|nils hoffmann|nimino|nto|odesza|omnom|parcels|parisi|parra for cuva|paul woolford|pauloakenfold|peggy gou|petit biscuit|pnau|polo & pan|porter robinson|rezident|rone|ross from friends|r[uü]f[uü]s du sol|sachi|sammy virji|shallou|snakehips|swedish house mafia|switch disco|teed|the avalanches|the blaze|the chemical brothers|the orb|thylacine|todd terje|tourist|vantage|what so not|whethan|wuki|young franco|yung bae|zhu)(?![a-z0-9])/i },
 ];
 // Fran's own mix, from Ian (4 Nov 2026): her top three are Come Dine With Me, Friends and The
 // Big Bang Theory, and she is a big fan of British reality TV; she likes Kath & Kim too. No animation, no violence.
@@ -254,7 +266,9 @@ export function inTvGenre(item, channelId, scores = null) {
   if (defined?.shows) {
     if (defined.kids && !KID_TIERS.has(item.tier)) return false;
     if (!defined.kids && KID_TIERS.has(item.tier)) return false;
-    return !isFilm(item) && defined.shows.test(String(item.channel || '').replace(/^[^\w]+/, ''));
+    if (defined.tier && item.tier !== defined.tier) return false;
+    if (isFilm(item)) return false;
+    return defined.shows.test(String(item.channel || '').replace(/^[^\w]+/, '')) || Boolean(defined.titles?.test(String(item.title || '')));
   }
   if (defined?.person === 'jake') return JAKE_TIERS.has(item.tier) && !isFilm(item);
   if (defined?.person === 'mum') return MUM_TIERS.has(item.tier) && !isFilm(item) && !MUM_SKIPS.test(String(item.channel || ''));
@@ -527,6 +541,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (!personPresent(channel, ids)) return [];
     const adults = grownOnly(ids, rating);
     if (adults && channel.audience === 'kid') return [];
+    if (!adults && channel.adultsOnly) return [];
     // Ian on his own: Fran's reality and the cosy mysteries stay off his whole tab.
     const ianAlone = ids.length === 1 && ids[0] === 'dad' && adults;
     const { ceiling, blocked } = audience(ids, rating);
@@ -668,7 +683,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const hour = new Date(now()).getHours();
     const morning = hour < 9 && ceiling !== 'M';
     const samLine = !morning && ceiling !== 'M' && ids.includes('sam') && !ids.includes('jake');
-    const lead = samLine ? ['bluey', 'littleones', 'hophop', 'cartoons'] : (ceiling !== 'M' ? ['cartoons', 'littleones', 'bluey'] : []);
+    // Sam's music follows his favourites, ahead of the rest (Ian, 15 Nov 2026: "Sam loves music").
+    const samMusic = ids.includes('sam') ? ['kidsongs', 'dance'] : [];
+    const lead = samLine ? ['bluey', 'littleones', 'hophop', ...samMusic, 'cartoons'] : (ceiling !== 'M' ? ['cartoons', 'littleones', 'bluey', ...samMusic] : []);
     const leadAt = id => {
       const at = lead.indexOf(id);
       return at < 0 ? lead.length : at;
@@ -687,6 +704,13 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       // The card shows what OK will put on: the episode left on this channel, when there is one.
       const left = leftOn(channel.id, ids, rating);
       if (left !== undefined) staged.set(stage, left);
+      // A pick held from before (a tune moves the guide's "next" up) can be a show an earlier card already
+      // bills: Cartoons and Little Ones wore one picture on 15 Nov 2026. Stage a fresh one, as a first billing
+      // would, when the channel has another show to offer.
+      else if (staged.has(stage) && billed.has(videos[staged.get(stage)].channel || 'Other')
+        && poolFor(channel.id, ids, rating).some(index => !billed.has(videos[index].channel || 'Other'))) {
+        staged.delete(stage); staged.delete(stage + '\nnext');
+      }
       if (!staged.has(stage)) staged.set(stage, chooseIndex(channel.id, ids, { rating, billing: true, avoid: billed }));
       billed.add(videos[staged.get(stage)].channel || 'Other');
       // What comes after the card's pick, for the guide and the "now on" panel; it becomes the
@@ -840,7 +864,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       const open = pool.filter(index => !finishedRecently(videos[index].src, watched.finished));
       if (open.length) pool = open;
     }
-    const scoreItems = CHANNEL_BY_ID.get(channelId)?.scored ? channelScores?.[channelId]?.items : null;
+    const leaning = !!CHANNEL_BY_ID.get(channelId)?.leaning;
+    const scoreItems = CHANNEL_BY_ID.get(channelId)?.scored || leaning ? channelScores?.[channelId]?.items : null;
     if (favourites || limited.length || scoreItems) {
       const learned = weights, rationed = new Set(limited);
       weights = Object.create(null);
@@ -849,7 +874,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         const taste = favourites ? (favourites.test(String(item.channel || '')) ? FAVOURITE_WEIGHT : DISCOVERY_WEIGHT) : 1;
         // Below the learner's floor on purpose: a rationed show stays rare even when loved.
         let weight = rationed.has(index) ? LIMITED_WEIGHT : player.weightFor(learned, item.src) * taste;
-        if (scoreItems) weight = applyScoredChannelWeight(weight, scoreItems[item.src]?.score ?? 0);
+        // A leaning channel keeps an unmeasured video at its plain weight; a station's unlisted song is its weakest.
+        if (scoreItems && !(leaning && !scoreItems[item.src])) weight = applyScoredChannelWeight(weight, scoreItems[item.src]?.score ?? 0);
         weights[item.src] = weight;
       }
     }

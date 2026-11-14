@@ -902,3 +902,85 @@ test('home lists what was liked, newest first, for audiences allowed to watch it
   // A child in the room never sees the grown-up film among the likes.
   assert.ok(!library.home('sam,jake,mum,dad').liked.some(item => item.src === 'Films/d.mkv'));
 });
+
+// Sam's music (Ian, 15 Nov 2026): "Sam loves music but he doesn't necessarily need separate triple J and
+// double J categories. He probably likes kids music, and he definitely loves any kinda danceable techno".
+const tune = (src, show, tier = 'music', title = 'Track') => ({ src, file: '/m/' + src, title, channel: show, tier, duration: 240 });
+const fred = tune('music/Fred again../Fred again.. - Delilah [a].mp4', 'Fred again..');
+const chems = tune('music/The Chemical Brothers/Go [b].mp4', 'The Chemical Brothers');
+const radiohead = tune('music/Radiohead/Creep [c].mp4', 'Radiohead');
+const giants = tune('music/The Jungle Giants/Heavy Hearted [d].mp4', 'The Jungle Giants');
+const wiggles = tune('preschool/The Wiggles/Gentle Songs [e].mp4', 'The Wiggles', 'preschool', 'Gentle Songs for Children');
+const rachel = tune('preschool/Ms Rachel/Songs [f].mp4', 'Ms Rachel', 'preschool', 'Best Baby Songs with Ms Rachel');
+const karaoke = tune('Numberblocks/k.mp4', 'Numberblocks', 'preschool', 'Five’s Friendship Song Karaoke!');
+const samMusic = [...videos, fred, chems, radiohead, giants, wiggles, rachel, karaoke,
+  tune('Hop Hop the Owl/h.mp4', 'Hop Hop the Owl', 'preschool', 'Episode')];
+const stations = { triplej: { items: { [fred.src]: { score: 1 } } }, doublej: { items: { [radiohead.src]: { score: 1 } } } };
+
+test('a child in the room gets Songs and Dance, and the radio stations stay with the grown-ups', async () => {
+  const { history, storage } = await setup();
+  const library = createTvLibrary({ videos: samMusic, history, storage, channelScores: stations, random: () => 0, now: () => localHour(15) });
+  const ids = viewers => library.home(viewers).channels.map(channel => channel.id);
+  for (const viewers of ['sam,mum,dad', 'sam', 'jake,mum,dad']) {
+    const lineup = ids(viewers);
+    assert.ok(!lineup.includes('triplej') && !lineup.includes('doublej'), viewers);
+    for (const id of ['kidsongs', 'dance', 'music']) assert.ok(lineup.includes(id), `${viewers} ${id}`);
+  }
+  for (const viewers of ['dad', 'mum,dad']) {
+    const lineup = ids(viewers);
+    assert.ok(lineup.includes('triplej') && lineup.includes('doublej') && lineup.includes('music'), viewers);
+    assert.ok(!lineup.includes('kidsongs') && !lineup.includes('dance'), viewers);
+  }
+  // Sam's own running order: his music follows his three favourites, ahead of the rest.
+  assert.deepEqual(ids('sam,mum,dad').slice(0, 5), ['bluey', 'littleones', 'hophop', 'kidsongs', 'dance']);
+  const early = createTvLibrary({ videos: samMusic, history, storage, random: () => 0, now: () => localHour(8) });
+  assert.deepEqual(early.home('sam,mum,dad').channels.slice(0, 5).map(channel => channel.id), ['cartoons', 'littleones', 'bluey', 'kidsongs', 'dance']);
+});
+
+test('Dance is the danceable electronic acts; Songs is children\'s music by show or by title', () => {
+  for (const item of [fred, chems, tune('music/ODESZA/x.mp4', 'ODESZA'), tune('music/Jungle/x.mp4', 'Jungle'), tune('music/RÜFÜS DU SOL/x.mp4', 'RÜFÜS DU SOL'),
+    tune('music/Barry Can’t Swim/x.mp4', 'Barry Can’t Swim'), tune('music/Fred again . ./x.mp4', 'Fred again . .')]) assert.equal(inTvGenre(item, 'dance'), true, item.channel);
+  for (const item of [radiohead, giants, wiggles, tune('music/Mac Miller/x.mp4', 'Mac Miller'), tune('music/Tiny Desk/x.mp4', 'Tiny Desk'),
+    tune('ads/80s/ad.mp4', 'Fatboy Slim')]) assert.equal(inTvGenre(item, 'dance'), false, item.channel);
+  for (const item of [wiggles, rachel, karaoke]) assert.equal(inTvGenre(item, 'kidsongs'), true, item.title);
+  for (const item of [videos[0], fred, tune('music/Kids Songs Band/x.mp4', 'Kids Songs Band', 'music', 'Songs'),
+    tune('Kangaroo Beach/w.mp4', 'Kangaroo Beach', 'shared', 'Series 3 Whale Song Spectacular')]) assert.equal(inTvGenre(item, 'kidsongs'), false, item.title);
+});
+
+test('a measured score leans Dance without deciding who is on it', async () => {
+  const { history, storage } = await setup();
+  const acts = ['Fred again..', 'The Chemical Brothers', 'ODESZA', 'Flume', 'Bicep', 'Caribou', 'Justice', 'Disclosure'].map((name, i) => tune(`music/${name}/${i}.mp4`, name));
+  const bright = acts.slice(0, 4), plain = acts.slice(4);
+  const scores = { dance: { items: { ...Object.fromEntries(bright.map(item => [item.src, { score: 1 }])), [radiohead.src]: { score: 1 } } } };
+  assert.equal(inTvGenre(radiohead, 'dance', scores), false, 'a score alone does not put an act on Dance');
+  assert.equal(inTvGenre(plain[0], 'dance', scores), true, 'an unmeasured act stays on');
+  let seed = 7;
+  const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const library = createTvLibrary({ videos: [...videos, ...acts, radiohead], history, storage, channelScores: scores, random, now: () => localHour(15) });
+  const picks = new Map();
+  let current;
+  for (let i = 0; i < 600; i++) {
+    // A one-second look teaches nothing, so only the measured score separates the acts.
+    const item = library.next('dance', { viewers: 'sam', current, reason: 'skip', time: 1, duration: 240, watched: 1 });
+    picks.set(item.src, (picks.get(item.src) || 0) + 1); current = item.src;
+  }
+  const total = list => list.reduce((sum, item) => sum + (picks.get(item.src) || 0), 0);
+  assert.equal(picks.has(radiohead.src), false);
+  assert.ok(total(bright) > total(plain) * 1.3, `${total(bright)} bright, ${total(plain)} plain`);
+  assert.ok(plain.every(item => picks.get(item.src) > 15), 'every unmeasured act still plays');
+});
+
+test('two cards never show the same show after a tune moves a channel on', async () => {
+  const kid = (show, n) => ({ src: `${show}/${n}.mp4`, file: `/m/${show}/${n}.mp4`, title: `${show} ${n}`, channel: show, tier: 'preschool', duration: 420 });
+  const catalogue = ['Bing', 'Peppa Pig', 'Hey Duggee', 'CBeebies Bedtime Stories', 'Sarah and Duck'].flatMap(show => [1, 2, 3].map(n => kid(show, n)));
+  const { history, storage } = await setup();
+  let seed = 3;
+  const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const library = createTvLibrary({ videos: catalogue, history, storage, random, now: () => localHour(15) });
+  const shows = () => library.home('sam').channels.filter(channel => ['cartoons', 'littleones'].includes(channel.id)).map(channel => channel.now.show);
+  for (let i = 0; i < 40; i++) {
+    const [cartoons, little] = shows();
+    assert.notEqual(cartoons, little, `round ${i}`);
+    library.next(i % 2 ? 'cartoons' : 'littleones', { viewers: 'sam' });
+  }
+});
