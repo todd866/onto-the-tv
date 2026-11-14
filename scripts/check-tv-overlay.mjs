@@ -84,6 +84,11 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('http://tv.test/');
   await page.locator('.viewer.focused').waitFor();
+  // INFO on the home page: the remote, with the keys home uses.
+  await fire(457);
+  const homeGuide = await page.evaluate(() => ({ open: !document.getElementById('remote-guide').hidden, calls: [...document.querySelectorAll('#remote-guide .rg-word')].map(node => node.textContent) }));
+  await shot('guide-home-dark.png', 'dark');
+  await fire(457);
   await fire(49);
   await page.locator('#player:visible').waitFor();
   await page.locator('#osd-show').waitFor();
@@ -93,7 +98,10 @@ try {
     hidden: document.getElementById('osd').classList.contains('hidden'),
     play: document.getElementById('osd-play').classList.contains('focused'),
     next: document.getElementById('osd-next').classList.contains('focused'),
-    scrub: document.getElementById('osd-progress').classList.contains('focused'),
+    seeking: document.getElementById('player').classList.contains('is-seeking'),
+    seekTime: document.getElementById('osd-seek-time').textContent,
+    guide: !document.getElementById('remote-guide').hidden,
+    strip: !document.getElementById('continue-strip').hidden,
     elapsed: document.getElementById('osd-elapsed').textContent.trim(),
     show: document.getElementById('osd-show').textContent.trim(),
     like: document.getElementById('osd-like').classList.contains('focused'),
@@ -150,12 +158,47 @@ try {
   const reliked = await state();
   await page.waitForTimeout(100);
   await fire(37);
-  await fire(38);   // Up: the progress line
-  const onScrub = await state();
+  // Seek mode: the forward key holds the picture and moves a marker; nothing is skipped and no arrow seeks.
+  const beforeSeek = await state();
   calls = nextCalls;
-  await fire(39);   // seeks here, and does not skip
-  const scrubbed = { ...(await state()), calls: nextCalls - calls };
-  await fire(38);   // Up again: the Continue strip, drawn above the bar
+  await fire(417);
+  await fire(417);
+  const seeking = { ...(await state()), calls: nextCalls - calls };
+  await fire(39);   // an arrow in seek mode does nothing
+  await fire(37);
+  const seekArrow = await state();
+  await shot('seek-dark.png', 'dark');
+  await shot('seek-light.png', 'light');
+  await fire(13);   // OK goes there
+  const sought = await state();
+  await fire(412);  // back 10 s, then RETURN: the picture is where it was
+  const seekingBack = await state();
+  await fire(10009);
+  const cancelled = await state();
+  // INFO: the drawing of the remote; the keys still work under it and INFO puts it away.
+  await fire(457);
+  const guideOpen = await state();
+  const guide = await page.evaluate(() => {
+    const box = document.getElementById('remote-guide').getBoundingClientRect();
+    const texts = [...document.querySelectorAll('#remote-guide .rg-word')].map(node => { const r = node.getBoundingClientRect(); return { text: node.textContent, left: r.left, right: r.right, top: r.top, bottom: r.bottom }; });
+    const overlaps = [];
+    for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+      const a = texts[i], b = texts[j];
+      if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) overlaps.push(a.text + ' / ' + b.text);
+    }
+    return {
+      lit: [...document.querySelectorAll('#remote-guide .rg-key.on')].map(node => node.getAttribute('data-key')),
+      calls: texts.map(item => item.text),
+      clipped: texts.filter(item => item.left < box.left + 4 || item.right > box.right - 4).map(item => item.text),
+      overlaps, fits: box.top >= 0 && box.bottom <= innerHeight && box.right <= innerWidth,
+    };
+  });
+  await shot('guide-dark.png', 'dark');
+  await shot('guide-light.png', 'light');
+  await fire(457);
+  const guideShut = await state();
+  await fire(38);   // an arrow shows the controls
+  await fire(38);   // Up from the transport row: the Continue strip, drawn above the bar
   await page.waitForFunction(() => {
     const row = document.getElementById('continue-strip');
     return row && !row.hidden && row.children.length > 0;
@@ -186,7 +229,7 @@ try {
   await page.waitForTimeout(400);
   await shot('preview-dark.png', 'dark');
   await shot('preview-light.png', 'light');
-  console.log(JSON.stringify({ before, oneRight, shown, skipped, onLike, likedNow, unliked, reliked, likeCalls, onScrub, scrubbed, transport, row, preview, errors }, null, 2));
+  console.log(JSON.stringify({ before, oneRight, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seeking, seekArrow, sought, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
   assert.equal(oneRight.calls, 0, 'an arrow while watching never skips');
   assert.equal(oneRight.show, before, 'an arrow while watching leaves the show on');
   assert.equal(oneRight.paused, false, 'an arrow while watching does not pause');
@@ -203,9 +246,28 @@ try {
   assert.equal(skipped.calls, 2, 'OK, OK on Next skips twice');
   assert.equal(skipped.hidden, false);
   assert.equal(skipped.next, true, 'Next keeps the focus after a skip');
-  assert.equal(onScrub.scrub, true, 'Up from the transport row is the progress line');
-  assert.equal(scrubbed.calls, 0, 'Right on the progress line seeks, it does not skip');
-  assert.notEqual(scrubbed.elapsed, onScrub.elapsed, 'Right on the progress line moves the time');
+  assert.equal(homeGuide.open, true, 'INFO opens the guide on the home page');
+  assert.ok(homeGuide.calls.includes('Move') && homeGuide.calls.includes('Open'), JSON.stringify(homeGuide.calls));
+  assert.equal(seeking.seeking, true, 'the forward key enters seek mode');
+  assert.equal(seeking.paused, true, 'the picture holds while seeking');
+  assert.equal(seeking.calls, 0, 'seeking never skips');
+  assert.match(seeking.seekTime, /^\+0:20$/, 'two presses are 20 s: ' + seeking.seekTime);
+  assert.equal(seekArrow.seekTime, seeking.seekTime, 'arrows do nothing in seek mode');
+  assert.equal(seekArrow.seeking, true);
+  assert.equal(sought.seeking, false, 'OK leaves seek mode');
+  assert.equal(sought.paused, beforeSeek.paused, 'OK resumes what was playing');
+  assert.notEqual(sought.elapsed, beforeSeek.elapsed, 'OK goes to the marker');
+  assert.equal(seekingBack.seeking, true);
+  assert.equal(cancelled.seeking, false, 'RETURN leaves seek mode');
+  assert.equal(cancelled.elapsed, sought.elapsed, 'RETURN puts the picture back where it was');
+  assert.equal(guideOpen.guide, true, 'INFO opens the guide');
+  assert.equal(guideShut.guide, false, 'INFO closes the guide');
+  assert.equal(guide.fits, true);
+  assert.deepEqual(guide.clipped, [], 'no callout is cut off');
+  assert.deepEqual(guide.overlaps, [], 'no two callouts overlap');
+  for (const key of ['up', 'down', 'left', 'right', 'ok', 'return', 'rw', 'ff', 'pause', 'play', 'stop', 'a', 'b', 'd', 'ch', 'prech', 'tools', 'subt', 'info', 'guide', 'chlist', '0', '5'])
+    assert.ok(guide.lit.includes(key), key + ' is lit');
+  for (const key of ['power', 'vol', 'mute', 'menu', 'exit', 'c', 'rec']) assert.ok(!guide.lit.includes(key), key + ' is not lit');
   assert.equal(transport.buttons.find(button => button.id === 'osd-next').focused, true);
   assert.deepEqual(transport.buttons.map(button => button.id), ['osd-prev-scene', 'osd-play', 'osd-next', 'osd-like', 'osd-options']);
   assert.deepEqual(transport.buttons.map(button => button.label).filter((_, index) => index !== 1), ['Previous', 'Next', 'Like', 'Options']);

@@ -28,70 +28,59 @@ test('watching: an arrow only shows the controls; channels change on the CH keys
   }
 });
 
-test('no arrow press in any focus state changes what is playing', () => {
+test('no arrow press in any focus state does anything but move focus', () => {
   const map = remote();
-  const changes = ['tune', 'next', 'previous', 'stop', 'back', 'activate', 'open', 'play', 'pause', 'like'];
-  for (const focus of ['', 'transport', 'scrub', 'continue'])
+  const allowed = ['focus', 'move', 'close', 'none'];
+  for (const focus of ['', 'transport', 'continue', 'seek'])
     for (const repeat of [false, true])
       for (const key of [map.KEY.UP, map.KEY.DOWN, map.KEY.LEFT, map.KEY.RIGHT])
-        assert.ok(!changes.includes(map.decide({ overlay: 'open', focus, repeat }, key).type), `${focus || 'watching'} ${key}`);
+        assert.ok(allowed.includes(map.decide({ overlay: 'open', focus, repeat }, key).type), `${focus || 'watching'} ${key}`);
 });
 
-test('the green key likes from anywhere, once per press', () => {
-  const map = remote();
-  for (const focus of ['', 'transport', 'scrub', 'continue']) {
-    assert.deepEqual(plain(map.decide(open(focus), map.KEY.GREEN)), { type: 'like' });
-    assert.equal(map.decide({ ...open(focus), repeat: true }, map.KEY.GREEN).type, 'none');
-  }
-});
-
-test('ok opens the controls; inside them the arrows navigate', () => {
+test('in the controls the arrows navigate and OK presses', () => {
   const map = remote();
   assert.deepEqual(plain(map.decide(watching, map.KEY.ENTER)), { type: 'open' });
-  assert.deepEqual(plain(map.decide(open(''), map.KEY.PLAYPAUSE)), { type: 'open' });
-  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.LEFT)), { type: 'move', row: 'transport', delta: -1 });
   assert.deepEqual(plain(map.decide(open('transport'), map.KEY.RIGHT)), { type: 'move', row: 'transport', delta: 1 });
+  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.LEFT)), { type: 'move', row: 'transport', delta: -1 });
   assert.deepEqual(plain(map.decide(open('transport'), map.KEY.ENTER)), { type: 'activate' });
-  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.UP)), { type: 'focus', row: 'scrub' });
+  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.UP)), { type: 'focus', row: 'continue' });
   assert.deepEqual(plain(map.decide(open('transport'), map.KEY.DOWN)), { type: 'close' });
-  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.BACK)), { type: 'close' });
-  assert.equal(map.decide({ ...open('transport'), repeat: true }, map.KEY.RIGHT).type, 'none');
-  // Inside the controls up/down never change channel.
-  for (const focus of ['transport', 'scrub', 'continue']) {
-    assert.notEqual(map.decide(open(focus), map.KEY.UP).type, 'tune');
-    assert.notEqual(map.decide(open(focus), map.KEY.DOWN).type, 'tune');
-  }
-});
-
-test('seeking lives on the progress line only', () => {
-  const map = remote();
-  assert.deepEqual(plain(map.decide(open('scrub'), map.KEY.RIGHT)), { type: 'seek', seconds: 10 });
-  assert.deepEqual(plain(map.decide(open('scrub'), map.KEY.LEFT)), { type: 'seek', seconds: -10 });
-  assert.deepEqual(plain(map.decide({ ...open('scrub'), repeat: true }, map.KEY.RIGHT)), { type: 'seek', seconds: 30 });
-  assert.deepEqual(plain(map.decide(open('scrub'), map.KEY.DOWN)), { type: 'focus', row: 'transport' });
-  assert.deepEqual(plain(map.decide(open('scrub'), map.KEY.UP)), { type: 'focus', row: 'continue' });
-  assert.deepEqual(plain(map.decide(open('scrub'), map.KEY.ENTER)), { type: 'open' });
-  assert.deepEqual(plain(map.decide(open('scrub'), map.KEY.BACK)), { type: 'close' });
-  assert.deepEqual(plain(map.decide(open('continue'), map.KEY.DOWN)), { type: 'focus', row: 'scrub' });
-  assert.equal(map.decide(open('continue'), map.KEY.UP).type, 'none');
+  assert.deepEqual(plain(map.decide(open('continue'), map.KEY.DOWN)), { type: 'focus', row: 'transport' });
   assert.deepEqual(plain(map.decide(open('continue'), map.KEY.RIGHT)), { type: 'move', row: 'continue', delta: 1 });
-  assert.deepEqual(plain(map.decide(open('continue'), map.KEY.SPACE)), { type: 'activate' });
+  assert.deepEqual(plain(map.decide(open('continue'), map.KEY.ENTER)), { type: 'activate' });
+  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.BACK)), { type: 'close' });
+  assert.deepEqual(plain(map.decide(watching, map.KEY.BACK)), { type: 'back' });
 });
 
-test('media keys, back and digits', () => {
+test('seeking is on the rewind and forward keys only', () => {
   const map = remote();
-  assert.deepEqual(plain(map.decide(watching, map.KEY.PLAY)), { type: 'play' });
-  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.PAUSE)), { type: 'pause' });
-  assert.deepEqual(plain(map.decide(open('continue'), map.KEY.STOP)), { type: 'stop' });
-  assert.deepEqual(plain(map.decide(watching, map.KEY.FF)), { type: 'seek', seconds: 30 });
-  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.RW)), { type: 'seek', seconds: -30 });
-  assert.deepEqual(plain(map.decide(watching, map.KEY.NEXT)), { type: 'next' });
-  assert.deepEqual(plain(map.decide(watching, map.KEY.PREV)), { type: 'previous' });
-  assert.deepEqual(plain(map.decide(watching, map.KEY.INFO)), { type: 'focus', row: 'transport', fresh: true });
-  // With nothing focused Back leaves at once, even while the bar is still fading after a skip.
-  assert.deepEqual(plain(map.decide(watching, map.KEY.BACKSPACE)), { type: 'back' });
-  assert.deepEqual(plain(map.decide(open(''), map.KEY.ESC)), { type: 'back' });
-  assert.deepEqual(plain(map.decide(watching, 49)), { type: 'digit', digit: 1 });
-  assert.deepEqual(plain(map.decide(open('transport'), 48)), { type: 'digit', digit: 0 });
-  assert.equal(map.decide(watching, 999).type, 'none');
+  for (const focus of ['', 'transport', 'continue', 'seek']) {
+    assert.deepEqual(plain(map.decide(open(focus), map.KEY.FF)), { type: 'scrub', direction: 1, held: false });
+    assert.deepEqual(plain(map.decide(open(focus), map.KEY.RW)), { type: 'scrub', direction: -1, held: false });
+    assert.deepEqual(plain(map.decide({ ...open(focus), repeat: true }, map.KEY.FF)), { type: 'scrub', direction: 1, held: true });
+  }
+  // In seek mode OK or play goes there, RETURN goes back, and the arrows do nothing.
+  for (const key of [map.KEY.ENTER, map.KEY.PLAY, map.KEY.PAUSE, map.KEY.PLAYPAUSE])
+    assert.deepEqual(plain(map.decide(open('seek'), key)), { type: 'scrub-commit' });
+  assert.deepEqual(plain(map.decide(open('seek'), map.KEY.BACK)), { type: 'scrub-cancel' });
+  for (const key of [map.KEY.UP, map.KEY.DOWN, map.KEY.LEFT, map.KEY.RIGHT])
+    assert.equal(map.decide(open('seek'), key).type, 'none');
+});
+
+test('every other key does what is printed on it, once per press', () => {
+  const map = remote();
+  const expected = [
+    [map.KEY.GREEN, { type: 'like' }], [map.KEY.RED, { type: 'previous' }], [map.KEY.BLUE, { type: 'next' }],
+    [map.KEY.TOOLS, { type: 'options' }], [map.KEY.SUBT, { type: 'subs' }],
+    [map.KEY.GUIDE, { type: 'home' }], [map.KEY.CH_LIST, { type: 'home' }], [map.KEY.PRE_CH, { type: 'last' }],
+    [map.KEY.PLAY, { type: 'play' }], [map.KEY.PAUSE, { type: 'pause' }], [map.KEY.STOP, { type: 'stop' }],
+    [53, { type: 'digit', digit: 5 }],
+  ];
+  for (const focus of ['', 'transport', 'continue']) {
+    for (const [key, action] of expected) {
+      assert.deepEqual(plain(map.decide(open(focus), key)), action, `${focus} ${key}`);
+      assert.equal(map.decide({ ...open(focus), repeat: true }, key).type, 'none', `${focus} ${key} held`);
+    }
+  }
+  assert.equal(map.decide(watching, map.KEY.YELLOW).type, 'none');
 });

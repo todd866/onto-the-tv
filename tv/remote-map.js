@@ -1,68 +1,70 @@
-/* Playback remote: the Samsung map (owner, 14 Nov 2026). ES5.
-   The arrows only ever move focus; they never change what is on (owner, 14 Nov 2026, after one arrow press
-   lost a live set). Channels change on CH up / down and the digits; seeking is on the rewind / forward keys.
-   Watching (nothing focused):
-       any arrow      show the controls, focus on play / pause; the picture keeps playing
-       OK             pause and open the controls (OK again resumes)        Back   leave
-       green (B)      like what is on
-   Controls open (something focused): the arrows navigate.
-       transport row  Left / Right move, OK presses, Up to the progress line, Down or Back closes
-       progress line  Left / Right seek 10 s (30 s while held), Down to the transport row, Up to Continue
-   Seeking is deliberately out of the way: it is rare, and Left / Right are the best keys on the remote. */
+/* Playback remote: the map for the One For All Samsung remote in the lounge (owner, 14 Nov 2026). ES5.
+   The arrows only ever move focus; they never change what is on (one arrow press lost a live set).
+   Every other action sits on the key printed for it:
+       arrows         watching: show the controls (focus on play / pause). In the controls: move.
+                      transport row: Up to the Continue strip, Down closes.
+       OK             watching: pause and open the controls. In the controls: press the focused button.
+       RETURN         close the controls, else leave (or undo the last change of show)
+       CH up / down   channel up / down          0-9   channel number          PRE-CH   back to what was on
+       GUIDE, CH LIST the channel grid (home)
+       rewind / fwd   seek mode: the picture holds, each press moves the marker 10 s (faster while held);
+                      OK or play goes there, RETURN goes back to where it was. Arrows do nothing here.
+       pause play stop   as printed
+       A red          previous        B green   like        D blue   next
+       TOOLS          options         SUBT.     subtitles
+   INFO (the remote guide) is handled by the app before this map, on every page. */
 window.ontoRemoteMap = (function () {
   var KEY = {
     LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 10009, ESC: 27, BACKSPACE: 8,
     PLAYPAUSE: 10252, PLAY: 415, PAUSE: 19, STOP: 413, FF: 417, RW: 412, NEXT: 10233, PREV: 10232,
-    CH_UP: 427, CH_DOWN: 428, SPACE: 32, INFO: 457, GREEN: 404
+    CH_UP: 427, CH_DOWN: 428, SPACE: 32, INFO: 457,
+    RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406,
+    TOOLS: 10135, GUIDE: 458, CH_LIST: 10073, PRE_CH: 10190, SUBT: 10221
   };
 
   function decide(state, keyCode) {
     var focus = state && state.focus ? state.focus : '';
     var repeat = !!(state && state.repeat);
     var key = keyCode;
-    var delta;
+    var once = function (action) { return repeat ? { type: 'none' } : action; };
 
-    if (key === KEY.CH_UP || key === KEY.CH_DOWN) {
-      if (repeat) return { type: 'none' };
-      return { type: 'tune', direction: key === KEY.CH_UP ? 1 : -1 };
+    // Seeking: the two keys printed for it, and nothing else. Held keys keep stepping.
+    if (key === KEY.FF || key === KEY.RW) return { type: 'scrub', direction: key === KEY.FF ? 1 : -1, held: repeat };
+    if (focus === 'seek') {
+      if (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE || key === KEY.PLAY || key === KEY.PAUSE) return once({ type: 'scrub-commit' });
+      if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) return once({ type: 'scrub-cancel' });
+      if (key === KEY.UP || key === KEY.DOWN || key === KEY.LEFT || key === KEY.RIGHT) return { type: 'none' };
     }
-    if (key >= 48 && key <= 57) {
-      if (repeat) return { type: 'none' };
-      return { type: 'digit', digit: key - 48 };
-    }
-    if (key === KEY.FF || key === KEY.RW) {
-      if (repeat) return { type: 'none' };
-      return { type: 'seek', seconds: key === KEY.FF ? 30 : -30 };
-    }
-    if (key === KEY.PLAY) return repeat ? { type: 'none' } : { type: 'play' };
-    if (key === KEY.PAUSE) return repeat ? { type: 'none' } : { type: 'pause' };
-    if (key === KEY.STOP) return repeat ? { type: 'none' } : { type: 'stop' };
-    if (key === KEY.NEXT) return repeat ? { type: 'none' } : { type: 'next' };
-    if (key === KEY.PREV) return repeat ? { type: 'none' } : { type: 'previous' };
-    if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) {
-      if (repeat) return { type: 'none' };
-      return { type: focus ? 'close' : 'back' };
-    }
-    if (key === KEY.GREEN) return repeat ? { type: 'none' } : { type: 'like' };
-    if (key === KEY.INFO) return repeat ? { type: 'none' } : { type: 'focus', row: 'transport', fresh: true };
+    if (key === KEY.CH_UP || key === KEY.CH_DOWN) return once({ type: 'tune', direction: key === KEY.CH_UP ? 1 : -1 });
+    if (key >= 48 && key <= 57) return once({ type: 'digit', digit: key - 48 });
+    if (key === KEY.PLAY) return once({ type: 'play' });
+    if (key === KEY.PAUSE) return once({ type: 'pause' });
+    if (key === KEY.STOP) return once({ type: 'stop' });
+    if (key === KEY.NEXT || key === KEY.BLUE) return once({ type: 'next' });
+    if (key === KEY.PREV || key === KEY.RED) return once({ type: 'previous' });
+    if (key === KEY.GREEN) return once({ type: 'like' });
+    if (key === KEY.TOOLS) return once({ type: 'options' });
+    if (key === KEY.SUBT) return once({ type: 'subs' });
+    if (key === KEY.GUIDE || key === KEY.CH_LIST) return once({ type: 'home' });
+    if (key === KEY.PRE_CH) return once({ type: 'last' });
+    if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) return once({ type: focus ? 'close' : 'back' });
     if (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) {
-      if (repeat) return { type: 'none' };
-      if (focus === 'transport' || focus === 'continue') return { type: 'activate' };
-      return { type: 'open' };
+      if (focus === 'transport' || focus === 'continue') return once({ type: 'activate' });
+      return once({ type: 'open' });
     }
+    // Arrows: focus only.
     if (key === KEY.UP || key === KEY.DOWN) {
       if (repeat) return { type: 'none' };
       if (!focus) return { type: 'focus', row: 'transport', fresh: true };
-      if (focus === 'transport') return key === KEY.UP ? { type: 'focus', row: 'scrub' } : { type: 'close' };
-      if (focus === 'scrub') return { type: 'focus', row: key === KEY.UP ? 'continue' : 'transport' };
-      return key === KEY.DOWN ? { type: 'focus', row: 'scrub' } : { type: 'none' };
+      if (focus === 'transport') return key === KEY.UP ? { type: 'focus', row: 'continue' } : { type: 'close' };
+      if (focus === 'continue') return key === KEY.DOWN ? { type: 'focus', row: 'transport' } : { type: 'none' };
+      return { type: 'none' };
     }
     if (key === KEY.LEFT || key === KEY.RIGHT) {
-      delta = key === KEY.RIGHT ? 1 : -1;
-      if (!focus) return repeat ? { type: 'none' } : { type: 'focus', row: 'transport', fresh: true };
-      if (focus === 'scrub') return { type: 'seek', seconds: (repeat ? 30 : 10) * delta };
       if (repeat) return { type: 'none' };
-      return { type: 'move', row: focus, delta: delta };
+      if (!focus) return { type: 'focus', row: 'transport', fresh: true };
+      if (focus === 'transport' || focus === 'continue') return { type: 'move', row: focus, delta: key === KEY.RIGHT ? 1 : -1 };
+      return { type: 'none' };
     }
     return { type: 'none' };
   }

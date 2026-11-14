@@ -173,3 +173,70 @@
 /* The progress line focused (Up from the transport row): Left/Right seek here and nowhere else. */
 #osd-progress.focused #osd-track { box-shadow: 0 0 0 5px #ffb547; }
 #osd-progress.focused #osd-elapsed { color: #ffb547; }
+
+/* ---------- the remote, mirrored (14 Nov 2026) ---------- */
+/* Keycaps name the key that does a thing, drawn as it is printed on the remote. */
+.keycap {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  height: 40px; padding: 0 10px; border: 3px solid rgba(244, 241, 234, 0.55); border-radius: 9px;
+  color: rgba(244, 241, 234, 0.8); font-size: 22px; font-weight: 800; letter-spacing: 0.04em;
+}
+.keycap svg { display: block; width: 40px; height: 24px; }
+#osd-progress .seek-key:first-child { margin-right: 18px; }
+#osd-progress .seek-key:last-child { margin-left: 18px; }
+#player.is-seeking .seek-key { border-color: #ffb547; color: #ffb547; }
+#osd-title { display: flex; align-items: center; }
+#osd-guide-hint { margin-left: auto; }
+#osd-guide-hint svg { width: 12px; height: 34px; margin-right: 8px; }
+#osd-keys > button { position: relative; }
+.key-dot, .key-cap-label {
+  position: absolute; top: -10px; right: -12px; font-style: normal; font-weight: 800; line-height: 1;
+}
+.key-dot { width: 30px; height: 30px; border-radius: 8px; font-size: 20px; line-height: 30px; text-align: center; color: #fff; }
+.key-dot.red { background: #e5484d; }
+.key-dot.green { background: #2fa36b; }
+.key-dot.blue { background: #3b82f6; }
+.key-cap-label { right: -58px; top: -6px; padding: 3px 6px; border: 2px solid rgba(244, 241, 234, 0.55); border-radius: 6px; font-size: 15px; color: rgba(244, 241, 234, 0.8); letter-spacing: 0.04em; }
+.guest .keycap, .guest .key-dot, .guest .key-cap-label, .desktop-embedded .keycap, .desktop-embedded .key-dot, .desktop-embedded .key-cap-label { display: none; }
+
+/* Seek mode: the marker carries the time it will go to and how far that is from here. */
+#osd-seek-time {
+  position: absolute; top: 52px; left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%);
+  padding: 6px 14px; border-radius: 12px; background: #ffb547; color: #14213d;
+  font-size: 30px; font-weight: 800; white-space: pre; font-feature-settings: "tnum" 1;
+}
+#player:not(.is-seeking) #osd-seek-time { display: none; }
+#player.is-seeking #osd-keys { visibility: hidden; }
+#osd-seek-legend { display: none; margin-left: auto; align-items: center; }
+#player.is-seeking #osd-seek-legend { display: flex; }
+#player.is-seeking #osd-seek-legend + #osd-guide-hint { margin-left: 28px; }
+#osd-seek-legend .keycap { margin-left: 22px; }
+#osd-seek-legend .mark { display: block; width: 34px; height: 34px; margin-left: 8px; color: #ffb547; }
+#player.is-seeking #jump-strip { bottom: 330px; }
+
+/* The remote guide (INFO). */
+#remote-guide {
+  position: fixed; z-index: 30; top: 30px; bottom: 30px; right: 40px; width: 825px;
+  padding: 0; border-radius: 28px; background: #0b1428; box-shadow: 0 0 0 3px #26324f;
+}
+#remote-guide svg { display: block; width: 100%; height: 100%; }
+#remote-guide .rg-body { fill: #1b1d22; stroke: #3a3f4b; stroke-width: 3; }
+#remote-guide .rg-key .cap { fill: #2b2f38; stroke: #4a5060; stroke-width: 2; }
+#remote-guide .rg-key.tint .cap { stroke: none; opacity: 0.3; }
+#remote-guide .rg-key .face { fill: #7d8597; font-size: 20px; font-weight: 800; font-family: inherit; }
+#remote-guide .rg-key .face.small { font-size: 10.500px; letter-spacing: 0.02em; }
+#remote-guide .rg-key.on .cap { fill: #ffb547; stroke: #ffb547; }
+#remote-guide .rg-key.on .face { fill: #14213d; }
+#remote-guide .rg-key.on.tint .cap { opacity: 1; }
+#remote-guide .rg-key.on.tint .face { fill: #fff; }
+#remote-guide .rg-key.on[data-key="ch"] .face, #remote-guide .rg-key.on[data-key="c"] .face { fill: #14213d; }
+#remote-guide .rg-key.pressed .cap { fill: #fff; stroke: #fff; opacity: 1; }
+#remote-guide .rg-key.pressed .face { fill: #14213d; }
+#remote-guide .rg-line { fill: none; stroke: #f4f1ea; stroke-width: 2.500; opacity: 0.85; }
+#remote-guide .rg-dot { fill: #f4f1ea; stroke: #14213d; stroke-width: 2; }
+#remote-guide .rg-word { fill: #f4f1ea; font-size: 27px; font-weight: 800; font-family: inherit; }
+@media (prefers-color-scheme: light) {
+  #osd .keycap, #osd .key-cap-label { border-color: rgba(20, 33, 61, 0.5); color: rgba(20, 33, 61, 0.8); }
+  #player.is-seeking .seek-key { border-color: #9a6208; color: #9a6208; }
+  #osd-seek-legend .mark { color: #9a6208; }
+}

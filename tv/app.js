@@ -50,7 +50,7 @@
   var watchBack = window.ontoWatchBack ? window.ontoWatchBack.create() : null;
   var channelArm = window.ontoChannelArm ? window.ontoChannelArm.create() : null;
   var armTimer = 0, armedRequest = 0, prefetchTimer = 0, continueOpen = false, continueIndex = 0;
-  var overlayFocus = '', transportIndex = 1;
+  var overlayFocus = '', transportIndex = 1, scrub = null;
   var homeCache = {}, channelPrefetch = {};
   try {
     if (watchBack) {
@@ -1580,6 +1580,9 @@
     play.errorOn = false;
     if (upNextCard) upNextCard.reset();
     seekPreview = null;
+    scrub = null;
+    $('player').classList.remove('is-seeking');
+    if (overlayFocus === 'seek') overlayFocus = '';
     clearInterval(sweepTimer);
     play.skipUntil = 0;
     play.scenes = null;
@@ -1875,6 +1878,9 @@
     clearTimeout(errorTimer);
     clearInterval(sweepTimer);
     seekPreview = null;
+    scrub = null;
+    $('player').classList.remove('is-seeking');
+    if (overlayFocus === 'seek') overlayFocus = '';
     navState = window.ontoNav.initial();
     closeOptions();
     hideAdChip();
@@ -2428,9 +2434,12 @@
     if (play.channel && play.channel.id) body.channel = String(play.channel.id);
     viewers = storedViewers();
     if (viewers !== null) body.viewers = viewers;
+    // Only the newest press may repaint: an older reply landing late must not undo a newer press.
+    var mark = item.likeMark = (item.likeMark || 0) + 1;
     post('/api/like', body).then(function (reply) {
-      if (reply && typeof reply.liked === 'boolean' && play && play.item === item) { item.liked = reply.liked; paintLike(); }
-    }).catch(function () { if (play && play.item === item) { item.liked = !want; paintLike(); } });
+      if (mark !== item.likeMark) return;
+      if (reply && typeof reply.liked === 'boolean') { item.liked = reply.liked; if (play && play.item === item) paintLike(); }
+    }).catch(function () { if (mark !== item.likeMark) return; item.liked = !want; if (play && play.item === item) paintLike(); });
   }
   function transportEls() {
     var ids = [], els = [], i, el;
@@ -2450,14 +2459,6 @@
     return 0;
   }
   function clearScrubFocus() { var line = $('osd-progress'); if (line) line.classList.remove('focused'); }
-  function focusScrubRow() {
-    overlayFocus = 'scrub';
-    clearTransportFocus();
-    clearContinueFocus();
-    closeContinue();
-    var line = $('osd-progress'); if (line) line.classList.add('focused');
-    showOsd();
-  }
   // Back to plain watching: nothing focused. The bar fades on its own timer.
   function dropFocus() {
     overlayFocus = '';
@@ -2491,7 +2492,7 @@
   }
   function focusContinueRow() {
     var holder = $('continue-strip'), entries = continueEntries();
-    if (!holder || !entries.length) { showOsd(); return; }   // nothing to continue: stay on the progress line
+    if (!holder || !entries.length) { showOsd(); return; }   // nothing to continue: stay on the transport row
     clearTransportFocus();
     clearScrubFocus();
     showOsd();
@@ -2539,16 +2540,97 @@
     if (play.mode !== 'channel' && !(play.nextQueue && play.nextQueue[0])) { showOsd(); return; }
     next('skip');
   }
+  // ---------- seek mode (the rewind and forward keys) ----------
+  // As Netflix does it: the picture holds, a marker moves along the line with the time and the scene pictures,
+  // OK or play goes there and Back returns to where it was. Each press is 10 s; a held key speeds up.
+  function scrubStepSeconds(held) { return held < 4 ? 10 : held < 12 ? 30 : held < 24 ? 60 : 300; }
+  function paintScrub() {
+    var bubble = $('osd-seek-time'), delta, sign;
+    if (!scrub) return;
+    seekPreview = scrub.target;
+    delta = Math.round(scrub.target - scrub.from);
+    sign = delta < 0 ? '\u2212' : '+';
+    // The elapsed time already shows where the marker is; the bubble says how far that is from here.
+    if (bubble) bubble.textContent = sign + clock(Math.abs(delta));
+    $('player').classList.add('is-seeking');
+    updateOsd();
+    showOsd();
+    showStrip(scrub.target, true);
+  }
+  function scrubStep(direction, held) {
+    var duration, target;
+    if (!play || !play.item || (play.resumePending) || play.errorOn) return;
+    if (inAd()) { if (direction > 0 && !held) skipBreak(); showOsd(); return; }
+    duration = durationNow();
+    if (!scrub) {
+      scrub = { from: media.time(), target: media.time(), wasPaused: media.paused(), held: 0 };
+      if (optionOpen) closeOptions();
+      clearTransportFocus();
+      closeContinue();
+      clearContinueFocus();
+      overlayFocus = 'seek';
+      if (!scrub.wasPaused) media.pause();
+    }
+    scrub.held = held ? scrub.held + 1 : 0;
+    target = scrub.target + direction * scrubStepSeconds(scrub.held);
+    if (target < 0) target = 0;
+    if (duration > 1 && target > duration - 1) target = duration - 1;
+    scrub.target = target;
+    paintScrub();
+  }
+  function endScrub() {
+    var was = scrub;
+    scrub = null;
+    seekPreview = null;
+    if (overlayFocus === 'seek') overlayFocus = '';
+    $('player').classList.remove('is-seeking');
+    hideStripSoon();
+    return was;
+  }
+  function commitScrub() {
+    var was = endScrub();
+    if (!was || !play) return;
+    applySeek(was.target);
+    if (!was.wasPaused) { media.play(); watchEvent('resume'); }
+    updateOsd();
+    showOsd();
+    reportNow();
+  }
+  function cancelScrub() {
+    var was = endScrub();
+    if (!was || !play) return;
+    if (!was.wasPaused) { media.play(); watchEvent('resume'); }
+    updateOsd();
+    showOsd();
+  }
+  // PRE-CH: back to what was on before the last change, where it was left. With nothing to go back to, nothing changes.
+  function lastWatched() {
+    var entry = watchBack ? watchBack.undo(profileId, Date.now()) : null;
+    if (watchBack) persistBack();
+    paintBackChip();
+    if (entry) { dismissArm(); closeContinue(); restoreEntry(entry); return; }
+    showOsd();
+  }
+  // INFO: the drawing of the remote for this page. A second press, or Back, puts it away.
+  function guidePage() { return $('player').hidden ? 'home' : 'player'; }
   function applyRemote(action) {
     var target, chosen;
     if (!action || action.type === 'none' || action.type === 'digit') return;
+    if (action.type === 'scrub') { scrubStep(action.direction, action.held); return; }
+    if (action.type === 'scrub-commit') { commitScrub(); return; }
+    if (action.type === 'scrub-cancel') { cancelScrub(); return; }
+    // Anything else pressed while seeking drops the seek first: the picture is back where it was.
+    if (scrub && action.type !== 'like') cancelScrub();
+    if (action.type === 'options') { if (optionOpen) closeOptions(); else { closeOverlay(); openOptions(); showOsd(); } return; }
+    if (action.type === 'subs') { if (!optionOpen) { closeOverlay(); openOptions(); } handleOptionKey('subt'); showOsd(); return; }
+    if (action.type === 'home') { dismissArm(); closeOverlay(); stopPlayback(); return; }
+    if (action.type === 'last') { lastWatched(); return; }
     if (action.type === 'show') { overlayFocus = ''; clearTransportFocus(); showOsd(); return; }
     if (action.type === 'focus' && action.row === 'transport') {
       if (action.fresh) transportIndex = transportHome();
       focusTransportRow();
       return;
     }
-    if (action.type === 'focus' && action.row === 'scrub') { focusScrubRow(); return; }
     if (action.type === 'open') {
       // OK while watching: pause and open the controls. OK again (or on a paused picture) resumes and lets go.
       if (inAd()) { skipBreak(); showOsd(); return; }
@@ -2642,6 +2724,20 @@
     if (consoleState) { if (consoleKey(key)) event.preventDefault(); return; }
     if (pickerOpen) { if (pickerKey(key)) event.preventDefault(); return; }
     if (!$('setup').hidden) return;
+    if (window.ontoRemoteGuide) {
+      if (key === window.ontoRemoteMap.KEY.INFO) {
+        if (!event.repeat) window.ontoRemoteGuide.toggle(guidePage());
+        logRemote(guidePage(), key, 'guide', overlayFocus, !!event.repeat, pressedAt);
+        event.preventDefault();
+        return;
+      }
+      if (window.ontoRemoteGuide.isOpen()) {
+        if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) { window.ontoRemoteGuide.close(); event.preventDefault(); return; }
+        window.ontoRemoteGuide.press(key);
+        // The key still does its job; if that changed the page, the drawing follows.
+        setTimeout(function () { if (window.ontoRemoteGuide.isOpen()) window.ontoRemoteGuide.open(guidePage()); }, 0);
+      }
+    }
     var started = Date.now();
     var input = (key >= 48 && key <= 57) ? 'number' : (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) ? 'back' : (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) ? 'ok' : 'arrows';
     if (!event.repeat) answer(started, input);
@@ -2723,19 +2819,27 @@
   // Media keys reach the app only once registered (Tizen). SUBT is mapped when the TV exposes it.
   if (window.tizen && tizen.tvinputdevice) {
     var remoteKeys = ['MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind',
-      'MediaTrackNext', 'MediaTrackPrevious', 'ChannelUp', 'ChannelDown', 'ColorF1Green', 'Info',
+      'MediaTrackNext', 'MediaTrackPrevious', 'ChannelUp', 'ChannelDown',
+      'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue', 'Info', 'Tools', 'Guide', 'ChannelList', 'PreviousChannel',
       '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    // The TV's own code for each named key wins over the defaults in remote-map.js and on the guide's drawing.
+    var NAMED = { ColorF0Red: ['RED', 'a'], ColorF1Green: ['GREEN', 'b'], ColorF2Yellow: ['YELLOW', 'c'], ColorF3Blue: ['BLUE', 'd'],
+      Info: ['INFO', 'info'], Tools: ['TOOLS', 'tools'], Guide: ['GUIDE', 'guide'], ChannelList: ['CH_LIST', 'chlist'],
+      PreviousChannel: ['PRE_CH', 'prech'], MediaFastForward: ['FF', 'ff'], MediaRewind: ['RW', 'rw'] };
     var supported = [];
     try { supported = tizen.tvinputdevice.getSupportedKeys() || []; } catch (e) { supported = []; }
     for (var subtIndex = 0; subtIndex < supported.length; subtIndex++) {
       var subtName = supported[subtIndex] && supported[subtIndex].name;
+      var subtCode = supported[subtIndex] && supported[subtIndex].code;
+      if (subtName && NAMED[subtName] && typeof subtCode === 'number') {
+        window.ontoRemoteMap.KEY[NAMED[subtName][0]] = subtCode;
+        if (window.ontoRemoteGuide) window.ontoRemoteGuide.setCode(NAMED[subtName][1], subtCode);
+      }
       if (subtName && /caption|subtitle|subt/i.test(subtName)) {
         remoteKeys.push(subtName);
-        KEY.SUBT = supported[subtIndex].code;
-      }
-      if (subtName && /^info$/i.test(subtName)) {
-        remoteKeys.push(subtName);
-        KEY.INFO = supported[subtIndex].code;
+        KEY.SUBT = subtCode;
+        window.ontoRemoteMap.KEY.SUBT = subtCode;
+        if (window.ontoRemoteGuide) window.ontoRemoteGuide.setCode('subt', subtCode);
       }
     }
     remoteKeys.forEach(function (name) {

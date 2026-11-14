@@ -23,3 +23,18 @@ test('malformed remote logs are refused', async () => {
     { session: 's', events: [{ t: 1, p: 'home', k: 1, a: 'none', f: '', ms: -4 }] }];
   for (const body of bad) await assert.rejects(log.record(body), /Invalid/);
 });
+
+test('every action the remote map can return is accepted, in every focus it can report', async () => {
+  const { readFileSync } = await import('node:fs');
+  const vm = await import('node:vm');
+  const window = {};
+  vm.runInNewContext(readFileSync(new URL('../tv/remote-map.js', import.meta.url), 'utf8'), { window });
+  const map = window.ontoRemoteMap;
+  const seen = new Set(['guide']);
+  const keys = [...Object.values(map.KEY), 48, 57];
+  for (const focus of ['', 'transport', 'continue', 'seek']) for (const repeat of [false, true]) for (const key of keys)
+    seen.add(map.decide({ focus, repeat }, key).type);
+  const log = createRemoteLog({ file: '', now: () => 1 });
+  for (const focus of ['', 'transport', 'continue', 'seek']) for (const action of seen)
+    assert.deepEqual(await log.record({ session: 's', build: 'b', events: [{ t: 1, p: 'player', k: 13, a: action, f: focus }] }), { ok: true, stored: 1 }, action + ' ' + focus);
+});

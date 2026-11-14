@@ -40,18 +40,34 @@ Ian: "press a button on the remote and the TV needs to respond *instantly*"; "if
 then it's a shit UX"; there was "no way to skip a song". Telemetry 1–13 Nov: 38 of 73 plays abandoned in under 30 s,
 skip used twice. The map is `tv/remote-map.js` (its header is the spec):
 
-| Mode | Up / Down | Left / Right | OK | Back |
-|---|---|---|---|---|
-| Watching (nothing focused) | show the controls, focus on play / pause | show the controls, focus on play / pause | pause + open controls | leave |
-| Controls: transport row ⏮ ⏸ ⏭ ♥ ⋯ | Up: progress line. Down: close | move | press the button | close |
-| Controls: progress line | Up: Continue strip. Down: transport | seek 10 s (30 s held) | resume | close |
+**The remote is the One For All Samsung-layout remote (photo, 14 Nov 2026), and the UX mirrors it key for key.**
+Ian, that afternoon: "arrows should only navigate the ux, they shouldn't trigger things"; "seeking to the dedicated
+buttons"; "Netflix has great seeking UX, copy that"; "hints that show a diagram of the actual remote". The morning's
+map (Up / Down tuned, Left / Right skipped) lost him a live set 24 minutes in with one arrow press.
 
-**Arrows only move focus (Ian, 14 Nov 2026, afternoon: "arrows should only navigate the ux, they shouldn't trigger
-things").** That morning's map made Up / Down tune and Left / Right skip while watching; one arrow press 24 minutes
-into a live set tuned away and going back gave a different pick. Channels change on CH up / down and the digits;
-◀◀ / ▶▶ seek 30 s; the green key (B) likes what is on from anywhere, and ♥ in the transport row does the same
-(`POST /api/like`: doubles the episode's weight for that audience, a second press takes it back).
-`npm run tv -- play <src> [seconds]` puts a show back on at a position.
+| Key | Watching | Controls open | Seek mode |
+|---|---|---|---|
+| Arrows | show the controls, focus on play / pause | move; Up: Continue strip; Down: close | nothing |
+| OK | pause + open controls | press the focused button | go to the marker |
+| RETURN | leave (or undo the last change) | close | back to where it was |
+| ◀◀ ▶▶ | enter seek mode | enter seek mode | move the marker 10 s; held: 30 s, 60 s, 5 min |
+| CH ▲▼, 0–9 | tune | tune | cancel the seek, tune |
+| PRE-CH | back to what was on, where it was left | same | same |
+| A red / D blue | previous / next | same | same |
+| B green | like (toggle) | same | same |
+| ⏸ ▶ ■ | pause, play, stop | same | ⏸ ▶ go to the marker |
+| TOOLS / SUBT. | options / subtitles | same | same |
+| GUIDE, CH LIST | channel grid (home) | same | same |
+| INFO | the remote guide, on every page | same | same |
+
+- Transport row: ⏮ ⏸ ⏭ ♥ ⋯, each with the key that also does it (A, D, B, TOOLS); ◀◀ ▶▶ keycaps flank the line.
+- Seek mode: the picture holds; the elapsed time shows the marker, a bubble under it the distance from here;
+  scene pictures show above the bar when the file has them. `[OK] ✓ [RETURN] ✕` sits in the title row.
+- Remote guide (`tv/remote-guide.js`): a drawing of the remote with this page's keys lit and called out; a pressed
+  key flashes on it; it closes on INFO, RETURN or 20 s without a press. Key codes come from the TV
+  (`getSupportedKeys`), with Samsung's documented codes as defaults.
+- Like: `POST /api/like` doubles the episode's weight for that audience; a second press takes it back.
+- `npm run tv -- play <src> [seconds]` puts a show back on at a position.
 
 Rules: every key acts on press, never on release; nothing waits on the server before the screen changes (a skip stops
 the old item in the same frame); no hold gestures. Gates: `node --test tv/*.test.js`, `scripts/check-tv-overlay.mjs`
