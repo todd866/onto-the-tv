@@ -47,7 +47,7 @@ map (Up / Down tuned, Left / Right skipped) lost him a live set 24 minutes in wi
 
 | Key | Watching | Controls open | Seek mode |
 |---|---|---|---|
-| Arrows | show the controls, focus on play / pause | move; Up: Continue strip; Down: close | nothing |
+| Arrows | show the controls, focus on play / pause; **Down: the directions tray** | move; Up: Continue strip; Down: close | nothing |
 | OK | pause + open controls | press the focused button | go to the marker |
 | RETURN | leave (or undo the last change) | close | back to where it was |
 | ◀◀ ▶▶ | enter seek mode | enter seek mode | move the marker 10 s; held: 30 s, 60 s, 5 min |
@@ -66,6 +66,14 @@ map (Up / Down tuned, Left / Right skipped) lost him a live set 24 minutes in wi
 - Remote guide (`tv/remote-guide.js`): a drawing of the remote with this page's keys lit and called out; a pressed
   key flashes on it; it closes on INFO, RETURN or 20 s without a press. Key codes come from the TV
   (`getSupportedKeys`), with Samsung's documented codes as defaults.
+- Directions tray (Down while watching; Ian: "options of different directions the algorithm could go, with tiles, and
+  then we can collect that data"): up to five real episodes, one per direction (more of this act, new to you, a
+  favourite, a long set or quick one, another channel), from `POST /api/directions`. Left / Right move, OK plays,
+  RETURN closes; the focused tile's whole title sits under the row. Choosing is not a skip. Every tray shown is
+  written to `<appdata>/tv-server/directions.jsonl` with what was offered, what was chosen (or null) and how long it
+  was open. Nothing learns from that file yet.
+- The installed app is a loader (`tv/boot.js`): the interface comes live from the server (`/api/tv-live`), so a change
+  here ships with `npm run tv -- reload` on the M2, with no reinstall. Check with `scripts/check-tv-live.mjs`.
 - Like: `POST /api/like` doubles the episode's weight for that audience; a second press takes it back.
 - `npm run tv -- play <src> [seconds]` puts a show back on at a position.
 

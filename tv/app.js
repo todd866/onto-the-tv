@@ -50,7 +50,7 @@
   var watchBack = window.ontoWatchBack ? window.ontoWatchBack.create() : null;
   var channelArm = window.ontoChannelArm ? window.ontoChannelArm.create() : null;
   var armTimer = 0, armedRequest = 0, prefetchTimer = 0, continueOpen = false, continueIndex = 0;
-  var overlayFocus = '', transportIndex = 1, scrub = null;
+  var overlayFocus = '', transportIndex = 1, scrub = null, directionsShown = null;
   var homeCache = {}, channelPrefetch = {};
   try {
     if (watchBack) {
@@ -950,6 +950,8 @@
     osd.classList.remove('hidden');
     clearTimeout(osdTimer);
     osdTimer = setTimeout(function () {
+      // The directions tray is read, not glanced at: it stays three times as long.
+      if (directionsShown && Date.now() - directionsShown.touched < OSD_MS * 3 - 100) { directionsShown.touched -= 1; showOsd(); return; }
       if (!media.paused() && !playerOverlay()) {
         osd.classList.add('hidden');
         overlayFocus = '';
@@ -1562,6 +1564,8 @@
     watchTracker = window.ontoWatchTracker ? window.ontoWatchTracker() : null;
     play.item = item;
     loadLike(item);
+    directionsShown = null;
+    setTimeout(function () { if (play && play.item === item && !item.directions) fetchDirections(null); }, 2500);
     play.switching = false;
     if (osd) osd.classList.remove('is-skipping');
     play.visitStart = item.resume || 0;
@@ -2194,9 +2198,11 @@
     button.className = 'resume';
     button.tabIndex = -1;
     button._entry = entry;
-    var name = entry.show || entry.title || '';
-    var place = entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
-    button.setAttribute('aria-label', 'Continue ' + name + ' ' + place);
+    var name = entry.direction ? (entry.title || entry.show || '') : (entry.show || entry.title || '');
+    var place = entry.direction ? entry.label : entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
+    if (entry.direction) button.className = 'resume direction';
+    button.setAttribute('aria-label', entry.direction ? (place + ': ' + name) : ('Continue ' + name + ' ' + place));
+    button.title = name;
     var bezel = document.createElement('span');
     bezel.className = 'bezel';
     var img = document.createElement('img');
@@ -2212,9 +2218,9 @@
     title.textContent = name;
     var at = document.createElement('span');
     at.className = 'resume-at';
-    at.textContent = entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
-    copy.appendChild(title);
-    copy.appendChild(at);
+    at.textContent = place;
+    if (entry.direction) { copy.appendChild(at); copy.appendChild(title); }
+    else { copy.appendChild(title); copy.appendChild(at); }
     bezel.appendChild(copy);
     button.appendChild(bezel);
     button.addEventListener('click', function () { playResume(entry); });
@@ -2266,8 +2272,76 @@
     var i;
     for (i = 0; i < els.length; i++) els[i].classList.toggle('focused', i === index);
     try { els[index].focus(); } catch (e) {}
+    // The focused direction's whole title, which a tile may not have room for.
+    var caption = $('direction-caption'), entry = els[index]._entry;
+    if (caption) {
+      if (entry && entry.direction) { caption.textContent = entry.title || ''; caption.hidden = false; if (directionsShown) directionsShown.touched = Date.now(); }
+      else caption.hidden = true;
+    }
+  }
+  // ---------- directions (Down while watching) ----------
+  // Tiles of where the channel could go next, one real episode each. The offer is fetched a moment after an
+  // episode starts so the tray opens in the same frame as the press; what was offered and what was chosen
+  // (or that it was closed) is sent to the server for the taste work.
+  function directionsBody() {
+    var body = { channel: play && play.channel ? String(play.channel.id) : '', current: play.item.src };
+    var viewers = storedViewers(), rating = storedRating();
+    if (viewers !== null) body.viewers = viewers;
+    if (rating) body.rating = rating;
+    return body;
+  }
+  function fetchDirections(then) {
+    var item = play && play.item;
+    if (!item || !item.src || GUEST || inAd()) { if (then) then(null); return; }
+    post('/api/directions', directionsBody()).then(function (offer) {
+      if (!play || play.item !== item) return;
+      if (offer && offer.tiles && offer.tiles.length) item.directions = { at: Date.now(), tiles: offer.tiles };
+      if (then) then(item.directions || null);
+    }).catch(function () { if (then && play && play.item === item) then(item.directions || null); });
+  }
+  function paintDirections(offer) {
+    var holder = $('continue-strip'), entries = [], i, tile;
+    if (!holder || !offer || !offer.tiles.length || !play || !play.item || overlayFocus === 'seek') return;
+    for (i = 0; i < offer.tiles.length && i < 5; i++) {
+      tile = offer.tiles[i];
+      entries.push({ direction: tile.kind, label: tile.label, src: tile.src, title: tile.title, show: tile.show, art: '/art?src=' + q(tile.src),
+        positionSeconds: tile.resume || 0, duration: tile.duration || 0, channel: tile.channel, mode: 'channel' });
+    }
+    dismissArm();
+    if (optionOpen) closeOptions();
+    if (directionsShown) directionsShown = null;
+    closeContinue();
+    clearTransportFocus();
+    overlayFocus = 'continue';
+    continueOpen = true;
+    paintResumeInto(holder, entries);
+    holder.hidden = false;
+    directionsShown = { openedAt: Date.now(), touched: Date.now(), from: play.item.src, position: Math.floor(media.time()), channel: play.channel ? String(play.channel.id) : '', tiles: entries };
+    focusContinue(0);
+    showOsd();
+  }
+  function openDirections() {
+    var item = play && play.item;
+    if (!item || GUEST || inAd() || play.resumePending || play.errorOn) { showOsd(); return; }
+    showOsd();
+    if (item.directions) { paintDirections(item.directions); if (Date.now() - item.directions.at > 300000) fetchDirections(null); return; }
+    fetchDirections(function (offer) { if (offer && !overlayFocus && !optionOpen) paintDirections(offer); });
+  }
+  function sendDirection(entry) {
+    var shown = directionsShown, body, i, viewers;
+    directionsShown = null;
+    if (!shown || !TOKEN) return;
+    body = { channel: shown.channel, from: shown.from, position: shown.position, msOpen: Date.now() - shown.openedAt, shown: [],
+      chosen: entry ? { kind: entry.direction, src: entry.src } : null };
+    for (i = 0; i < shown.tiles.length; i++) body.shown.push({ kind: shown.tiles[i].direction, src: shown.tiles[i].src });
+    viewers = storedViewers();
+    if (viewers !== null) body.viewers = viewers;
+    post('/api/direction-choice', body).catch(function () {});
   }
   function closeContinue() {
+    // A directions tray closed without a choice is data too.
+    if (directionsShown) sendDirection(null);
+    var caption = $('direction-caption'); if (caption) caption.hidden = true;
     continueOpen = false;
     var holder = $('continue-strip');
     if (holder) { holder.hidden = true; holder.innerHTML = ''; }
@@ -2636,6 +2710,7 @@
     if (action.type === 'subs') { if (!optionOpen) { closeOverlay(); openOptions(); } handleOptionKey('subt'); showOsd(); return; }
     if (action.type === 'home') { dismissArm(); closeOverlay(); stopPlayback(); return; }
     if (action.type === 'last') { lastWatched(); return; }
+    if (action.type === 'directions') { openDirections(); return; }
     if (action.type === 'show') { overlayFocus = ''; clearTransportFocus(); showOsd(); return; }
     if (action.type === 'focus' && action.row === 'transport') {
       if (action.fresh) transportIndex = transportHome();
@@ -2667,7 +2742,7 @@
     if (action.type === 'activate') {
       if (overlayFocus === 'continue' || continueOpen) {
         chosen = $('continue-strip') && $('continue-strip').children[continueIndex];
-        if (chosen && chosen._entry) playResume(chosen._entry);
+        if (chosen && chosen._entry) { if (chosen._entry.direction) sendDirection(chosen._entry); playResume(chosen._entry); }
         return;
       }
       activateTransport();

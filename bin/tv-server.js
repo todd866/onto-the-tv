@@ -148,7 +148,7 @@ const sceneLookup = src => {
 };
 let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers });
 const current = { home: (viewers, rating) => library.home(viewers, rating), show: name => library.show(name), next: (id, input) => library.next(id, input),
-  progress: input => library.progress(input), like: input => library.like(input), liked: src => library.liked(src), file: src => library.file(src), video: src => library.video(src),
+  progress: input => library.progress(input), like: input => library.like(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), file: src => library.file(src), video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
 let mediaCache = null;
@@ -178,7 +178,7 @@ async function warmLibrary(videos) {
 const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore,
   libraryRoots: async () => configuredRoots(await readSettings(join(appData, 'settings.json'))), catalogueFile: catalogue,
   playNextFile: join(homedir(), '.local/state/onto-the-tv/play-next.json'),
-  remoteLog: createRemoteLog({ file: join(data, 'remote-events.jsonl') }), log });
+  remoteLog: createRemoteLog({ file: join(data, 'remote-events.jsonl') }), directionsFile: join(data, 'directions.jsonl'), log });
 server.listen(port, host, () => log(`serving ${library.home().channels.length} channels on http://${host}:${port}/`));
 
 // Invited guests: a separate server with no route to the TV's controls (src/guest-server.js).

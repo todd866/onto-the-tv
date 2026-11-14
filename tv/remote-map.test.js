@@ -18,10 +18,13 @@ test('watching: an arrow only shows the controls; channels change on the CH keys
   const map = remote();
   for (const state of [watching, open('')]) {
     // The owner lost a live set to one arrow press (14 Nov 2026): no arrow may tune, skip, go back or seek.
-    for (const key of [map.KEY.UP, map.KEY.DOWN, map.KEY.LEFT, map.KEY.RIGHT]) {
+    for (const key of [map.KEY.UP, map.KEY.LEFT, map.KEY.RIGHT]) {
       assert.deepEqual(plain(map.decide(state, key)), { type: 'focus', row: 'transport', fresh: true });
       assert.equal(map.decide({ ...state, repeat: true }, key).type, 'none');
     }
+    // Down opens the tray of directions: tiles to choose from, nothing changed until OK.
+    assert.deepEqual(plain(map.decide(state, map.KEY.DOWN)), { type: 'directions' });
+    assert.equal(map.decide({ ...state, repeat: true }, map.KEY.DOWN).type, 'none');
     assert.deepEqual(plain(map.decide(state, map.KEY.CH_UP)), { type: 'tune', direction: 1 });
     assert.deepEqual(plain(map.decide(state, map.KEY.CH_DOWN)), { type: 'tune', direction: -1 });
     assert.equal(map.decide({ ...state, repeat: true }, map.KEY.CH_UP).type, 'none');
@@ -30,7 +33,7 @@ test('watching: an arrow only shows the controls; channels change on the CH keys
 
 test('no arrow press in any focus state does anything but move focus', () => {
   const map = remote();
-  const allowed = ['focus', 'move', 'close', 'none'];
+  const allowed = ['focus', 'move', 'close', 'none', 'directions'];
   for (const focus of ['', 'transport', 'continue', 'seek'])
     for (const repeat of [false, true])
       for (const key of [map.KEY.UP, map.KEY.DOWN, map.KEY.LEFT, map.KEY.RIGHT])

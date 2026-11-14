@@ -5,7 +5,7 @@ import { appendFile } from 'node:fs/promises';
 
 const ACTIONS = new Set(['none', 'tune', 'digit', 'seek', 'play', 'pause', 'stop', 'next', 'previous', 'close', 'back', 'focus',
   'open', 'activate', 'move', 'home-move', 'home-select', 'home-back', 'other',
-  'like', 'scrub', 'scrub-commit', 'scrub-cancel', 'options', 'subs', 'home', 'last', 'guide']);
+  'like', 'scrub', 'scrub-commit', 'scrub-cancel', 'options', 'subs', 'home', 'last', 'guide', 'directions']);
 const FOCUS = new Set(['', 'transport', 'scrub', 'seek', 'continue', 'options', 'home', 'prompt']);
 const PAGES = new Set(['home', 'player']);
 const word = value => typeof value === 'string' && value.length <= 64 && /^[A-Za-z0-9._-]*$/.test(value);

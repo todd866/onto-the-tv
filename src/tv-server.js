@@ -3,7 +3,7 @@ import { liveManifest } from './tv-live.js';
 import { createPlayNext } from './play-next.js';
 import { createServer } from 'node:http';
 import { createReadStream, readFileSync, writeFileSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { appendFile, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, normalize } from 'node:path';
 import { isIP } from 'node:net';
@@ -932,7 +932,66 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return channelsOf(item).some(id => ratingAllowed(item, ceiling, blocked, id));
   }
 
-  return { home, show, next, progress, like, liked, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
+  // Directions the channel could take from here, one real episode each (Ian, 14 Nov 2026: "if I press down right
+  // now I should get some options of different directions the algorithm could go, with tiles, and then we can
+  // collect that data to figure out what I like"). Choosing one is not a skip: the show being left is not marked down.
+  function directions(channelId, options = {}) {
+    const ids = viewerIds(options.viewers), rating = ratingOf(options.rating);
+    const current = typeof options.current === 'string' ? bySrc.get(options.current) : undefined;
+    // A show put on by hand (Continue, the Library, a command) plays on no channel: use one it belongs to.
+    if (!TV_CHANNELS.some(channel => channel.id === channelId) && current !== undefined) {
+      channelId = channelsOf(videos[current]).find(id => poolFor(id, ids, rating).includes(current)) || channelId;
+    }
+    if (!TV_CHANNELS.some(channel => channel.id === channelId)) throw Object.assign(new Error('Unknown channel.'), { status: 404 });
+    const key = channelTasteKey(channelId, ids) || channelId;
+    const weights = weightsFor(key);
+    const weight = index => player.weightFor(weights, videos[index].src);
+    const { places, finished } = watchMaps();
+    const begun = index => finished.has(videos[index].src) || !!places[videos[index].src];
+    const held = likes();
+    const used = new Set(current === undefined ? [] : [current]);
+    const usable = index => !used.has(index) && !isAdSrc(videos[index].src);
+    // The best few by score, then one of them at random, so the tray is not the same five tiles every time.
+    const pick = (list, score) => {
+      const ranked = list.filter(usable).map(index => [score(index), index]).filter(([value]) => value > -Infinity).sort((a, b) => b[0] - a[0]).slice(0, 4);
+      if (!ranked.length) return undefined;
+      const chosen = ranked[Math.min(ranked.length - 1, Math.floor(random() * ranked.length))][1];
+      used.add(chosen);
+      return chosen;
+    };
+    const pool = poolFor(channelId, ids, rating);
+    const here = TV_CHANNELS.find(channel => channel.id === channelId);
+    const tiles = [];
+    const add = (kind, label, index, channel = here) => {
+      if (index === undefined) return;
+      tiles.push({ kind, label, ...describe(videos[index]), channel: { id: channel.id, number: channel.number, name: channel.name } });
+    };
+    if (current !== undefined) {
+      const show = showOf(current);
+      add('more', show, pick(pool.filter(index => showOf(index) === show), index => weight(index) - (finished.has(videos[index].src) ? 2 : 0)));
+    }
+    add('new', 'New to you', pick(pool.filter(index => !begun(index)), weight));
+    add('favourite', 'Favourite', pick(pool, index => (held[videos[index].src] ? 10 : 0) + weight(index) > 1 ? (held[videos[index].src] ? 10 : 0) + weight(index) : -Infinity));
+    const long = current !== undefined && (videos[current].duration || 0) >= 1200;
+    if (long) add('short', 'Quick one', pick(pool.filter(index => videos[index].duration > 0 && videos[index].duration <= 420), weight));
+    else add('long', 'Long set', pick(pool.filter(index => videos[index].duration >= 1800), index => weight(index) + videos[index].duration / 36000));
+    // Somewhere else: the other channel whose best unwatched episode this audience rates highest.
+    let away = null;
+    for (const channel of TV_CHANNELS) {
+      if (channel.id === channelId || channel.app) continue;
+      const other = poolFor(channel.id, ids, rating).filter(index => usable(index) && !finished.has(videos[index].src));
+      if (!other.length) continue;
+      const otherKey = channelTasteKey(channel.id, ids) || channel.id;
+      const otherWeights = otherKey === key ? weights : weightsFor(otherKey);
+      const best = other.reduce((top, index) => (player.weightFor(otherWeights, videos[index].src) > player.weightFor(otherWeights, videos[top].src) ? index : top), other[0]);
+      const score = player.weightFor(otherWeights, videos[best].src) + random() * 0.5;
+      if (!away || score > away.score) away = { score, index: best, channel };
+    }
+    if (away) { used.add(away.index); add('elsewhere', away.channel.name, away.index, away.channel); }
+    return { channel: channelId, from: current === undefined ? '' : videos[current].src, tiles };
+  }
+
+  return { home, show, next, progress, like, liked, directions, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
 }
 
 async function readBody(request, limit = 16 * 1024) {
@@ -984,7 +1043,7 @@ export async function streamFile(request, response, file, mediaCache) {
  * `token` is the pairing secret the installed TV app sends.
  */
 export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), sceneStore = null,
-  consoleLauncher = createConsoleLauncher(), libraryRoots = null, catalogueFile = null, playNextFile = null, remoteLog = null, log = () => {} }) {
+  consoleLauncher = createConsoleLauncher(), libraryRoots = null, catalogueFile = null, playNextFile = null, remoteLog = null, directionsFile = null, log = () => {} }) {
   const allowSrc = src => { try { library.video(src); return true; } catch { return false; } };
   const tvCommands = createTvCommands({ allowSrc });
   const playNext = createPlayNext({ file: playNextFile, allowSrc });
@@ -1174,6 +1233,26 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         const item = library.next(String(params.channel || ''), params);
         dirty = true;
         return send(response, 200, item);
+      }
+      if (path === '/api/directions') {
+        if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' });
+        const params = await readBody(request);
+        return send(response, 200, library.directions(String(params.channel || ''), params));
+      }
+      // What was offered and what was taken (or that the tray was closed): the record the taste work will read.
+      if (path === '/api/direction-choice') {
+        if (!token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
+        if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' });
+        const body = await readBody(request, 16 * 1024);
+        const text = value => (typeof value === 'string' && value.length <= 400 ? value : '');
+        const shown = Array.isArray(body.shown) ? body.shown.slice(0, 8).map(tile => ({ kind: text(tile && tile.kind).slice(0, 24), src: text(tile && tile.src) })) : [];
+        if (!shown.length) return send(response, 400, { error: 'Invalid choice.' });
+        const entry = { at: new Date().toISOString(), channel: text(body.channel).slice(0, 64), from: text(body.from),
+          position: Number.isFinite(body.position) && body.position >= 0 ? Math.round(body.position) : null,
+          viewers: text(body.viewers).slice(0, 64), shown, chosen: body.chosen ? { kind: text(body.chosen.kind).slice(0, 24), src: text(body.chosen.src) } : null,
+          msOpen: Number.isFinite(body.msOpen) && body.msOpen >= 0 ? Math.min(600000, Math.round(body.msOpen)) : null };
+        if (directionsFile) await appendFile(directionsFile, JSON.stringify(entry) + '\n', { mode: 0o600 });
+        return send(response, 200, { ok: true });
       }
       if (path === '/api/tv-live') {
         if (!token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });

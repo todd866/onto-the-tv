@@ -768,3 +768,23 @@ test('a like raises the episode on the audience\'s taste and taking it back rest
   assert.deepEqual(likes(), {});
   assert.throws(() => library.like({ src: 'Nope/x.mp4', liked: true }), /not in this library/);
 });
+
+test('directions offers different real episodes, never the one playing, and marks nothing down', async () => {
+  const { storage, library } = await setup();
+  const before = storage.getItem('kidshuffle.log.v1');
+  const offer = library.directions('cartoons', { current: 'Bluey/a.mp4', viewers: 'sam,jake,mum,dad' });
+  assert.equal(offer.from, 'Bluey/a.mp4');
+  assert.ok(offer.tiles.length >= 2, JSON.stringify(offer.tiles.map(tile => tile.kind)));
+  const srcs = offer.tiles.map(tile => tile.src);
+  assert.equal(new Set(srcs).size, srcs.length, 'no episode is offered twice');
+  assert.ok(!srcs.includes('Bluey/a.mp4'), 'the episode playing is not offered');
+  const more = offer.tiles.find(tile => tile.kind === 'more');
+  assert.equal(more.src, 'Bluey/b.mp4');
+  assert.equal(more.label, 'Bluey');
+  for (const tile of offer.tiles) {
+    assert.ok(tile.kind && tile.label && tile.title && tile.channel && tile.channel.id, JSON.stringify(tile));
+    assert.ok(library.allowed(tile.src, 'sam,jake,mum,dad'), tile.src + ' is allowed for this audience');
+  }
+  assert.equal(storage.getItem('kidshuffle.log.v1'), before, 'asking for directions teaches nothing');
+  assert.throws(() => library.directions('nope', {}), /Unknown channel/);
+});

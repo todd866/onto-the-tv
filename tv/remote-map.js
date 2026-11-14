@@ -1,7 +1,8 @@
 /* Playback remote: the map for the One For All Samsung remote in the lounge (owner, 14 Nov 2026). ES5.
    The arrows only ever move focus; they never change what is on (one arrow press lost a live set).
    Every other action sits on the key printed for it:
-       arrows         watching: show the controls (focus on play / pause). In the controls: move.
+       arrows         watching: show the controls (focus on play / pause); Down shows tiles of where the
+                      channel could go next (choose with OK). In the controls: move.
                       transport row: Up to the Continue strip, Down closes.
        OK             watching: pause and open the controls. In the controls: press the focused button.
        RETURN         close the controls, else leave (or undo the last change of show)
@@ -55,6 +56,8 @@ window.ontoRemoteMap = (function () {
     // Arrows: focus only.
     if (key === KEY.UP || key === KEY.DOWN) {
       if (repeat) return { type: 'none' };
+      // Down while watching: tiles of where the channel could go next. Nothing changes until one is chosen with OK.
+      if (!focus && key === KEY.DOWN) return { type: 'directions' };
       if (!focus) return { type: 'focus', row: 'transport', fresh: true };
       if (focus === 'transport') return key === KEY.UP ? { type: 'focus', row: 'continue' } : { type: 'close' };
       if (focus === 'continue') return key === KEY.DOWN ? { type: 'focus', row: 'transport' } : { type: 'none' };

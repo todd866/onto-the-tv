@@ -14,6 +14,7 @@ try {
   const page = await browser.newPage();
   let nextCalls = 0;
   const likeCalls = [];
+  const directionCalls = [];
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
@@ -34,6 +35,17 @@ try {
     if (url.pathname === '/api/diagnostics') return route.fulfill({ json: { ok: true } });
     if (url.pathname === '/api/now-playing' || url.pathname === '/api/play-next' || url.pathname === '/api/watch' || url.pathname === '/api/progress') return route.fulfill({ json: { ok: true, items: [] } });
     if (url.pathname === '/api/next') { let peek = false; try { peek = !!(route.request().postDataJSON() || {}).prefetch; } catch {} if (!peek) nextCalls++; return route.fulfill({ json: { src: 'Kids/Bluey.mp4', show: 'Bluey', title: 'The Sign', resume: 0, duration: 420 } }); }
+    if (url.pathname === '/api/directions') {
+      const tile = (kind, label, src, title, n, channel) => ({ kind, label, src, title, show: label, duration: 600, resume: 0, art: '/art?src=show' + n, channel: channel || { id: 'cartoons', number: 1, name: 'Cartoons' } });
+      return route.fulfill({ json: { channel: 'cartoons', from: 'Kids/Bluey.mp4', tiles: [
+        tile('more', 'Bluey', 'Kids/Bluey 2.mp4', 'Sleepytime', 3),
+        tile('new', 'New to you', 'Kids/Hey Duggee.mp4', 'The Stick Badge', 1),
+        tile('favourite', 'Favourite', 'Kids/Timmy Time Christmas Surprise.mp4', 'Timmy Time: Christmas Surprise', 0),
+        tile('long', 'Long set', 'music/Cercle/Bonobo.mp4', 'Bonobo Solo live at Cercle Odyssey, Paris, France, recorded under the dome at night', 2),
+        tile('elsewhere', 'Music', 'music/Common.mp4', 'Common, Pete Rock - All Kind Of Ideas', 1, { id: 'music', number: 4, name: 'Music' }),
+      ] } });
+    }
+    if (url.pathname === '/api/direction-choice') { directionCalls.push(route.request().postDataJSON()); return route.fulfill({ json: { ok: true } }); }
     if (url.pathname === '/api/like') { let want = false; try { want = !!(route.request().postDataJSON() || {}).liked; } catch {} likeCalls.push(route.request().method() + ':' + want); return route.fulfill({ json: { src: 'Kids/Bluey.mp4', liked: want } }); }
     if (url.pathname === '/api/subs') return route.fulfill({ json: { tracks: [] } });
     if (url.pathname === '/api/scenes') return route.fulfill({ json: { cuts: [], thumbs: [], segments: [] } });
@@ -229,7 +241,44 @@ try {
   await page.waitForTimeout(400);
   await shot('preview-dark.png', 'dark');
   await shot('preview-light.png', 'light');
-  console.log(JSON.stringify({ before, oneRight, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seeking, seekArrow, sought, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
+  // Down while watching: tiles of where the channel could go. Nothing changes until OK; closing it is recorded too.
+  await page.waitForTimeout(900);
+  await fire(10009); // drop any open controls so the picture is plain
+  await page.waitForTimeout(100);
+  const playingBefore = await page.evaluate(() => document.getElementById('player').hidden ? '' : document.getElementById('osd-show').textContent.trim());
+  let directions = null, afterChoice = null;
+  if (playingBefore) {
+    calls = nextCalls;
+    await page.evaluate(() => document.getElementById('osd').classList.add('hidden'));
+    await fire(40);
+    await page.waitForFunction(() => document.querySelectorAll('#continue-strip .direction').length === 5, null, { timeout: 5000 });
+    await fire(39); await fire(39); await fire(39);
+    directions = await page.evaluate(() => {
+      const tiles = [...document.querySelectorAll('#continue-strip .direction')];
+      const strip = document.getElementById('continue-strip').getBoundingClientRect(), osd = document.getElementById('osd').getBoundingClientRect();
+      const caption = document.getElementById('direction-caption');
+      return {
+        labels: tiles.map(tile => tile.querySelector('.resume-at').textContent), focused: tiles.findIndex(tile => tile.classList.contains('focused')),
+        caption: caption.hidden ? '' : caption.textContent, captionCut: caption.scrollWidth > caption.clientWidth + 1,
+        fits: tiles.every(tile => { const r = tile.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; }),
+        clearOfBar: strip.bottom <= osd.top + 2 && caption.getBoundingClientRect().bottom <= osd.top + 2,
+        show: document.getElementById('osd-show').textContent.trim(),
+      };
+    });
+    directions.calls = nextCalls - calls;
+    await page.waitForFunction(() => document.getElementById('tune-flash').hidden);
+    await shot('directions-dark.png', 'dark');
+    await shot('directions-light.png', 'light');
+    await fire(10009);  // closed without choosing
+    await page.waitForTimeout(100);
+    await fire(40);
+    await page.waitForFunction(() => document.querySelectorAll('#continue-strip .direction').length === 5, null, { timeout: 5000 });
+    await fire(39);
+    await fire(13);     // OK on the second tile
+    await page.waitForTimeout(600);
+    afterChoice = await page.evaluate(() => ({ show: document.getElementById('osd-show').textContent.trim(), strip: !document.getElementById('continue-strip').hidden }));
+  }
+  console.log(JSON.stringify({ before, oneRight, directions, afterChoice, directionCalls, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seeking, seekArrow, sought, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
   assert.equal(oneRight.calls, 0, 'an arrow while watching never skips');
   assert.equal(oneRight.show, before, 'an arrow while watching leaves the show on');
   assert.equal(oneRight.paused, false, 'an arrow while watching does not pause');
@@ -280,6 +329,19 @@ try {
   assert.equal(row.overlap, false, JSON.stringify(row));
   assert.equal(preview.visible, true);
   assert.equal(preview.same, true);
+  assert.ok(directions, 'something was playing for the directions check');
+  assert.deepEqual(directions.labels, ['Bluey', 'New to you', 'Favourite', 'Long set', 'Music']);
+  assert.equal(directions.focused, 3, 'arrows move along the tiles');
+  assert.equal(directions.caption, 'Bonobo Solo live at Cercle Odyssey, Paris, France, recorded under the dome at night', 'the focused tile\'s whole title is shown');
+  assert.equal(directions.captionCut, false, 'the whole title fits');
+  assert.equal(directions.fits && directions.clearOfBar, true, JSON.stringify(directions));
+  assert.equal(directions.show, playingBefore, 'opening and moving along the tray changes nothing');
+  assert.equal(directions.calls, 0);
+  assert.equal(directionCalls.length, 2, JSON.stringify(directionCalls));
+  assert.equal(directionCalls[0].chosen, null, 'closing the tray is recorded');
+  assert.equal(directionCalls[0].shown.length, 5);
+  assert.deepEqual(directionCalls[1].chosen, { kind: 'new', src: 'Kids/Hey Duggee.mp4' });
+  assert.equal(afterChoice.strip, false);
   assert.deepEqual(errors, []);
 } finally {
   await browser.close();
