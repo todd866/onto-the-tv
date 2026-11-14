@@ -1794,7 +1794,8 @@
     else if (action === 'next' && play.channel) startChannel(play.channel, play.item, 'error');
   }
   function retryPlayback() {
-    if (!play || !play.item) return;
+    // A failed first tune has no episode yet, and Retry still tunes the channel.
+    if (!play || (!play.item && !(play.errorKind === 'tune' && play.channel))) return;
     clearTimeout(errorTimer);
     if (play.errorKind === 'tune' && play.channel) {
       play.errorOn = false;
@@ -1854,9 +1855,17 @@
     // press, before the server is asked what is next.
     if (reason === 'skip' && previousId === channel.id) showSkipping();
     var body = nextBody(channel, fromItem, reason);
-    return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { if (!play.item) tellDesktop('onto:desktop-error', error && error.status); showStreamError('tune'); return; } stopPlayback(); fail(error); });
+    return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { if (!play.item) { tellDesktop('onto:desktop-error', error && error.status); showTuneTrouble(); } showStreamError('tune'); return; } stopPlayback(); fail(error); });
   }
 
+  // A first tune that fails has nothing on screen yet: until 15 Nov 2026 the home screen simply sat there
+  // while the retry counted down out of sight. The player comes up with the channel and the retry line.
+  function showTuneTrouble() {
+    $('home').hidden = true;
+    $('player').hidden = false;
+    document.body.classList.add('playing');
+    hideTuning();
+  }
   function saveProgress(completed) {
     if (!play || !play.item || play.airing === 'ad') return;
     play.lastSave = Date.now();
