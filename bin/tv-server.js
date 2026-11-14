@@ -169,7 +169,7 @@ const sceneLookup = src => {
 };
 let channelScores = await loadChannelScores(settings);
 let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers, channelScores });
-const current = { home: (viewers, rating) => library.home(viewers, rating), billing: (viewers, rating) => library.billing(viewers, rating), show: name => library.show(name), next: (id, input) => library.next(id, input),
+const current = { home: (viewers, rating) => library.home(viewers, rating), billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => library.next(id, input),
   progress: input => library.progress(input), like: input => library.like(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => library.file(src), video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };

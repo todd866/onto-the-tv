@@ -365,6 +365,14 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
 .desktop-embedded #ad-chip .glyph,.desktop-embedded #ad-chip .glyph svg,
 .desktop-embedded #skip-intro .glyph,.desktop-embedded #skip-intro .glyph svg { width:22px; height:22px; }
 .desktop-embedded video::cue { font-size:20px; }
+/* A short window: the options sit in one row above the bar. As a column they stood taller than the
+   picture and lost their top (844x390, 15 Nov 2026). */
+@media (max-height:340px) {
+  .desktop-embedded #options { left:12px; right:12px; bottom:154px; width:auto; display:flex; }
+  .desktop-embedded #options[hidden] { display:none; }
+  .desktop-embedded .opt { flex:1 1 0; width:auto; min-width:0; }
+  .desktop-embedded .opt .v { padding-left:8px; }
+}
 
 /* Short companion windows need a complete focused card inside the scrolling grid. */
 @media (max-height:500px) and (max-width:1100px) and (min-width:601px) {

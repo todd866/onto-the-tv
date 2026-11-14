@@ -158,9 +158,15 @@
   // hello tells it this copy reports playing and errors (an older copy does neither).
   function tellDesktop(type, status) {
     if (!desktopQuery) return;
-    try { window.parent.postMessage({ type: type, status: status || 0 }, '*'); } catch (e) {}
+    // n names the tune this page was opened for, so the app can ignore a message from the one before.
+    try { window.parent.postMessage({ type: type, status: status || 0, n: desktopParam('n') }, '*'); } catch (e) {}
   }
   tellDesktop('onto:desktop-hello');
+  // The TV's own Library is a ten-foot screen; in the Mac window the app's Find a show does that job.
+  if (desktopQuery) (function () {
+    var own = document.querySelector('#options [data-opt="library"]');
+    if (own && own.parentNode) own.parentNode.removeChild(own);
+  }());
   function storedViewers() {
     if (GUEST) return null;   // the server applies the guest's own ceiling
     if (desktopQuery) return desktopParam('viewers');
@@ -813,7 +819,7 @@
       for (var c = 0; c < data.channels.length; c++) {
         if (data.channels[c].id === requestedChannel) { startChannel(data.channels[c]); return; }
       }
-      window.parent.postMessage({ type: 'onto:desktop-home' }, '*');
+      tellDesktop('onto:desktop-home');
     }
   }
   function loadHome() {
@@ -1829,7 +1835,7 @@
     if (play && play.item && play.channel !== channel) watchEvent('stop');
     if (play && play.item && play.channel && play.channel.id !== channel.id) rememberShow();
     if (!previousId || previousId !== channel.id) showTuning(channel);
-    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: (play && play.nextQueue) || [] };
+    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: keptQueue() };
     paintChannel(channel);
     load(item);
   }
@@ -1849,7 +1855,7 @@
     if (play && play.item && (!fromItem || play.channel !== channel)) watchEvent('stop');
     if (play && play.item && play.channel && play.channel.id !== channel.id) rememberShow();
     if (!previousId || previousId !== channel.id) showTuning(channel);
-    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: (play && play.nextQueue) || [] };
+    play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: keptQueue() };
     paintChannel(channel);
     // A skip must be felt at once: the old item stops (sound cuts) and the bar resets in the same frame as the
     // press, before the server is asked what is next.
@@ -1858,6 +1864,13 @@
     return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { if (!play.item) { tellDesktop('onto:desktop-error', error && error.status); showTuneTrouble(); } showStreamError('tune'); return; } stopPlayback(); fail(error); });
   }
 
+  // What is queued to play next carries over to another channel, except the rest of a show found by name
+  // in the Mac app: that run belongs to the show, and a channel moves on by its own picks.
+  function keptQueue() {
+    var queue = (play && play.nextQueue) || [], kept = [], i;
+    for (i = 0; i < queue.length; i++) if (!queue[i].run) kept.push(queue[i]);
+    return kept;
+  }
   // A first tune that fails has nothing on screen yet: until 15 Nov 2026 the home screen simply sat there
   // while the retry counted down out of sight. The player comes up with the channel and the retry line.
   function showTuneTrouble() {
@@ -1932,7 +1945,7 @@
     var strip = $('jump-strip');
     if (strip) { strip.hidden = true; strip.innerHTML = ''; }
     if (play && play.item && play.airing !== 'ad' && !media.ended()) { watchEvent('stop'); saveProgress(false); }
-    if (desktopQuery) window.parent.postMessage({ type: 'onto:desktop-home' }, '*');
+    tellDesktop('onto:desktop-home');
     play = null; mediaState = 'ready';
     media.stop();
     reportNow();
@@ -2929,7 +2942,10 @@
         if (resumeName === 'ok') { acceptResume(); event.preventDefault(); return; }
       }
       if (play && play.errorOn) {
-        if (navKey(key) === 'ok') retryPlayback();
+        // Back leaves a picture that will not come for the home screen; it used to be swallowed, which a
+        // channel that fails on its first tune would have made a screen with no way out.
+        if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) stopPlayback();
+        else if (navKey(key) === 'ok') retryPlayback();
         event.preventDefault();
         return;
       }
@@ -3041,7 +3057,7 @@
     list = event.data.queue;
     if (!play || !list || !list.length) return;
     for (i = 0; i < list.length && queue.length < 60; i++) {
-      if (list[i] && typeof list[i].src === 'string' && list[i].src) queue.push({ src: list[i].src, title: typeof list[i].title === 'string' ? list[i].title : '' });
+      if (list[i] && typeof list[i].src === 'string' && list[i].src) queue.push({ src: list[i].src, title: typeof list[i].title === 'string' ? list[i].title : '', run: true });
     }
     play.nextQueue = queue;
     updateOsd();

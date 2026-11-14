@@ -1006,6 +1006,8 @@ test('billing lists what each card shows now, then what each will show next', as
   assert.deepEqual(billed.slice(0, cards.length).map(item => '/art?src=' + encodeURIComponent(item.src)), cards.map(card => card.now.art));
   assert.ok(billed.length > cards.length, 'the next picks follow');
   assert.ok(billed.every(item => item.file && item.duration === 420));
+  // A lineup just made is taken as given, not made again.
+  assert.deepEqual(library.billing('sam', null, cards).map(item => item.src), billed.map(item => item.src));
   // Asking does not move a channel on.
   assert.deepEqual(library.home('sam').channels.map(card => card.now.art), cards.map(card => card.now.art));
 });

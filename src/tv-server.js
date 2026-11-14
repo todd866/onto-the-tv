@@ -1144,9 +1144,10 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   // What each card for this audience shows now, then what each will show next: the pictures worth
   // having ready. Asking stages the picks as the lineup does and moves nothing on.
-  function billing(viewers, ratingValue) {
+  function billing(viewers, ratingValue, cards = null) {
     const ids = viewerIds(viewers), rating = ratingOf(ratingValue);
-    const lineup = home(viewers, ratingValue).channels;
+    // A lineup just made for this audience is passed in rather than made again (about 100 ms on the M2).
+    const lineup = cards || home(viewers, ratingValue).channels;
     const picks = suffix => lineup.map(channel => staged.get(stageKey(channel.id, ids, rating) + suffix))
       .filter(index => index !== undefined).map(index => videos[index]);
     return [...picks(''), ...picks('\nnext')];
@@ -1162,14 +1163,14 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
  */
 export function createArtWarmer({ library, artwork, log = () => {} }) {
   const running = new Set();
-  return async function warm(viewers, rating = null) {
+  return async function warm(viewers, rating = null, cards = null) {
     if (!artwork || typeof library.billing !== 'function') return 0;
     const key = String(viewers) + '\n' + (rating || '');
     if (running.has(key)) return 0;
     running.add(key);
     let ready = 0;
     try {
-      for (const item of library.billing(viewers, rating)) {
+      for (const item of library.billing(viewers, rating, cards)) {
         if (await artwork.get(item.file, { durationSeconds: item.duration })) ready += 1;
       }
     } catch (error) { log(`art warm stopped: ${error.message}`); }
@@ -1414,9 +1415,10 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
       }
       if (path === '/api/home') {
         const viewers = url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined;
-        send(response, 200, library.home(viewers, url.searchParams.get('rating')));
+        const lineup = library.home(viewers, url.searchParams.get('rating'));
+        send(response, 200, lineup);
         // The cards' pictures start now, ahead of the page asking; the next picks' follow.
-        void warmArt(viewers, url.searchParams.get('rating'));
+        void warmArt(viewers, url.searchParams.get('rating'), lineup.channels);
         return;
       }
       if (path === '/api/library') return send(response, 200, libraryView({ videos: library.catalogue(), history: history.list(), viewers: url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, rating: url.searchParams.get('rating') }));

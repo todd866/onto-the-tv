@@ -62,7 +62,7 @@
   // Tuning: the pressed channel's own card fills the stage in the frame of the click. The player loads
   // behind it and says when it has a picture (or that the server refused); only then does it show.
   const TUNE_WAIT_MS = 12000, HELLO_WAIT_MS = 600;
-  let tuned = null, tuneTimer = 0, helloTimer = 0, playerSaysHello = false;
+  let tuned = null, tuneTimer = 0, helloTimer = 0, playerSaysHello = false, tuneCount = 0;
   function endTuning() {
     clearTimeout(tuneTimer); clearTimeout(helloTimer);
     $('channel-tuning').hidden = true;
@@ -89,6 +89,9 @@
     selectedChannel = channel.id; tuned = channel; playerSaysHello = false;
     const url = new URL('/', origin);
     url.searchParams.set('desktop', '1');
+    // Each tune is numbered and the player says the number back: a message still in flight from the
+    // page before (its "playing", its "home") must not lift this card or close this tune.
+    url.searchParams.set('n', String(++tuneCount));
     url.searchParams.set('viewers', viewers.join(','));
     if (rating) url.searchParams.set('rating', rating);
     if (channel.play) {
@@ -366,6 +369,7 @@
   window.addEventListener('message', event => {
     if (event.origin !== origin || event.source !== $('channel-player').contentWindow) return;
     const type = event.data?.type;
+    if (event.data?.n && event.data.n !== String(tuneCount)) return;
     if (type === 'onto:desktop-home') { stop(); returnFocus(); }
     if (type === 'onto:desktop-hello') playerSaysHello = true;
     if (type === 'onto:desktop-playing' && !$('channel-tuning').hidden) {

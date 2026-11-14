@@ -166,6 +166,13 @@ try {
     await assertViewport(page,{primary:['#channel-tuning'],controls:['#channel-back','#tuning-readout']});
     await page.screenshot({path:resolve(out,`tuning-${theme}.png`)});
   }
+  // A message still in flight from the tune before does not lift this card or close this tune.
+  await page.waitForFunction(()=>window.frames.length>0);
+  const early = page.frames().find(f=>f.url().startsWith('http://localhost:8686/'));
+  await early.evaluate(()=>{ parent.postMessage({type:'onto:desktop-playing',n:'0'},'*'); parent.postMessage({type:'onto:desktop-home',n:'0'},'*'); });
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('#channel-tuning').isVisible(),true,'a stale message must not lift the card');
+  assert.equal(await page.locator('#channel-player').isHidden(),false,'a stale message must not close the tune');
   for (let i=0;i<50 && !next.length;i++) await page.waitForTimeout(100);
   assert.ok(next.length,'embedded TV player must request an episode');
   assert.equal(next.at(-1).viewers,'sam,mum,dad');
@@ -184,12 +191,17 @@ try {
   await frame.locator('#osd-options').click();
   assert.deepEqual(errors, []);
   await frame.locator('#options').waitFor({state:'visible',timeout:3000});
+  // The TV's ten-foot Library is not offered in the Mac window.
+  assert.deepEqual(await frame.locator('#options .opt').evaluateAll(list=>list.map(el=>el.getAttribute('data-opt'))),['subs','audio','ads']);
   await assertViewport(frame,{primary:['#options'],controls:['#options .opt']});
   await page.screenshot({path:resolve(out,'player-options.png')});
   for(const size of [{width:520,height:560},{width:390,height:844},{width:844,height:390}]) {
     await page.setViewportSize(size);
+    // Measure the player once it has taken the new size: this step used to pass on the old geometry.
+    await frame.waitForFunction(width=>innerWidth===width,size.width);
     await assertViewport(page,{primary:['#channel-player'],controls:['#channel-back']});
     await assertViewport(frame,{primary:['#osd','#options'],controls:['#osd-play','#osd-options','#options .opt']});
+    if (size.height===390) { await page.waitForTimeout(500); await page.screenshot({path:resolve(out,'player-options-short.png')}); }
   }
   await page.setViewportSize({width:980,height:720});
   await page.locator('#channel-back').click();
@@ -203,7 +215,8 @@ try {
   assert.match(await page.locator('#tuning-retry').getAttribute('title'),/403/);
   const refused = page.frames().find(f=>f.url().startsWith('http://localhost:8686/'));
   assert.equal(await refused.locator('#home').evaluate(el=>getComputedStyle(el).display),'none');
-  assert.equal(await refused.locator('#player').isVisible(),false);
+  // The player page shows its own retry line now (as the TV does); here the app's card covers it.
+  assert.equal(await page.locator('#channel-tuning').isVisible(),true);
   for (const theme of ['dark','light']) {
     await page.emulateMedia({colorScheme:theme});
     await assertViewport(page,{primary:['#channel-tuning'],controls:['#channel-back','#tuning-retry']});
