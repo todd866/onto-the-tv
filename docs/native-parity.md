@@ -42,6 +42,15 @@ selections and ignore stale responses. Failed changes leave no old media channel
 actionable. TV viewer controls are only active on Home; native viewer controls
 remain available during playback and stop it before changing the audience.
 
+## Scored channels (triple j, Double J)
+
+- Server-side channels on numbers 43 and 44; both the TV web UI and native Channels
+  surface them through `/api/home` like any other media channel.
+- Members and pick bias come from `channel-scores.json` on the Mac running tv-server,
+  not from folder names in the catalogue.
+- When the score file lists no items for a channel, that channel is omitted from
+  `/api/home` until the next rescan picks up new scores.
+
 ## Deliberate differences
 
 - Native viewer selections last for the window session, start with everyone, and

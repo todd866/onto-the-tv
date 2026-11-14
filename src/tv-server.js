@@ -131,6 +131,8 @@ export const TV_CHANNELS = [
     shows: /^(?:mark rober|johnny harris|veritasium|smarter every ?day|real engineering|wendover|practical engineering|stuff made here|colin furze|kurzgesagt|half as interesting|tom scott|the b1m|outdoor boys|abandoned|restoration|my mechanics|hand tool rescue)/i },
   { id: 'livesets', number: 42, name: 'Live Sets', audience: 'adult',
     shows: /^(?:tiny desk|like a version|cercle|kexp|boiler room|from the basement|bbc live|colors|mahogany|audiotree|live at)/i },
+  { id: 'triplej', number: 43, name: 'triple j', audience: 'adult', scored: true },
+  { id: 'doublej', number: 44, name: 'Double J', audience: 'adult', scored: true },
 ];
 // Fran's own mix, from Ian (4 Nov 2026): her top three are Come Dine With Me, Friends and The
 // Big Bang Theory, and she is a big fan of British reality TV; she likes Kath & Kim too. No animation, no violence.
@@ -183,12 +185,12 @@ const FAVOURITES = { mum: FRAN_SHOWS, jake: JAKE_SHOWS, dad: IAN_SHOWS };
 // channels follow in catalogue order. Learned taste breaks ties within the rest.
 const PERSON_LINEUP = {
   dad: ['fordad', 'movies', 'thrillers', 'military', 'aviation', 'motoring', 'makers', 'scifi', 'adultanim', 'comedy',
-    'livesets', 'music', 'docs', 'sports', 'rides', 'sitcoms', 'seinfeld', 'classic', 'd80', 'd90', 'd70', 'truecrime',
+    'triplej', 'doublej', 'livesets', 'music', 'docs', 'sports', 'rides', 'sitcoms', 'seinfeld', 'classic', 'd80', 'd90', 'd70', 'truecrime',
     'grownups', 'crime', 'friends', 'reality'],
   mum: ['formum', 'reality', 'friends', 'sitcoms', 'grownups', 'truecrime', 'crime', 'comedy', 'music', 'seinfeld', 'movies'],
 };
 // After 7pm these sink below films, drama and documentaries.
-const SHORT_CLIP_CHANNELS = new Set(['music', 'livesets', 'shorts', 'makers', 'comedy']);
+const SHORT_CLIP_CHANNELS = new Set(['music', 'livesets', 'shorts', 'makers', 'comedy', 'triplej', 'doublej']);
 // Episodic channels play the next episode; cartoons and music stay shuffled.
 const SERIAL_CHANNELS = new Set(['movies', 'sitcoms', 'grownups', 'friends', 'seinfeld', 'crime', 'thrillers', 'military',
   'aviation', 'motoring', 'scifi', 'classic', 'truecrime', 'reality', 'docs']);
@@ -198,11 +200,57 @@ const CHANNEL_BY_ID = new Map(TV_CHANNELS.map(channel => [channel.id, channel]))
 
 const RIDES_SHOWS = /\b(?:knight rider|the a[- ]team|the dukes of hazzard|airwolf|chips|baywatch|top gear)\b/i;
 
-export function inTvGenre(item, channelId) {
+export function scoredRotationWeight(score) {
+  const value = typeof score === 'number' ? score : Number(score);
+  const clamped = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+  return 0.4 + 1.6 * clamped;
+}
+
+export function applyScoredChannelWeight(baseWeight, score) {
+  return baseWeight * scoredRotationWeight(score);
+}
+
+// Parsed `channels` object from channel-scores.json; null when missing or unusable.
+export function parseChannelScores(text) {
+  if (typeof text !== 'string' || !text.trim()) return null;
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const channels = parsed.channels;
+  if (!channels || typeof channels !== 'object' || Array.isArray(channels)) return null;
+  const out = Object.create(null);
+  for (const [channelId, channel] of Object.entries(channels)) {
+    if (!channel || typeof channel !== 'object' || Array.isArray(channel)) continue;
+    const items = channel.items;
+    if (!items || typeof items !== 'object' || Array.isArray(items)) continue;
+    const cleaned = Object.create(null);
+    for (const [src, meta] of Object.entries(items)) {
+      if (typeof src !== 'string' || !meta || typeof meta !== 'object' || Array.isArray(meta)) continue;
+      let score = meta.score;
+      if (typeof score === 'string') score = Number(score);
+      if (!Number.isFinite(score)) continue;
+      cleaned[src] = { score: Math.min(1, Math.max(0, score)) };
+    }
+    if (Object.keys(cleaned).length) out[channelId] = { items: cleaned };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+export function channelScoresSignaturePart(path, info) {
+  return `channel-scores:${path}:${info ? `${info.mtimeMs}:${info.size}` : 'missing'}`;
+}
+
+export function inTvGenre(item, channelId, scores = null) {
   if (!item || isAdSrc(item.src)) return false;
   if (channelId === 'christmas') return player.inStream(item, 'christmas');
   if (channelId === 'music') return item.tier === 'music';
   const defined = CHANNEL_BY_ID.get(channelId);
+  if (defined?.scored) {
+    if (!defined.kids && KID_TIERS.has(item.tier)) return false;
+    const items = scores?.[channelId]?.items;
+    if (!items) return false;
+    return Object.hasOwn(items, item.src);
+  }
   if (defined?.shows) {
     if (defined.kids && !KID_TIERS.has(item.tier)) return false;
     if (!defined.kids && KID_TIERS.has(item.tier)) return false;
@@ -230,10 +278,10 @@ export function inTvGenre(item, channelId) {
   return false;
 }
 
-export function countTvChannelVideos(videos, channelId) {
+export function countTvChannelVideos(videos, channelId, scores = null) {
   if (!Array.isArray(videos)) return 0;
   let count = 0;
-  for (const item of videos) if (inTvGenre(item, channelId)) count += 1;
+  for (const item of videos) if (inTvGenre(item, channelId, scores)) count += 1;
   return count;
 }
 
@@ -345,7 +393,7 @@ export function parseRange(header, size) {
  * The TV-facing model. `videos` comes from readCatalogue; `history` is a
  * loadPlaybackHistory store; `storage` a createFileStorage store.
  */
-export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, now = () => Date.now() }) {
+export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, channelScores = null, now = () => Date.now() }) {
   const bySrc = new Map(videos.map((video, index) => [video.src, index]));
   // Per-channel memory of recently played indices, as the player keeps per tab.
   const recent = new Map();
@@ -450,7 +498,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   }
 
   function inGenre(item, channelId) {
-    return inTvGenre(item, channelId);
+    return inTvGenre(item, channelId, channelScores);
   }
 
   // Which genre channels a video belongs to, before the audience ceiling.
@@ -573,6 +621,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   // One line for a later tooltip: the channel, then the shows that fill it.
   function channelAbout(channelId, ids, rating) {
+    if (channelId === 'triplej') return 'triple j — on rotation, picked for you';
+    if (channelId === 'doublej') return 'Double J — on rotation, picked for you';
     const channel = CHANNEL_BY_ID.get(channelId);
     const counts = new Map();
     for (const index of poolFor(channelId, ids, rating)) {
@@ -790,14 +840,17 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       const open = pool.filter(index => !finishedRecently(videos[index].src, watched.finished));
       if (open.length) pool = open;
     }
-    if (favourites || limited.length) {
+    const scoreItems = CHANNEL_BY_ID.get(channelId)?.scored ? channelScores?.[channelId]?.items : null;
+    if (favourites || limited.length || scoreItems) {
       const learned = weights, rationed = new Set(limited);
       weights = Object.create(null);
       for (const index of pool) {
         const item = videos[index];
         const taste = favourites ? (favourites.test(String(item.channel || '')) ? FAVOURITE_WEIGHT : DISCOVERY_WEIGHT) : 1;
         // Below the learner's floor on purpose: a rationed show stays rare even when loved.
-        weights[item.src] = rationed.has(index) ? LIMITED_WEIGHT : player.weightFor(learned, item.src) * taste;
+        let weight = rationed.has(index) ? LIMITED_WEIGHT : player.weightFor(learned, item.src) * taste;
+        if (scoreItems) weight = applyScoredChannelWeight(weight, scoreItems[item.src]?.score ?? 0);
+        weights[item.src] = weight;
       }
     }
     // Episodic films and sitcoms play in order; cartoons stay shuffled. Personal channels

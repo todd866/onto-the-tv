@@ -14,7 +14,7 @@ import { rebuildCatalogue } from '../src/library.js';
 import { buildPlayer } from '../src/shuffler.js';
 import { loadPlaybackHistory } from '../src/playback-history.js';
 import { createArtworkCache } from '../src/library-artwork.js';
-import { TV_CHANNELS, createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue } from '../src/tv-server.js';
+import { TV_CHANNELS, channelScoresSignaturePart, createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue, parseChannelScores } from '../src/tv-server.js';
 import { createSceneStore } from '../src/scenes.js';
 import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
@@ -41,6 +41,16 @@ const signatureFile = join(data, 'catalogue.signature');
 // Folders whose contents feed the catalogue: the library, its show folders, and
 // the extra roots in the sources file. Adding or removing a file changes the
 // mtime of the folder that holds it, so this is cheap to check on a big drive.
+function channelScoresPath(settings) {
+  return settings.channelScoresPath || join(appData, 'channel-scores.json');
+}
+
+async function loadChannelScores(settings) {
+  const path = channelScoresPath(settings);
+  const text = await readFile(path, 'utf8').catch(() => '');
+  return parseChannelScores(text);
+}
+
 async function signature(settings) {
   const folders = [settings.library];
   try {
@@ -60,6 +70,9 @@ async function signature(settings) {
       if (child) parts.push(`${entry.name}:${child.mtimeMs}`);
     }
   }
+  const scoresPath = channelScoresPath(settings);
+  const scoresInfo = await stat(scoresPath).catch(() => null);
+  parts.push(channelScoresSignaturePart(scoresPath, scoresInfo));
   return parts.sort().join('\n');
 }
 
@@ -146,7 +159,8 @@ const sceneLookup = src => {
   const video = catalogueHolder.videos.find(item => item.src === src);
   return video ? sceneStore.load(video.file) : null;
 };
-let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers });
+let channelScores = await loadChannelScores(settings);
+let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers, channelScores });
 const current = { home: (viewers, rating) => library.home(viewers, rating), show: name => library.show(name), next: (id, input) => library.next(id, input),
   progress: input => library.progress(input), like: input => library.like(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => library.file(src), video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
@@ -203,7 +217,9 @@ async function rescan() {
       const refreshedVideos = await loadCatalogue(catalogue);
       void warmLibrary(refreshedVideos);
       catalogueHolder.videos = refreshedVideos;
-      library = createTvLibrary({ videos: refreshedVideos, history, storage, scenes: sceneLookup, showTiers });
+      const freshSettings = await readSettings(join(appData, 'settings.json'));
+      channelScores = await loadChannelScores(freshSettings);
+      library = createTvLibrary({ videos: refreshedVideos, history, storage, scenes: sceneLookup, showTiers, channelScores });
       knownSources.clear();
       for (const video of refreshedVideos) knownSources.add(video.src);
       log(`catalogue reloaded: ${library.home().channels.length} channels`);
