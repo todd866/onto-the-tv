@@ -169,7 +169,7 @@ const sceneLookup = src => {
 };
 let channelScores = await loadChannelScores(settings);
 let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers, channelScores });
-const current = { home: (viewers, rating) => library.home(viewers, rating), show: name => library.show(name), next: (id, input) => library.next(id, input),
+const current = { home: (viewers, rating) => library.home(viewers, rating), billing: (viewers, rating) => library.billing(viewers, rating), show: name => library.show(name), next: (id, input) => library.next(id, input),
   progress: input => library.progress(input), like: input => library.like(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => library.file(src), video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
@@ -211,6 +211,19 @@ guestServer?.on('error', error => log(`guest app not started: ${error.code || er
 guestServer?.listen(guestPort, '127.0.0.1', () => log(`guest app on http://127.0.0.1:${guestPort}/`));
 
 void warmLibrary(libraryVideos);
+// The profiles' lineups have their pictures made before anyone opens them: each audience's cards, then
+// what each card shows next. Again after a reload, when every channel stages fresh picks.
+const PROFILE_AUDIENCES = ['sam,jake,mum,dad', 'sam,mum,dad', 'jake,mum,dad', 'dad', 'mum', 'mum,dad'];
+let artGeneration = 0;
+async function warmProfileArt() {
+  const generation = ++artGeneration;
+  for (const audience of PROFILE_AUDIENCES) {
+    if (generation !== artGeneration) return;
+    await server.warmArt(audience);
+  }
+  if (generation === artGeneration) log(`pictures ready for ${PROFILE_AUDIENCES.length} lineups`);
+}
+void warmProfileArt();
 
 setInterval(() => { reloadAppHistory().catch(() => {}); }, APP_HISTORY_MS).unref();
 
@@ -231,6 +244,7 @@ async function rescan() {
       knownSources.clear();
       for (const video of refreshedVideos) knownSources.add(video.src);
       log(`catalogue reloaded: ${library.home().channels.length} channels`);
+      void warmProfileArt();
     }
   } catch (error) { log(`rescan failed: ${error.message}`); } finally { scanning = false; }
 }

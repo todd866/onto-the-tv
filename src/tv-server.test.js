@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TV_CHANNELS, applyScoredChannelWeight, channelScoresSignaturePart, mergeChannelScores, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseChannelScores, parseRange, scoredRotationWeight } from './tv-server.js';
+import { TV_CHANNELS, applyScoredChannelWeight, channelScoresSignaturePart, createArtWarmer, mergeChannelScores, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseChannelScores, parseRange, scoredRotationWeight } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 
 const videos = [
@@ -993,4 +993,46 @@ test('score files from several tools merge by channel, a later file replacing an
   assert.deepEqual(Object.keys(merged.dance.items), ['b.mp4']);
   assert.equal(merged.triplej.items['a.mp4'].score, 0.9);
   assert.equal(mergeChannelScores([null, null]), null);
+});
+
+// Pictures ready before a card needs them: a fresh lineup from the M2 took 2 to 4 s to fill (15 Nov 2026).
+test('billing lists what each card shows now, then what each will show next', async () => {
+  const kid = (show, n) => ({ src: `${show}/${n}.mp4`, file: `/m/${show}/${n}.mp4`, title: `${show} ${n}`, channel: show, tier: 'preschool', duration: 420 });
+  const catalogue = ['Bing', 'Peppa Pig', 'Hey Duggee', 'Sarah and Duck'].flatMap(show => [1, 2, 3].map(n => kid(show, n)));
+  const { history, storage } = await setup();
+  const library = createTvLibrary({ videos: catalogue, history, storage, random: () => 0, now: () => localHour(15) });
+  const cards = library.home('sam').channels;
+  const billed = library.billing('sam');
+  assert.deepEqual(billed.slice(0, cards.length).map(item => '/art?src=' + encodeURIComponent(item.src)), cards.map(card => card.now.art));
+  assert.ok(billed.length > cards.length, 'the next picks follow');
+  assert.ok(billed.every(item => item.file && item.duration === 420));
+  // Asking does not move a channel on.
+  assert.deepEqual(library.home('sam').channels.map(card => card.now.art), cards.map(card => card.now.art));
+});
+
+test('the art warmer makes one picture at a time and does not double up for one audience', async () => {
+  const order = [];
+  let active = 0, most = 0;
+  const artwork = { get: async file => { active++; most = Math.max(most, active); order.push(file); await new Promise(resolve => setTimeout(resolve, 2)); active--; return file + '.jpg'; } };
+  const library = { billing: () => [{ file: '/m/a.mp4', duration: 60 }, { file: '/m/b.mp4', duration: 60 }, { file: '/m/c.mp4', duration: 60 }] };
+  const warm = createArtWarmer({ library, artwork });
+  const [first, second] = await Promise.all([warm('sam'), warm('sam')]);
+  assert.deepEqual([first, second], [3, 0]);
+  assert.deepEqual(order, ['/m/a.mp4', '/m/b.mp4', '/m/c.mp4']);
+  assert.equal(most, 1);
+  assert.equal(await createArtWarmer({ library, artwork: null })('sam'), 0);
+  assert.equal(await createArtWarmer({ library: {}, artwork })('sam'), 0);
+});
+
+test('asking for the lineup starts its pictures', async () => {
+  const { dir, history, storage, library } = await setup();
+  const asked = [];
+  const artwork = { get: async file => { asked.push(file); return null; } };
+  const server = createTvServer({ library, history, storage, uiRoot: dir, artwork });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const home = await (await fetch(`http://127.0.0.1:${server.address().port}/api/home?viewers=sam`)).json();
+    for (let i = 0; i < 50 && asked.length < home.channels.length; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.deepEqual(asked.slice(0, home.channels.length).map(file => file.replace('/m/', '')), home.channels.map(card => decodeURIComponent(card.now.art.split('src=')[1])));
+  } finally { await new Promise(resolve => server.close(resolve)); }
 });

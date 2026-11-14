@@ -1142,7 +1142,40 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     storage.setItem(DIRECTION_KEY, JSON.stringify(taken));
   }
 
-  return { home, show, next, progress, like, liked, directions, directionChosen, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
+  // What each card for this audience shows now, then what each will show next: the pictures worth
+  // having ready. Asking stages the picks as the lineup does and moves nothing on.
+  function billing(viewers, ratingValue) {
+    const ids = viewerIds(viewers), rating = ratingOf(ratingValue);
+    const lineup = home(viewers, ratingValue).channels;
+    const picks = suffix => lineup.map(channel => staged.get(stageKey(channel.id, ids, rating) + suffix))
+      .filter(index => index !== undefined).map(index => videos[index]);
+    return [...picks(''), ...picks('\nnext')];
+  }
+
+  return { home, billing, show, next, progress, like, liked, directions, directionChosen, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
+}
+
+/**
+ * Have a lineup's pictures ready before its cards need them (a fresh lineup took 2 to 4 s to fill,
+ * 15 Nov 2026). One picture at a time, so a viewer's own request is never queued behind these, and
+ * one run per audience. Resolves to how many pictures are ready.
+ */
+export function createArtWarmer({ library, artwork, log = () => {} }) {
+  const running = new Set();
+  return async function warm(viewers, rating = null) {
+    if (!artwork || typeof library.billing !== 'function') return 0;
+    const key = String(viewers) + '\n' + (rating || '');
+    if (running.has(key)) return 0;
+    running.add(key);
+    let ready = 0;
+    try {
+      for (const item of library.billing(viewers, rating)) {
+        if (await artwork.get(item.file, { durationSeconds: item.duration })) ready += 1;
+      }
+    } catch (error) { log(`art warm stopped: ${error.message}`); }
+    finally { running.delete(key); }
+    return ready;
+  };
 }
 
 async function readBody(request, limit = 16 * 1024) {
@@ -1240,6 +1273,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
   const timer = setInterval(() => { save().catch(() => {}); }, 15_000);
   timer.unref();
 
+  const warmArt = createArtWarmer({ library, artwork, log });
   const server = createServer(async (request, response) => {
     try {
       if (!isHomeAddress(request.socket.remoteAddress)) return send(response, 403, { error: 'Home network only.' });
@@ -1378,7 +1412,13 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         response.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' });
         return response.end(vtt);
       }
-      if (path === '/api/home') return send(response, 200, library.home(url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, url.searchParams.get('rating')));
+      if (path === '/api/home') {
+        const viewers = url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined;
+        send(response, 200, library.home(viewers, url.searchParams.get('rating')));
+        // The cards' pictures start now, ahead of the page asking; the next picks' follow.
+        void warmArt(viewers, url.searchParams.get('rating'));
+        return;
+      }
       if (path === '/api/library') return send(response, 200, libraryView({ videos: library.catalogue(), history: history.list(), viewers: url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, rating: url.searchParams.get('rating') }));
       if (path === '/api/show') return send(response, 200, library.show(url.searchParams.get('name') || ''));
       if (path === '/api/next' && request.method === 'POST') {
@@ -1466,6 +1506,8 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
   });
   const close = server.close.bind(server);
   server.close = callback => { clearInterval(timer); dirty = true; save().catch(() => {}).finally(() => close(callback)); return server; };
+  // The start-up and reload warm (bin/tv-server.js) uses the same one-at-a-time queue.
+  server.warmArt = warmArt;
   return server;
 }
 
