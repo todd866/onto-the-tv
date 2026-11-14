@@ -33,12 +33,16 @@ test('up and down never tune, on the overlay or off it; channel keys do', () => 
 test('up shows the overlay then focuses transport; down shows continue', () => {
   const map = remote();
   const hidden = { overlay: 'hidden', focus: '', repeat: false };
-  assert.deepEqual(plain(map.decide(hidden, map.KEY.UP)), { type: 'show' });
-  assert.deepEqual(plain(map.decide(hidden, map.KEY.DOWN)), { type: 'show' });
-  assert.deepEqual(plain(map.decide(open(''), map.KEY.UP)), { type: 'focus', row: 'transport' });
-  assert.deepEqual(plain(map.decide(open(''), map.KEY.DOWN)), { type: 'focus', row: 'continue' });
-  assert.deepEqual(plain(map.decide(open('continue'), map.KEY.UP)), { type: 'focus', row: 'transport' });
-  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.DOWN)), { type: 'focus', row: 'continue' });
+  const fresh = { type: 'focus', row: 'transport', fresh: true };
+  assert.deepEqual(plain(map.decide(hidden, map.KEY.UP)), fresh);
+  assert.deepEqual(plain(map.decide(hidden, map.KEY.DOWN)), fresh);
+  assert.deepEqual(plain(map.decide(open(''), map.KEY.UP)), fresh);
+  assert.deepEqual(plain(map.decide(open(''), map.KEY.DOWN)), fresh);
+  // The Continue strip sits above the transport row: Up reaches it, Down returns.
+  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.UP)), { type: 'focus', row: 'continue' });
+  assert.deepEqual(plain(map.decide(open('continue'), map.KEY.DOWN)), { type: 'focus', row: 'transport' });
+  assert.equal(map.decide(open('transport'), map.KEY.DOWN).type, 'none');
+  assert.equal(map.decide(open('continue'), map.KEY.UP).type, 'none');
   assert.equal(map.decide({ ...hidden, repeat: true }, map.KEY.UP).type, 'none');
 });
 

@@ -164,3 +164,8 @@
 .desktop-embedded #play-error-next { font-size: 16px; }
 .desktop-embedded #osd-cc, .desktop-embedded #osd-audio { min-height: 32px; margin-right: 4px; padding: 0 8px; border-width: 2px; border-radius: 8px; font-size: 14px; }
 .desktop-embedded #osd-seek { top: -4px; height: 14px; }
+
+/* A skip in flight: the track pulses until the next item loads. */
+#osd.is-skipping #osd-track { -webkit-animation: skip-pulse 0.7s ease-in-out infinite alternate; animation: skip-pulse 0.7s ease-in-out infinite alternate; }
+@-webkit-keyframes skip-pulse { from { opacity: 1; } to { opacity: 0.35; } }
+@keyframes skip-pulse { from { opacity: 1; } to { opacity: 0.35; } }

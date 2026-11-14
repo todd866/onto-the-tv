@@ -1,4 +1,5 @@
-/* Playback remote: the Samsung map. Up and down never change channel. ES5. */
+/* Playback remote: the Samsung map. Up and down never change channel. ES5.
+   Skip = Down, OK (two presses, and OK again skips again). Seek = Left/Right at once. Pause = OK. */
 window.ontoRemoteMap = (function () {
   var KEY = {
     LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 10009, ESC: 27, BACKSPACE: 8,
@@ -37,15 +38,14 @@ window.ontoRemoteMap = (function () {
       if (repeat) return { type: 'none' };
       return { type: focus ? 'activate' : 'play-pause' };
     }
-    if (key === KEY.UP || key === KEY.INFO) {
+    // Up or Down from plain playback opens the control bar with the transport row already focused (on Next: the
+    // commonest reason to call the bar up; play/pause is OK without it). Then direction follows the screen: the
+    // Continue strip is drawn above the transport row, so Up goes to it and Down comes back.
+    if (key === KEY.UP || key === KEY.DOWN || key === KEY.INFO) {
       if (repeat) return { type: 'none' };
-      if (!overlay) return { type: 'show' };
-      return { type: 'focus', row: 'transport' };
-    }
-    if (key === KEY.DOWN) {
-      if (repeat) return { type: 'none' };
-      if (!overlay) return { type: 'show' };
-      return { type: 'focus', row: 'continue' };
+      if (!focus) return { type: 'focus', row: 'transport', fresh: true };
+      if (focus === 'transport') return key === KEY.DOWN ? { type: 'none' } : { type: 'focus', row: 'continue' };
+      return key === KEY.DOWN ? { type: 'focus', row: 'transport' } : { type: 'none' };
     }
     if (key === KEY.LEFT || key === KEY.RIGHT) {
       var delta = key === KEY.RIGHT ? 1 : -1;

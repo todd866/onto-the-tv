@@ -11,6 +11,7 @@ await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 try {
   const page = await browser.newPage();
+  let nextCalls = 0;
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
@@ -30,7 +31,7 @@ try {
     if (url.pathname === '/config.js') return route.fulfill({ contentType: 'text/javascript', body: 'window.ONTO_CONFIG={token:"fixture",build:"overlay"};' });
     if (url.pathname === '/api/diagnostics') return route.fulfill({ json: { ok: true } });
     if (url.pathname === '/api/now-playing' || url.pathname === '/api/play-next' || url.pathname === '/api/watch' || url.pathname === '/api/progress') return route.fulfill({ json: { ok: true, items: [] } });
-    if (url.pathname === '/api/next') return route.fulfill({ json: { src: 'Kids/Bluey.mp4', show: 'Bluey', title: 'The Sign', resume: 0, duration: 420 } });
+    if (url.pathname === '/api/next') { nextCalls++; return route.fulfill({ json: { src: 'Kids/Bluey.mp4', show: 'Bluey', title: 'The Sign', resume: 0, duration: 420 } }); }
     if (url.pathname === '/api/subs') return route.fulfill({ json: { tracks: [] } });
     if (url.pathname === '/api/scenes') return route.fulfill({ json: { cuts: [], thumbs: [], segments: [] } });
     if (url.pathname === '/api/home') {
@@ -85,13 +86,20 @@ try {
   await page.locator('#osd-show').waitFor();
   const before = (await page.locator('#osd-show').textContent() || '').trim();
   await page.evaluate(() => document.getElementById('osd').classList.add('hidden'));
-  await fire(38);
+  // One press of Up (or Down) from plain playback: the bar opens with Next already focused.
+  await fire(40);
   const shown = await page.evaluate(() => {
     const osd = document.getElementById('osd');
-    const play = document.getElementById('osd-play');
-    return { hidden: osd.classList.contains('hidden'), focused: play.classList.contains('focused'), show: document.getElementById('osd-show').textContent.trim() };
+    return { hidden: osd.classList.contains('hidden'), focused: document.getElementById('osd-next').classList.contains('focused'), show: document.getElementById('osd-show').textContent.trim() };
   });
-  await fire(38);
+  // OK skips; the bar stays up with Next focused, so OK again skips again.
+  const callsBefore = nextCalls;
+  await fire(13);
+  await page.waitForTimeout(300);
+  await fire(13);
+  await page.waitForTimeout(300);
+  const skipped = await page.evaluate(() => ({ hidden: document.getElementById('osd').classList.contains('hidden'), nextFocused: document.getElementById('osd-next').classList.contains('focused') }));
+  skipped.calls = nextCalls - callsBefore;
   const transport = await page.evaluate(() => {
     const play = document.getElementById('osd-play');
     const buttons = [...document.querySelectorAll('#osd-keys button')].filter(button => button.offsetParent && !button.hidden).map(button => {
@@ -113,7 +121,7 @@ try {
   await page.waitForFunction(() => document.getElementById('tune-flash').hidden);
   await shot('transport-dark.png', 'dark');
   await shot('transport-light.png', 'light');
-  await fire(40);
+  await fire(38);   // the Continue strip is drawn above the transport row
   await page.waitForFunction(() => {
     const row = document.getElementById('continue-strip');
     return row && !row.hidden && row.children.length > 0;
@@ -144,12 +152,14 @@ try {
   await page.waitForTimeout(400);
   await shot('preview-dark.png', 'dark');
   await shot('preview-light.png', 'light');
-  console.log(JSON.stringify({ before, shown, transport, row, preview, errors }, null, 2));
+  console.log(JSON.stringify({ before, shown, skipped, transport, row, preview, errors }, null, 2));
   assert.equal(shown.show, before);
   assert.equal(shown.hidden, false);
-  assert.equal(shown.focused, false, 'first up shows the overlay');
-  assert.equal(transport.show, before, 'up does not change channel');
-  assert.equal(transport.buttons.find(button => button.id === 'osd-play').focused, true);
+  assert.equal(shown.focused, true, 'one press opens the bar on Next');
+  assert.equal(skipped.calls, 2, 'OK, OK skips twice');
+  assert.equal(skipped.hidden, false);
+  assert.equal(skipped.nextFocused, true, 'Next keeps the focus after a skip');
+  assert.equal(transport.buttons.find(button => button.id === 'osd-next').focused, true);
   assert.deepEqual(transport.buttons.map(button => button.id), ['osd-prev-scene', 'osd-play', 'osd-next', 'osd-options']);
   assert.deepEqual(transport.buttons.map(button => button.label).filter((_, index) => index !== 1), ['Previous', 'Next', 'Options']);
   assert.ok(['Play', 'Pause', 'Play or pause'].includes(transport.buttons[1].label));

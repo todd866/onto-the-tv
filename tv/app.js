@@ -1560,6 +1560,8 @@
     watchSequence = 0;
     watchTracker = window.ontoWatchTracker ? window.ontoWatchTracker() : null;
     play.item = item;
+    play.switching = false;
+    if (osd) osd.classList.remove('is-skipping');
     play.visitStart = item.resume || 0;
     play.lastSave = Date.now();
     play.started = false;
@@ -1793,6 +1795,15 @@
     paintChannel(channel);
     load(item);
   }
+  function showSkipping() {
+    if (play) play.switching = true;
+    try { media.stop(); } catch (e) {}
+    if (osd) osd.classList.add('is-skipping');
+    $('osd-show').textContent = '';
+    $('osd-fill').style.width = '0';
+    $('osd-elapsed').textContent = clock(0);
+    showOsd();
+  }
   function startChannel(channel, fromItem, reason) {
     var request = ++tuneRequest;
     var previousId = play && play.channel ? play.channel.id : '';
@@ -1802,6 +1813,9 @@
     if (!previousId || previousId !== channel.id) showTuning(channel);
     play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: (play && play.nextQueue) || [] };
     paintChannel(channel);
+    // A skip must be felt at once: the old item stops (sound cuts) and the bar resets in the same frame as the
+    // press, before the server is asked what is next.
+    if (reason === 'skip' && previousId === channel.id) showSkipping();
     var body = nextBody(channel, fromItem, reason);
     return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { showStreamError('tune'); return; } stopPlayback(); fail(error); });
   }
@@ -1918,6 +1932,7 @@
     next('ended');
   });
   media.on('error', function () {
+    if (play && play.switching) return;
     if (!play) return;
     if (play.airing === 'ad') return advanceAd();
     mediaState = 'error';
@@ -1926,7 +1941,7 @@
     // Stay on the channel. Retry reloads this file; after 5 s the channel moves on.
     showStreamError('media');
   });
-  media.on('pause', function () { mediaState = media.paused() ? 'paused' : 'loading'; if (media.paused()) { watchEvent('pause'); diag('pause', diagnosticSample()); } updateOsd(); showOsd(); });
+  media.on('pause', function () { if (play && play.switching) return; mediaState = media.paused() ? 'paused' : 'loading'; if (media.paused()) { watchEvent('pause'); diag('pause', diagnosticSample()); } updateOsd(); showOsd(); });
   // On a phone the first tap brings up the controls; a tap with them showing pauses.
   video.addEventListener('click', function () {
     if (GUEST && osd.classList.contains('hidden')) { showOsd(); return; }
@@ -2389,6 +2404,12 @@
     }
     return els;
   }
+  // Where focus lands when the bar is called up: Next, the reason the bar is usually wanted.
+  function transportHome() {
+    var els = transportEls(), i;
+    for (i = 0; i < els.length; i++) if (els[i].id === 'osd-next') return i;
+    return 0;
+  }
   function clearTransportFocus() {
     var els = transportEls(), i;
     for (i = 0; i < els.length; i++) els[i].classList.remove('focused');
@@ -2454,7 +2475,11 @@
     var target, chosen;
     if (!action || action.type === 'none' || action.type === 'digit') return;
     if (action.type === 'show') { overlayFocus = ''; clearTransportFocus(); showOsd(); return; }
-    if (action.type === 'focus' && action.row === 'transport') { focusTransportRow(); return; }
+    if (action.type === 'focus' && action.row === 'transport') {
+      if (action.fresh) transportIndex = transportHome();
+      focusTransportRow();
+      return;
+    }
     if (action.type === 'focus') { focusContinueRow(); return; }
     if (action.type === 'move' && action.row === 'transport') {
       transportIndex += action.delta;
