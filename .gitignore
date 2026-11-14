@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 # Rust build of the TV game. The wasm next to the page is committed; TV Macs have no toolchain.
 games/target/
 dist/
