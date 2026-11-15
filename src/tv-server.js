@@ -16,7 +16,7 @@ import { createConsoleLauncher } from './console-launcher.js';
 import { createConfiguredUkeHandler } from './uke-handler.js';
 import { adDecade, buildPlayQueue, isAdSrc } from './ads.js';
 import { listSidecars, readSubtitle } from './subtitles.js';
-import { libraryView } from './tv-library-api.js';
+import { libraryView, showsView } from './tv-library-api.js';
 import { catalogueStatus, libraryHealthReport } from './library.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
@@ -1422,6 +1422,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         return;
       }
       if (path === '/api/library') return send(response, 200, libraryView({ videos: library.catalogue(), history: history.list(), viewers: url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, rating: url.searchParams.get('rating') }));
+      if (path === '/api/shows') return send(response, 200, showsView({ videos: library.catalogue(), history: history.list(), viewers: url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined, rating: url.searchParams.get('rating') }));
       if (path === '/api/show') return send(response, 200, library.show(url.searchParams.get('name') || ''));
       if (path === '/api/next' && request.method === 'POST') {
         const params = await readBody(request);

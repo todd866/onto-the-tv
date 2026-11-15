@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { libraryView } from './tv-library-api.js';
+import { libraryView, showsView } from './tv-library-api.js';
 
 const NOW = Date.parse('2026-11-05T13:00:00Z');
 
@@ -244,4 +244,31 @@ test('Fran alone gets no animation, and collections use channel names', async ()
   assert.equal(fran.items.some(item => /Futurama/.test(item.title)), false);
   const ian = libraryView({ videos, history: [], viewers: 'dad' });
   assert.ok(ian.collections.some(row => row.title === 'Grown-up Cartoons'), JSON.stringify(ian.collections.map(row => row.title)));
+});
+
+// Find a show in the Mac app (15 Nov 2026): the whole library ran to megabytes over the tailnet.
+test('the short shows listing matches the library\'s shows for the same audience, in a fraction of the size', () => {
+  const videos = [
+    video({ src: 'preschool/Ms Rachel/a.mp4', file: '/m/a.mp4', title: 'Animal Learning', channel: 'Ms Rachel', tier: 'preschool', duration: 3600 }),
+    video({ src: 'preschool/Ms Rachel/b.mp4', file: '/m/b.mp4', title: 'Best Baby Songs', channel: 'Ms Rachel', tier: 'preschool', duration: 3600 }),
+    video({ src: 'Bluey/c.mp4', file: '/m/c.mp4', title: 'Grannies', channel: 'Bluey', tier: 'shared', duration: 420 }),
+    video({ src: 'grown-ups/MobLand/d.mkv', file: '/m/d.mkv', title: 'MobLand S01E01', channel: 'MobLand (2025)', tier: 'grownup', duration: 3000 }),
+  ];
+  const history = [
+    { path: '/m/b.mp4', positionSeconds: 754.4, durationSeconds: 3600, completed: false, updatedAt: '2026-11-04T10:00:00Z' },
+    { path: '/m/c.mp4', positionSeconds: 420, durationSeconds: 420, completed: true, updatedAt: '2026-11-03T10:00:00Z' },
+  ];
+  const short = showsView({ videos, history, viewers: 'sam,mum,dad' });
+  const whole = libraryView({ videos, history, viewers: 'sam,mum,dad', now: NOW });
+  assert.equal(short.ceiling, whole.ceiling);
+  assert.deepEqual(short.shows.map(show => show.title), whole.shows.map(show => show.title));
+  assert.deepEqual(short.shows.map(show => show.title), ['Bluey', 'Ms Rachel'], 'no grown-up show for Sam');
+  const rachel = short.shows.find(show => show.title === 'Ms Rachel');
+  assert.deepEqual(rachel, { title: 'Ms Rachel', face: 1, episodes: [
+    { src: 'preschool/Ms Rachel/a.mp4', title: 'Animal Learning', seconds: 3600 },
+    { src: 'preschool/Ms Rachel/b.mp4', title: 'Best Baby Songs', seconds: 3600, at: 754, when: '2026-11-04T10:00:00Z' },
+  ] });
+  assert.deepEqual(short.shows.find(show => show.title === 'Bluey').episodes, [{ src: 'Bluey/c.mp4', title: 'Grannies', seconds: 420, at: 420, done: true, when: '2026-11-03T10:00:00Z' }]);
+  assert.ok(JSON.stringify(short).length < JSON.stringify(whole).length / 3);
+  assert.ok(showsView({ videos, history, viewers: 'dad' }).shows.some(show => show.title === 'MobLand'));
 });

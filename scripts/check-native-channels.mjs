@@ -5,7 +5,7 @@ import { resolve, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 import { createTvLibrary } from '../src/tv-server.js';
-import { libraryView } from '../src/tv-library-api.js';
+import { libraryView, showsView } from '../src/tv-library-api.js';
 import { fetchTvShows } from '../src/tv-home-client.js';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || pathToFileURL(resolve(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')).href);
 const { assertViewport } = await import(process.env.VIEWPORT_MODULE || new URL('./lib/viewport-fit.mjs', import.meta.url).href);
@@ -37,7 +37,8 @@ try {
     showCalls++;
     return fetchTvShows(viewers, async url => {
       if (showsOffline) throw new Error('offline');
-      return { ok: true, json: async () => libraryView({ videos: library.catalogue(), history: [], viewers: url.searchParams.get('viewers'), rating: url.searchParams.get('rating') }) };
+      const view = url.pathname === '/api/shows' ? showsView : libraryView;
+      return { ok: true, status: 200, json: async () => view({ videos: library.catalogue(), history: [], viewers: url.searchParams.get('viewers'), rating: url.searchParams.get('rating') }) };
     }, rating, ['http://localhost:8686']);
   });
   // The lounge TV, as the Mac app sees it: it takes a command, or is not on.
@@ -229,7 +230,10 @@ try {
   await page.locator('#channel-back').click();
   assert.equal(await page.locator('#channel-tuning').isVisible(),false);
   // Find a show: a show named in the row plays itself, not whatever a channel has on.
+  // The shows are fetched behind the lineup. When that fetch fails nothing is said until a name is typed.
   showsOffline=true;
+  await page.locator('#channel-refresh').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.channel-card').length>1 && document.querySelector('#channel-state').textContent==='');
   await page.locator('#channel-search').fill('bing');
   await page.waitForFunction(()=>document.querySelector('#channel-state').textContent==='⚠');
   assert.equal(await page.locator('.channel-card').count(),0);

@@ -34,14 +34,18 @@ async function firstOrigin(origins, ask) {
   throw failure;
 }
 
-// Find a show: the shows this audience may watch, from the same server as the lineup. The
-// server's listing runs to megabytes, so only what a card draws and plays crosses to the window.
+// Find a show: the shows this audience may watch, from the same server as the lineup. /api/shows is
+// the short listing made for this; a server from before it existed answers 404 and is asked for its
+// whole library instead (megabytes). Either way only what a card draws and plays crosses to the
+// window, and a picture is always the server's own /art route for that episode, never a sent address.
 const MAX_SHOWS = 5000, MAX_EPISODES = 500;
 const text = (value, limit = 400) => (typeof value === 'string' ? value.slice(0, limit) : '');
-const artPath = value => (typeof value === 'string' && value.startsWith('/art?') ? value : '');
+const artFor = src => '/art?src=' + encodeURIComponent(src);
 export async function fetchTvShows(viewers, fetcher = fetch, rating = null, origins = TV_HOME_ORIGINS) {
   return firstOrigin(origins, async origin => {
-    const response = await fetcher(audienceUrl('/api/library', origin, viewers, rating), { signal: AbortSignal.timeout(12000), redirect: 'error' });
+    const ask = path => fetcher(audienceUrl(path, origin, viewers, rating), { signal: AbortSignal.timeout(12000), redirect: 'error' });
+    let response = await ask('/api/shows');
+    if (response.status === 404) response = await ask('/api/library');
     if (!response.ok) throw new Error(`TV library unavailable (${response.status}).`);
     const library = await response.json();
     if (!library || !Array.isArray(library.shows)) throw new Error('Invalid TV library.');
@@ -49,13 +53,18 @@ export async function fetchTvShows(viewers, fetcher = fetch, rating = null, orig
     for (const show of library.shows.slice(0, MAX_SHOWS)) {
       if (!show || typeof show.title !== 'string' || !show.title || !Array.isArray(show.episodes)) continue;
       const episodes = [];
-      for (const item of show.episodes.slice(0, MAX_EPISODES)) {
-        if (!item || typeof item.src !== 'string' || !item.src) continue;
-        const seconds = Number(item.durationSeconds) || 0, at = Number(item.positionSeconds) || 0;
-        episodes.push({ src: item.src, title: text(item.title) || show.title, art: artPath(item.art), minutes: seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 0,
-          resume: at > 5 && item.completed !== true ? Math.floor(at) : 0, completed: item.completed === true, updatedAt: text(item.updatedAt, 40) });
-      }
-      if (episodes.length) shows.push({ title: text(show.title), art: artPath(show.art), episodes });
+      let face = '';
+      show.episodes.slice(0, MAX_EPISODES).forEach((item, index) => {
+        if (!item || typeof item.src !== 'string' || !item.src) return;
+        // The short listing says seconds/at/done/when; the whole library says it the long way.
+        const seconds = Number(item.seconds ?? item.durationSeconds) || 0, at = Number(item.at ?? item.positionSeconds) || 0;
+        const completed = (item.done ?? item.completed) === true;
+        const art = artFor(item.src);
+        if (index === show.face || (typeof show.art === 'string' && show.art === item.art)) face = art;
+        episodes.push({ src: item.src, title: text(item.title) || show.title, art, minutes: seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 0,
+          resume: at > 5 && !completed ? Math.floor(at) : 0, completed, updatedAt: text(item.when ?? item.updatedAt, 40) });
+      });
+      if (episodes.length) shows.push({ title: text(show.title), art: face || episodes[0].art, episodes });
     }
     return { shows };
   });

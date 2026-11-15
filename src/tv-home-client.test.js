@@ -58,37 +58,53 @@ test('home client asks the M2 first and falls back to this Mac only when the M2 
 });
 
 // Find a show: the Channels tab asks the same server for the audience's shows.
-const episode = (src, title, extra = {}) => ({ src, title, show: 'Ms Rachel', kind: 'episode', art: `/art?src=${encodeURIComponent(src)}`,
+const longEpisode = (src, title, extra = {}) => ({ src, title, show: 'Ms Rachel', kind: 'episode', art: `/art?src=${encodeURIComponent(src)}`,
   positionSeconds: 0, durationSeconds: 3600, completed: false, updatedAt: '', resume: 0, season: null, episode: null, ...extra });
+// The whole library, as a server from before /api/shows answers.
 const libraryPayload = () => ({ ceiling: 'G', upNext: [], collections: [], films: [], items: [],
-  shows: [{ key: 'Ms Rachel', title: 'Ms Rachel', art: '/art?src=a', resume: 0, positionSeconds: 0, durationSeconds: 3600,
-    episodes: [episode('preschool/Ms Rachel/a.mp4', 'Animal Learning'), episode('preschool/Ms Rachel/b.mp4', 'Best Baby Songs', { positionSeconds: 754.4, updatedAt: '2026-11-14T01:00:00Z' })] }] });
+  shows: [{ key: 'Ms Rachel', title: 'Ms Rachel', art: '/art?src=preschool%2FMs%20Rachel%2Fb.mp4', resume: 754, positionSeconds: 754, durationSeconds: 3600,
+    episodes: [longEpisode('preschool/Ms Rachel/a.mp4', 'Animal Learning'), longEpisode('preschool/Ms Rachel/b.mp4', 'Best Baby Songs', { positionSeconds: 754.4, updatedAt: '2026-11-14T01:00:00Z' })] }] });
+// The short listing.
+const showsPayload = () => ({ ceiling: 'G', shows: [{ title: 'Ms Rachel', face: 1, episodes: [
+  { src: 'preschool/Ms Rachel/a.mp4', title: 'Animal Learning', seconds: 3600 },
+  { src: 'preschool/Ms Rachel/b.mp4', title: 'Best Baby Songs', seconds: 3600, at: 754, when: '2026-11-14T01:00:00Z' },
+  { src: 'preschool/Ms Rachel/c.mp4', title: 'Colours', seconds: 600, at: 600, done: true, when: '2026-11-13T01:00:00Z' }] }] });
+const wanted = [{ title: 'Ms Rachel', art: '/art?src=preschool%2FMs%20Rachel%2Fb.mp4', episodes: [
+  { src: 'preschool/Ms Rachel/a.mp4', title: 'Animal Learning', art: '/art?src=preschool%2FMs%20Rachel%2Fa.mp4', minutes: 60, resume: 0, completed: false, updatedAt: '' },
+  { src: 'preschool/Ms Rachel/b.mp4', title: 'Best Baby Songs', art: '/art?src=preschool%2FMs%20Rachel%2Fb.mp4', minutes: 60, resume: 754, completed: false, updatedAt: '2026-11-14T01:00:00Z' },
+] }];
 
-test('shows client asks /api/library for the audience and keeps only what a card needs', async () => {
+test('shows client asks for the short listing and gives each card what it draws and plays', async () => {
   const calls = [];
-  const fetcher = async (url, options) => { calls.push([url, options]); return { ok: true, json: async () => libraryPayload() }; };
+  const fetcher = async (url, options) => { calls.push([url, options]); return { ok: true, status: 200, json: async () => showsPayload() }; };
   const result = await fetchTvShows(['sam', 'mum', 'dad'], fetcher, 'G', LOCAL);
-  assert.equal(calls[0][0].href, 'http://localhost:8686/api/library?rating=G&viewers=sam%2Cmum%2Cdad');
+  assert.deepEqual(calls.map(([url]) => url.href), ['http://localhost:8686/api/shows?rating=G&viewers=sam%2Cmum%2Cdad']);
   assert.ok(calls[0][1].signal instanceof AbortSignal && calls[0][1].redirect === 'error');
-  assert.deepEqual(result, { origin: TV_HOME_ORIGIN, shows: [{ title: 'Ms Rachel', art: '/art?src=a', episodes: [
-    { src: 'preschool/Ms Rachel/a.mp4', title: 'Animal Learning', art: '/art?src=preschool%2FMs%20Rachel%2Fa.mp4', minutes: 60, resume: 0, completed: false, updatedAt: '' },
-    { src: 'preschool/Ms Rachel/b.mp4', title: 'Best Baby Songs', art: '/art?src=preschool%2FMs%20Rachel%2Fb.mp4', minutes: 60, resume: 754, completed: false, updatedAt: '2026-11-14T01:00:00Z' },
-  ] }] });
+  assert.equal(result.origin, TV_HOME_ORIGIN);
+  assert.deepEqual(result.shows[0].episodes.slice(0, 2), wanted[0].episodes);
+  assert.equal(result.shows[0].art, wanted[0].art, 'the show wears the episode left part-way');
+  assert.deepEqual(result.shows[0].episodes[2], { src: 'preschool/Ms Rachel/c.mp4', title: 'Colours', art: '/art?src=preschool%2FMs%20Rachel%2Fc.mp4', minutes: 10, resume: 0, completed: true, updatedAt: '2026-11-13T01:00:00Z' });
+});
+test('a server from before the short listing is asked for its whole library, with the same result', async () => {
+  const asked = [];
+  const fetcher = async url => { asked.push(url.pathname); return url.pathname === '/api/shows' ? { ok: false, status: 404 } : { ok: true, status: 200, json: async () => libraryPayload() }; };
+  assert.deepEqual(await fetchTvShows(['sam', 'mum', 'dad'], fetcher, null, LOCAL), { origin: TV_HOME_ORIGIN, shows: wanted });
+  assert.deepEqual(asked, ['/api/shows', '/api/library']);
 });
 test('shows client falls back to the next server, and rejects a bad audience or payload', async () => {
-  const fetcher = async url => { if (url.origin !== TV_HOME_ORIGIN) throw new Error('unreachable'); return { ok: true, json: async () => libraryPayload() }; };
+  const fetcher = async url => { if (url.origin !== TV_HOME_ORIGIN) throw new Error('unreachable'); return { ok: true, status: 200, json: async () => showsPayload() }; };
   assert.equal((await fetchTvShows(['dad'], fetcher, null, TV_HOME_ORIGINS)).origin, TV_HOME_ORIGIN);
   await assert.rejects(fetchTvShows(['nobody'], () => assert.fail('must not fetch'), null, LOCAL), /Invalid viewers/);
   await assert.rejects(fetchTvShows(['dad'], () => assert.fail('must not fetch'), 'R', LOCAL), /Invalid rating/);
   await assert.rejects(fetchTvShows(['dad'], async () => ({ ok: false, status: 502 }), null, LOCAL), /502/);
-  await assert.rejects(fetchTvShows(['dad'], async () => ({ ok: true, json: async () => ({ shows: 'x' }) }), null, LOCAL), /Invalid TV library/);
+  await assert.rejects(fetchTvShows(['dad'], async () => ({ ok: true, status: 200, json: async () => ({ shows: 'x' }) }), null, LOCAL), /Invalid TV library/);
 });
-test('shows client drops entries a card could not play or draw', async () => {
+test('shows client drops what a card could not play, and never takes a picture address from the server', async () => {
   const data = libraryPayload();
-  data.shows.push(null, { title: 'No episodes', art: '/art?src=x', episodes: [] }, { title: 7, episodes: [episode('x.mp4', 'X')] },
-    { title: 'Outside art', art: 'https://evil.example/a.jpg', episodes: [episode('y.mp4', 'Y', { art: 'javascript:1' }), { src: '', title: 'blank' }, { src: 5 }] });
-  const { shows } = await fetchTvShows(['dad'], async () => ({ ok: true, json: async () => data }), null, LOCAL);
+  data.shows.push(null, { title: 'No episodes', art: '/art?src=x', episodes: [] }, { title: 7, episodes: [longEpisode('x.mp4', 'X')] },
+    { title: 'Outside art', art: 'https://evil.example/a.jpg', episodes: [longEpisode('y.mp4', 'Y', { art: 'javascript:1' }), { src: '', title: 'blank' }, { src: 5 }] });
+  const { shows } = await fetchTvShows(['dad'], async () => ({ ok: true, status: 200, json: async () => data }), null, LOCAL);
   assert.deepEqual(shows.map(show => [show.title, show.art, show.episodes.map(item => [item.src, item.art])]),
-    [['Ms Rachel', '/art?src=a', [['preschool/Ms Rachel/a.mp4', '/art?src=preschool%2FMs%20Rachel%2Fa.mp4'], ['preschool/Ms Rachel/b.mp4', '/art?src=preschool%2FMs%20Rachel%2Fb.mp4']]],
-      ['Outside art', '', [['y.mp4', '']]]]);
+    [['Ms Rachel', '/art?src=preschool%2FMs%20Rachel%2Fb.mp4', [['preschool/Ms Rachel/a.mp4', '/art?src=preschool%2FMs%20Rachel%2Fa.mp4'], ['preschool/Ms Rachel/b.mp4', '/art?src=preschool%2FMs%20Rachel%2Fb.mp4']]],
+      ['Outside art', '/art?src=y.mp4', [['y.mp4', '/art?src=y.mp4']]]]);
 });

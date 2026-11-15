@@ -256,6 +256,38 @@ function groupShows(items) {
   return shows.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
 }
 
+/**
+ * Find a show (the Mac app's Channels row): each show this audience may watch, with only what a card
+ * draws and plays. About a tenth of libraryView's size, which ran to megabytes over the tailnet: a
+ * picture is always /art?src=<src>, so none is sent, and unwatched episodes carry no place.
+ */
+export function showsView({ videos = [], history = [], viewers, rating = null } = {}) {
+  const list = Array.isArray(videos) ? videos : [];
+  const ids = viewerIds(viewers);
+  const chosen = ratingOf(rating);
+  const ceiling = ceilingFor(ids, chosen);
+  const adults = grownOnly(ids, chosen);
+  const ian = ids.length === 1 && ids[0] === 'dad' && adults;
+  const fran = ids.length === 1 && ids[0] === 'mum' && adults;
+  const saved = historyMap(history);
+  const items = list.filter(item => allowed(item, ids, ceiling, adults, ian, fran)).map(item => toItem(item, saved));
+  return {
+    ceiling,
+    shows: groupShows(items).map(show => ({
+      title: show.title,
+      // Whose picture stands for the show: the episode last left part-way, else the first.
+      face: Math.max(0, show.episodes.findIndex(item => item.art === show.art)),
+      episodes: show.episodes.map(item => {
+        const episode = { src: item.src, title: item.title, seconds: Math.round(item.durationSeconds || 0) };
+        if (item.positionSeconds > 0) episode.at = Math.round(item.positionSeconds);
+        if (item.completed === true) episode.done = true;
+        if (item.updatedAt) episode.when = item.updatedAt;
+        return episode;
+      }),
+    })),
+  };
+}
+
 /** Library payload for one audience. `history` is a list or a store with list(). */
 export function libraryView({ videos = [], history = [], viewers, rating = null, now = Date.now() } = {}) {
   const list = Array.isArray(videos) ? videos : [];

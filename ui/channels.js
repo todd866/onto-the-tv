@@ -318,8 +318,10 @@
       for (const path of art.keys()) if (!paths.has(path)) art.delete(path);
       lineup = home.channels;
       loaded = true;
-      if (query) { render(); void loadShows(); }
-      else { render(); state(home.channels.length ? '' : '∅', home.channels.length ? '' : 'No channels for this rating'); }
+      render();
+      if (!query) state(home.channels.length ? '' : '∅', home.channels.length ? '' : 'No channels for this rating');
+      // The shows are fetched behind the lineup, so the first letter typed already has its answer.
+      void loadShows();
     } catch (error) {
       if (request !== generation) return;
       state('⚠', `Channels unavailable: ${error.message}. Use Refresh channels to retry.`);
