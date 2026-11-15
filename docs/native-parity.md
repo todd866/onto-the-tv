@@ -33,7 +33,10 @@ The pressed channel's own card (picture, number, name, show) fills the stage in 
 frame of the click and lifts when the player reports a picture. A refused or
 unanswered tune stays on that card with Retry; the reason is in its tooltip. The
 TV-scale home is never shown inside the native window: the player page hides it
-there and reports `onto:desktop-hello`, `-playing` and `-error` to the app. Once the
+there and reports `onto:desktop-hello`, `-loading` (the server named an episode), `-playing`
+(its clock has moved) and `-error` to the app, each carrying the number of the tune it was
+opened for. The card waits out a slow start: only half a minute without a picture shows the
+player as it is. Once the
 picture is up, keys go to the player, so Space pauses.
 
 **Find a show** (the field in the Channels row) names a show instead of taking what a
