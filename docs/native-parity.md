@@ -100,6 +100,15 @@ remain available during playback and stop it before changing the audience.
 - The TV server must already be running on localhost:8686. Native Channels does
   not start it or silently substitute a different catalogue when it is unavailable.
 
+## Known gap: the TV home below 1280x720
+
+The TV home is a ten-foot screen. Below 1280x720 it does not fit: at 960x540 a channel card
+stands taller than the grid left under the top bar and the resume row (whose tile also clips
+its text), and at 390x844 the grid clips the focused card's last 10 px. No TV runs at those
+sizes, guests get their own layout, and since 15 Nov 2026 the Mac app never shows this screen.
+`scripts/check-tv-ui.mjs` asserts only "mostly visible" there, with a KNOWN GAP comment, until
+a small-window home is designed.
+
 ## Verification
 
 `npm test` includes the TV rating model tests and the native home-client contract

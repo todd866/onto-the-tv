@@ -2944,7 +2944,7 @@
       if (play && play.errorOn) {
         // Back leaves a picture that will not come for the home screen; it used to be swallowed, which a
         // channel that fails on its first tune would have made a screen with no way out.
-        if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) stopPlayback();
+        if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE || key === KEY.STOP) stopPlayback();
         else if (navKey(key) === 'ok') retryPlayback();
         event.preventDefault();
         return;
