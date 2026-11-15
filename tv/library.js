@@ -479,7 +479,7 @@
       paint();
       return;
     }
-    if (el._item && el._item.src) playItem(el._item);
+    if (el._item && el._item.src) playItem(el._item, view === 'episodes' && openShow ? openShow.episodes : null);
   }
 
   function move(dRow, dCol) {
@@ -507,13 +507,22 @@
     applyFocus();
   }
 
-  function playItem(item) {
+  // An episode picked from a show plays the rest of that show after it, as the Mac app's Find a show does
+  // (15 Nov 2026); before, the TV went back to the home screen after one episode.
+  function playItem(item, episodes) {
+    var rest = [], i, at = -1;
     if (!item || !item.src || !window.ontoPlayLibrary) return;
     origin = 'home';
     suspended = true;
     openFlag = false;
     if (root) root.hidden = true;
-    window.ontoPlayLibrary(item);
+    if (episodes) {
+      for (i = 0; i < episodes.length; i++) if (episodes[i] && episodes[i].src === item.src) { at = i; break; }
+      if (at >= 0) for (i = at + 1; i < episodes.length && rest.length < 60; i++) {
+        if (episodes[i] && episodes[i].src) rest.push({ src: episodes[i].src, title: episodes[i].title || '', run: true });
+      }
+    }
+    window.ontoPlayLibrary(item, rest);
   }
 
   function close() {

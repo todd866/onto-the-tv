@@ -3075,13 +3075,13 @@
     play.nextQueue = queue;
     updateOsd();
   });
-  window.ontoPlayLibrary = function (item) {
+  window.ontoPlayLibrary = function (item, rest) {
     if (!item || !item.src) return;
     tuneRequest++;
     if (play && play.item) { watchEvent('stop'); saveProgress(false); }
     var series = item.show && item.title && item.show !== item.title ? item.show : 'Library';
     var title = item.title || item.show || '';
-    play = { mode: 'single', channel: { id: 'library', number: '', name: series } };
+    play = { mode: 'single', channel: { id: 'library', number: '', name: series }, nextQueue: rest && rest.length ? rest : [] };
     load({
       src: item.src,
       title: title,
