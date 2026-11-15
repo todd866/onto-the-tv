@@ -55,6 +55,18 @@ export async function createMediaCache({ directory, maxBytes = 20 * GiB,
     const path = join(root, entry.name);
     try { const st = await fs.stat(path); cacheIndex.set(path, { path, size: st.size, mtimeMs: st.mtimeMs }); } catch {}
   }
+  // The cache never holds more than maxBytes, and gives way whenever the disk's free space falls under
+  // reserveBytes: kept titles last, but they go too, since a full internal disk is worse than a slow start.
+  const trim = async () => {
+    await makeRoom(0);
+    let free = await freeBytes().catch(() => Infinity);
+    if (free >= reserveBytes) return;
+    for (const file of (await cacheFiles()).sort((a, b) => a.mtimeMs - b.mtimeMs)) {
+      if (free >= reserveBytes) break;
+      if (active.has(file.path)) continue;
+      try { await fs.unlink(file.path); cacheIndex.delete(file.path); free += file.size; } catch {}
+    }
+  };
   const makeRoom = async extra => {
     let files = await cacheFiles();
     let total = files.reduce((n, f) => n + f.size, 0);
@@ -185,6 +197,7 @@ export async function createMediaCache({ directory, maxBytes = 20 * GiB,
     warm,
     keep,
     isKept,
+    trim,
     close: async () => { closed = true; pump(); await Promise.allSettled([...inFlight.values()]); await writeQueue; },
     stats: () => ({ hits, memoryHits, misses, bypasses, kept: kept.size, inFlight: inFlight.size, queued: jobs.length, running, bytesCached: [...cacheIndex.values()].reduce((n, f) => n + f.size, 0), maxBytes, reserveBytes, closed, directory: root, blockBytes }),
   };

@@ -16,6 +16,7 @@ import { loadPlaybackHistory } from '../src/playback-history.js';
 import { createArtworkCache } from '../src/library-artwork.js';
 import { TV_CHANNELS, channelScoresSignaturePart, createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue, mergeChannelScores, parseChannelScores } from '../src/tv-server.js';
 import { createSceneStore } from '../src/scenes.js';
+import { showsView } from '../src/tv-library-api.js';
 import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
 import { createGuestInvites } from '../src/guest-invites.js';
@@ -174,8 +175,12 @@ const current = { home: (viewers, rating) => { const lineup = library.home(viewe
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
 let mediaCache = null;
-try { mediaCache = await createMediaCache({ directory: join(homedir(), 'Library/Caches/Onto the TV/media'), maxBytes: 40 * 1024 ** 3,
-  log: entry => log('media cache: ' + JSON.stringify(entry)) }); }
+// Ian, 15 Nov 2026: "I just don't want the m2 internal drive getting full and I want snappy response".
+// A small, fixed ceiling (it was 40 GB, half the free space) that gives way whenever the disk has less
+// than 50 GB free, kept titles included. Inside it: what is about to play, then each kids' show's opening.
+const CACHE_BYTES = 10 * 1024 ** 3, CACHE_FREE_FLOOR = 50 * 1024 ** 3;
+try { mediaCache = await createMediaCache({ directory: join(homedir(), 'Library/Caches/Onto the TV/media'), maxBytes: CACHE_BYTES,
+  reserveBytes: CACHE_FREE_FLOOR, log: entry => log('media cache: ' + JSON.stringify(entry)) }); }
 catch (error) { log('media cache unavailable; direct streaming retained: ' + (error.code || error.message)); }
 // What is about to play is on the M2's SSD before anyone presses it (Ian, 15 Nov 2026: "I don't ever wanna
 // see a 9s delay"). The cache keeps every card's pick and the one after, for every profile, and warms
@@ -183,13 +188,27 @@ catch (error) { log('media cache unavailable; direct streaming retained: ' + (er
 // 40 GB cache, which pushed out the episodes the cards were about to play.
 const IMMINENT_AUDIENCES = ['sam,jake,mum,dad', 'sam,mum,dad', 'jake,mum,dad', 'dad', 'mum', 'mum,dad'];
 let warming = false, warmAgain = false, warmTimer = null;
+// The kids' own shows are the ones asked for by name (Ms Rachel, 15 Nov 2026): the episode each opens on
+// in Find a show (left part-way, else the first not finished), music folders aside.
+const OPENING_AUDIENCES = ['sam,mum,dad', 'jake,mum,dad'];
 function imminent() {
   const seen = new Map();
   for (const audience of IMMINENT_AUDIENCES) {
     for (const item of library.billing(audience)) if (item?.file && !seen.has(item.file)) seen.set(item.file, item);
   }
+  const bySrc = new Map(library.catalogue().map(item => [item.src, item]));
+  for (const audience of OPENING_AUDIENCES) {
+    for (const show of showsView({ videos: library.catalogue(), history: history.list(), viewers: audience }).shows) {
+      const left = show.episodes.filter(item => item.at > 5 && !item.done).sort((a, b) => String(b.when).localeCompare(String(a.when)))[0];
+      const first = bySrc.get((left || show.episodes.find(item => !item.done) || show.episodes[0]).src);
+      if (first?.file && first.tier !== 'music' && !seen.has(first.file)) seen.set(first.file, first);
+    }
+  }
   return [...seen.values()];
 }
+// What a title's warm takes: about two minutes of its opening (32 to 128 MB) and its last 4 MB.
+const MiB = 1024 ** 2;
+const warmBytes = (size, seconds) => (size <= 32 * MiB ? size : Math.min(128 * MiB, Math.max(32 * MiB, size * 180 / Math.max(1, seconds || 120)))) + 4 * MiB;
 async function warmImminent() {
   if (!mediaCache) return;
   if (warming) { warmAgain = true; return; }
@@ -197,20 +216,34 @@ async function warmImminent() {
   try {
     do {
       warmAgain = false;
-      const list = imminent();
-      const kept = await mediaCache.keep(list.map(item => ({ file: item.file })));
+      // In order of need, as many as fit in 80% of the ceiling; the rest of it is room for whatever is
+      // pressed that was not foreseen.
+      const list = [];
+      let budget = CACHE_BYTES * 0.8;
+      for (const item of imminent()) {
+        const info = await stat(item.file).catch(() => null);
+        if (!info) continue;
+        const cost = warmBytes(info.size, item.duration);
+        if (cost > budget) break;
+        budget -= cost;
+        list.push({ ...item, info });
+      }
+      const kept = await mediaCache.keep(list.map(item => ({ file: item.file, info: item.info })));
+      await mediaCache.trim();
       let done = 0;
       for (const item of list) {
         if (warmAgain) break;
-        try { await mediaCache.warm(item.file, await stat(item.file), { durationSeconds: item.duration }); done++; }
+        try { await mediaCache.warm(item.file, item.info, { durationSeconds: item.duration }); done++; }
         catch (error) { log('cache warm skipped: ' + (error.code || error.message)); }
       }
-      if (!warmAgain) log(`cache: ${done} of ${list.length} titles about to play are ready (${kept} kept)`);
+      if (!warmAgain) log(`cache: ${done} of ${list.length} titles about to play are ready (${kept} kept, ${Math.round(mediaCache.stats().bytesCached / 1024 ** 3 * 10) / 10} GB)`);
     } while (warmAgain);
   } finally { warming = false; }
 }
 // A lineup asked for, or a channel moving on, changes what is next: look again a few seconds later.
 function warmSoon() { clearTimeout(warmTimer); warmTimer = setTimeout(() => { void warmImminent(); }, 3000); warmTimer.unref?.(); }
+// Something else filling the disk makes the cache give way within ten minutes.
+setInterval(() => { mediaCache?.trim().catch(() => {}); }, 10 * 60_000).unref();
 const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore,
   libraryRoots: async () => configuredRoots(await readSettings(join(appData, 'settings.json'))), catalogueFile: catalogue,
   playNextFile: join(homedir(), '.local/state/onto-the-tv/play-next.json'),

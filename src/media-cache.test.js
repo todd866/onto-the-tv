@@ -123,3 +123,37 @@ test('the cache never gives itself entirely to kept titles: one block of room st
   assert.equal((await bytes(await cache.stream(join(root, 'z'), info(8)))).toString(), 'zzzzzzzz');
   await cache.close();
 });
+
+// Ian, 15 Nov 2026: "I just don't want the m2 internal drive getting full". A smaller ceiling takes effect
+// at once, not on the next write, and kept titles are the last to go.
+test('trim brings an over-full cache down to its ceiling, sparing kept titles', async t => {
+  const root = await temp();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  for (const name of ['a', 'b', 'c']) await fs.writeFile(join(root, name), name.repeat(8));
+  const big = await createMediaCache({ directory: join(root, 'cache'), blockBytes: 4, maxBytes: 1e9, reserveBytes: 0, eligible: () => true, statfs: fakeFs() });
+  for (const name of ['a', 'b', 'c']) await bytes(await big.stream(join(root, name), info(8)));
+  await big.close();
+  const small = await createMediaCache({ directory: join(root, 'cache'), blockBytes: 4, maxBytes: 2 * 36, reserveBytes: 0, eligible: () => true, statfs: fakeFs() });
+  assert.equal(small.stats().bytesCached, 6 * 36);
+  await small.keep([{ file: join(root, 'b'), info: info(8) }]);
+  await small.trim();
+  assert.equal(small.stats().bytesCached, 2 * 36);
+  const original = fs.open; fs.open = async () => { throw new Error('source opened'); };
+  try { assert.equal((await bytes(await small.stream(join(root, 'b'), info(8)))).toString(), 'bbbbbbbb'); }
+  finally { fs.open = original; await small.close(); }
+});
+
+test('kept titles go too when the disk itself runs short', async t => {
+  const root = await temp();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(join(root, 'a'), 'a'.repeat(8));
+  let free = 1e6;
+  const cache = await createMediaCache({ directory: join(root, 'cache'), blockBytes: 4, maxBytes: 1e9, reserveBytes: 1000, eligible: () => true, statfs: async () => ({ bavail: free, bsize: 1 }) });
+  await cache.keep([{ file: join(root, 'a'), info: info(8) }]);
+  await bytes(await cache.stream(join(root, 'a'), info(8)));
+  assert.ok(cache.stats().bytesCached > 0);
+  free = 10;
+  await cache.trim();
+  assert.equal(cache.stats().bytesCached, 0, 'the free-space floor outranks keeping');
+  await cache.close();
+});
