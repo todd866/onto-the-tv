@@ -4,7 +4,12 @@ The full library remains owned by Onto the TV's configured source paths. Externa
 media is served through a persistent block cache on the M2 internal SSD at
 `~/Library/Caches/Onto the TV/media`. Internal media streams directly.
 
-- 40 GiB disk-cache ceiling (set in `bin/tv-server.js`); 40 GiB free-space reserve. Disk pressure reclaims only
+- 10 GiB ceiling and a 50 GiB free-disk floor (`CACHE_BYTES`, `CACHE_FREE_FLOOR` in
+  `bin/tv-server.js`; Ian, 15 Nov 2026: "I just don't want the m2 internal drive getting
+  full and I want snappy response"). Below the floor the cache gives way, kept titles
+  included; `trim()` enforces both on every warm and every ten minutes. Kept titles fill at
+  most 80% of the ceiling, in order: every card's pick and the one after for each profile,
+  then the episode each kids' show opens on in Find a show (193 titles, 7.4 GB on 15 Nov). Disk pressure reclaims only
   cache blocks. No originals, catalogue entries, history or classifications are deleted.
 - **What is about to play is kept (15 Nov 2026).** The server keeps every card's pick and
   the one after, for each profile's lineup (`IMMINENT_AUDIENCES` in `bin/tv-server.js`,
