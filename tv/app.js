@@ -1604,6 +1604,8 @@
     play.visitStart = item.resume || 0;
     play.lastSave = Date.now();
     play.started = false;
+    play.pictureTold = false;
+    play.firstTime = null;
     play.airing = 'show';
     play.rollingCredits = false;
     play.pendingIntro = null;
@@ -1636,7 +1638,6 @@
     if (GUEST && $('player').hidden && !guestEntry) { guestEntry = true; try { history.pushState({ ontoPlayer: 1 }, ''); } catch (e) {} }
     $('player').hidden = false;
     document.body.classList.add('playing');
-    tellDesktop('onto:desktop-playing');
     hideAdChip();
     hideIntro();
     hideUpNext();
@@ -1651,9 +1652,14 @@
     schedulePrefetch();
     paintBackChip();
     if (!restoring && window.ontoPlayerExtras && window.ontoPlayerExtras.resumeOffer(item.resume || 0)) {
+      // The choice is made on this page, so the Mac app shows it now.
+      tellDesktop('onto:desktop-playing');
       showResumePrompt(item);
       return;
     }
+    // The Mac app keeps the channel's card up until there is a picture: "loading" says the server
+    // answered, "playing" (from the time handler) that the picture is running.
+    tellDesktop('onto:desktop-loading');
     startQueued(item);
   }
   function startQueued(item) {
@@ -1979,6 +1985,12 @@
   }
 
   media.on('time', function () {
+    // The picture is running once the clock has moved (a resumed episode starts with its clock already
+    // at its place, so one reading is not enough).
+    if (play && !play.pictureTold) {
+      if (play.firstTime === null || play.firstTime === undefined) play.firstTime = media.time();
+      else if (media.time() > play.firstTime + 0.05) { play.pictureTold = true; tellDesktop('onto:desktop-playing'); }
+    }
     if (play && play.resumePending) return;
     if (play && play.airing === 'show') followSegments();
     if (play && play.airing === 'show') considerUpNext();
@@ -2016,6 +2028,7 @@
     diag('play_error', { page: 'player', engine: media.engine || 'video', state: 'error', errorCode: 'media' });
     watchEvent('error');
     // Stay on the channel. Retry reloads this file; after 5 s the channel moves on.
+    if (!play.pictureTold) tellDesktop('onto:desktop-error', -1);
     showStreamError('media');
   });
   media.on('pause', function () { if (play && play.switching) return; mediaState = media.paused() ? 'paused' : 'loading'; if (media.paused()) { watchEvent('pause'); diag('pause', diagnosticSample()); } updateOsd(); showOsd(); });

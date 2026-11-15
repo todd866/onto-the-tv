@@ -21,7 +21,7 @@ const videos = [
 const saved = new Map();
 const library = createTvLibrary({ videos, history: {get:()=>0, list:()=>[]}, storage:{getItem:k=>saved.get(k), setItem:(k,v)=>saved.set(k,v)}, random:()=>0 });
 const browser = await chromium.launch({headless:true, executablePath:process.env.CHROMIUM_EXECUTABLE, channel:process.env.CHROMIUM_EXECUTABLE ? undefined : 'chrome', args:['--mute-audio']});
-let offline = false, delay = 0, calls = [], next = [], artRequests = 0, nextDelay = 0, nextStatus = 200;
+let offline = false, delay = 0, calls = [], next = [], artRequests = 0, nextDelay = 0, nextStatus = 200, holdPicture = false;
 try {
   const page = await browser.newPage();
   const errors = []; page.on('pageerror', error => errors.push(error.message));
@@ -71,8 +71,8 @@ try {
     if (url.pathname === '/api/scenes') return route.fulfill({json:{cuts:[],thumbs:[],segments:[]}});
     if (url.pathname === '/api/subs') return route.fulfill({json:{tracks:[]}});
     if (url.pathname.startsWith('/api/')) return route.fulfill({json:{ok:true}});
-    if (url.pathname === '/config.js') return route.fulfill({contentType:'text/javascript',body:'window.ONTO_CONFIG={token:"fixture"};'});
-    if (url.pathname === '/player.js') return route.fulfill({contentType:'text/javascript',body:`window.ontoPlayer=function(){return {engine:'video',on:function(){},load:function(){},stop:function(){},play:function(){},pause:function(){},seek:function(){},time:function(){return 0},duration:function(){return 1200},paused:function(){return true},ended:function(){return false},audioTracks:function(){return []},subtitleTracks:function(){return []},tracks:function(){return []},selectAudio:function(){},selectText:function(){}}};`});
+    if (url.pathname === '/config.js') return route.fulfill({contentType:'text/javascript',body:'window.ONTO_CONFIG={token:"fixture"};window.__holdPicture='+holdPicture+';'});
+    if (url.pathname === '/player.js') return route.fulfill({contentType:'text/javascript',body:`window.ontoPlayer=function(){var on={},t=0,timer=0;function tick(){var list=on.time||[];for(var i=0;i<list.length;i++)list[i]();}return {engine:'video',on:function(name,fn){(on[name]=on[name]||[]).push(fn);},load:function(){clearInterval(timer);t=0;var n=0;timer=setInterval(function(){if(window.__holdPicture)return;t+=0.25;tick();if(++n>=4)clearInterval(timer);},60);},stop:function(){clearInterval(timer);},play:function(){},pause:function(){},seek:function(){},time:function(){return t},duration:function(){return 1200},paused:function(){return true},ended:function(){return false},audioTracks:function(){return []},subtitleTracks:function(){return []},tracks:function(){return []},selectAudio:function(){},selectText:function(){}}};`});
     if (url.pathname === '/art') {
       artRequests++;
       if (offline) return route.abort();
@@ -155,7 +155,7 @@ try {
   assert.equal(await page.locator('.channel-card').first().evaluate(el=>el===document.activeElement),true);
   // Real TV app receives the audience, and its /api/next request retains it.
   // The pressed channel's own card answers the click at once and holds until the player has a picture.
-  nextDelay=600;
+  nextDelay=600; holdPicture=true;
   const pressed = await page.locator('.channel-card').nth(1).getAttribute('data-channel');
   await page.locator('.channel-card').nth(1).click();
   await page.waitForFunction(()=>!document.querySelector('#channel-player').hidden);
@@ -179,6 +179,12 @@ try {
   assert.equal(next.at(-1).viewers,'sam,mum,dad');
   const frame = page.frames().find(f=>f.url().startsWith('http://localhost:8686/'));
   await frame.locator('#player:visible').waitFor();
+  // The server has answered and the episode is loading, with no picture yet: the card stays up, and
+  // that is not a fault. It lifts when the picture runs.
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('#channel-tuning').isVisible(),true);
+  assert.equal(await page.locator('#tuning-retry').isVisible(),false);
+  holdPicture=false; await frame.evaluate(()=>{ window.__holdPicture=false; });
   await page.locator('#channel-tuning').waitFor({state:'hidden'});
   nextDelay=0;
   // The TV-scale home is never part of the Mac window.

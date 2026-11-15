@@ -61,7 +61,7 @@
   }
   // Tuning: the pressed channel's own card fills the stage in the frame of the click. The player loads
   // behind it and says when it has a picture (or that the server refused); only then does it show.
-  const TUNE_WAIT_MS = 12000, HELLO_WAIT_MS = 600;
+  const TUNE_WAIT_MS = 12000, PICTURE_WAIT_MS = 30000, HELLO_WAIT_MS = 600;
   let tuned = null, tuneTimer = 0, helloTimer = 0, playerSaysHello = false, tuneCount = 0;
   function endTuning() {
     clearTimeout(tuneTimer); clearTimeout(helloTimer);
@@ -86,7 +86,7 @@
     }
   }
   function tune(channel) {
-    selectedChannel = channel.id; tuned = channel; playerSaysHello = false;
+    selectedChannel = channel.id; tuned = channel; playerSaysHello = false; channel.queueSent = false;
     const url = new URL('/', origin);
     url.searchParams.set('desktop', '1');
     // Each tune is numbered and the player says the number back: a message still in flight from the
@@ -374,15 +374,25 @@
     if (event.data?.n && event.data.n !== String(tuneCount)) return;
     if (type === 'onto:desktop-home') { stop(); returnFocus(); }
     if (type === 'onto:desktop-hello') playerSaysHello = true;
+    // The rest of a found show goes to the player once it has the episode.
+    if ((type === 'onto:desktop-loading' || type === 'onto:desktop-playing') && tuned?.queue?.length && !tuned.queueSent) {
+      tuned.queueSent = true;
+      event.source.postMessage({ type: 'onto:desktop-queue', queue: tuned.queue }, origin);
+    }
+    if (type === 'onto:desktop-loading' && !$('channel-tuning').hidden && !$('channel-tuning').classList.contains('is-fault')) {
+      // The server answered and the episode is loading: the card waits for the picture, and if none has
+      // come in half a minute the player is shown as it is, with its own retry line.
+      clearTimeout(tuneTimer);
+      tuneTimer = setTimeout(endTuning, PICTURE_WAIT_MS);
+    }
     if (type === 'onto:desktop-playing' && !$('channel-tuning').hidden) {
       endTuning();
-      if (tuned?.queue?.length) event.source.postMessage({ type: 'onto:desktop-queue', queue: tuned.queue }, origin);
       // Keys now belong to the player: Space pauses instead of pressing Back.
       try { $('channel-player').contentWindow.focus(); } catch { /* stays on Back */ }
     }
     if (type === 'onto:desktop-error') {
       const status = Number(event.data.status) || 0;
-      tuneFault(status === 403 ? 'The TV server refused this app (403).' : status ? `The TV server answered ${status}.` : 'No answer from the TV server.');
+      tuneFault(status === 403 ? 'The TV server refused this app (403).' : status < 0 ? 'The picture did not start.' : status ? `The TV server answered ${status}.` : 'No answer from the TV server.');
     }
   });
   paintProfile();
