@@ -3,14 +3,19 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createTvServer, createTvLibrary } from './tv-server.js';
-import { createUkeHandler } from '../../uke/tools/onto-handler.mjs';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+// The uke repo sits beside this one on the Macs; CI checks out only this repo, so these tests skip there.
+const UKE = fileURLToPath(new URL('../../uke/tools/onto-handler.mjs', import.meta.url));
+const ukeMissing = !existsSync(UKE) && 'the uke repo is not checked out beside this one';
+const { createUkeHandler } = ukeMissing ? {} : await import(UKE);
 import { createConfiguredUkeHandler } from './uke-handler.js';
 import { loadPlaybackHistory } from './playback-history.js';
 import { createFileStorage } from './tv-server.js';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-test('Onto server mounts Uke after origin and home-host checks', async () => {
+test('Onto server mounts Uke after origin and home-host checks', { skip: ukeMissing }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'onto-uke-'));
   const uke = await mkdtemp(join(tmpdir(), 'onto-uke-root-'));
   await mkdir(join(uke, 'app'), { recursive: true }); await mkdir(join(uke, 'songs'));
@@ -35,7 +40,7 @@ test('Onto server mounts Uke after origin and home-host checks', async () => {
   } finally { await new Promise(resolve => server.close(resolve)); await rm(dir,{recursive:true,force:true}); await rm(uke,{recursive:true,force:true}); }
 });
 
-test('missing optional Uke installation leaves ordinary routes alone',async()=>{
+test('missing optional Uke installation leaves ordinary routes alone',{ skip: ukeMissing }, async()=>{
  const handler=createConfiguredUkeHandler({root:'/nonexistent-uke-fixture'});
  assert.equal(await handler({url:'/api/home'},{}),false);
  let status,body;const response={writeHead:s=>{status=s;},end:s=>{body=s;}};
@@ -43,7 +48,7 @@ test('missing optional Uke installation leaves ordinary routes alone',async()=>{
  assert.equal(status,503);assert.match(body,/unavailable/);
 });
 
-test('configured Uke forwards TV authorization and keeps phone bearer separate',async()=>{
+test('configured Uke forwards TV authorization and keeps phone bearer separate',{ skip: ukeMissing }, async()=>{
  const dir=await mkdtemp(join(tmpdir(),'onto-uke-phone-'));
  const history=await loadPlaybackHistory(join(dir,'history.json'));
  const storage=await createFileStorage(join(dir,'taste.json'));

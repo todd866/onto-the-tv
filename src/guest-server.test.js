@@ -259,7 +259,8 @@ test('a client that leaves while the file is opening leaves no stream open', asy
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
-test('a change waits for another process holding the guests lock', async () => {
+// The lock is macOS's O_EXLOCK (src/guest-invites.js); other systems ignore the flag, so CI on Linux skips this.
+test('a change waits for another process holding the guests lock', { skip: process.platform !== 'darwin' && 'O_EXLOCK is macOS-only' }, async () => {
   const { spawn } = await import('node:child_process');
   const dir = await mkdtemp(join(tmpdir(), 'onto-guest-'));
   const path = join(dir, 'guests.json');

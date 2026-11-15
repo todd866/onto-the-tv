@@ -55,7 +55,8 @@ test('next episode follows the folder, then the next season folder; films have n
   assert.equal(nextEpisode(items, '/films/Cars (2006).mp4'), null);
 });
 
-test('real files: AC3 audio and AVI convert, subtitles extract, cache is reused', async t => {
+// Conversion uses h264_videotoolbox, which only macOS's ffmpeg has; CI on Linux skips this.
+test('real files: AC3 audio and AVI convert, subtitles extract, cache is reused', { skip: process.platform !== 'darwin' && 'h264_videotoolbox is macOS-only' }, async t => {
   try { await run('ffmpeg', ['-version']); } catch { t.skip('ffmpeg is unavailable'); return; }
   const dir = await mkdtemp(join(tmpdir(), 'onto-mac-media-'));
   try {
