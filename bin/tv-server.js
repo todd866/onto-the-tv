@@ -209,6 +209,7 @@ try {
 // 40 GB cache, which pushed out the episodes the cards were about to play.
 const IMMINENT_AUDIENCES = ['sam,jake,mum,dad', 'sam,mum,dad', 'jake,mum,dad', 'dad', 'mum', 'mum,dad'];
 let warming = false, warmAgain = false, warmTimer = null;
+const sizes = new Map();
 // Then the episode each show opens on in Find a show (left part-way, else the first not finished): the
 // kids' first (Ms Rachel, 15 Nov 2026), then the grown-ups', music folders aside, as far as the budget goes.
 const OPENING_AUDIENCES = ['sam,mum,dad', 'jake,mum,dad', 'mum,dad', 'dad', 'mum'];
@@ -242,8 +243,12 @@ async function warmImminent() {
       const list = [];
       let budget = CACHE_BYTES * 0.8;
       for (const item of imminent()) {
-        const info = await stat(item.file).catch(() => null);
+        // Sizes are remembered for ten minutes: a pass restarts whenever a lineup is asked for, and
+        // re-reading 235 files' details from a busy drive each time held the warm-up back.
+        const known = sizes.get(item.file);
+        const info = known && Date.now() - known.at < 600_000 ? known.info : await stat(item.file).catch(() => null);
         if (!info) continue;
+        if (!known || known.info !== info) sizes.set(item.file, { info, at: Date.now() });
         const cost = warmBytes(info.size, item.duration);
         if (cost > budget) break;
         budget -= cost;

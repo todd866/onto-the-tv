@@ -2,7 +2,13 @@
 // The M2 is the TV box with the whole library, reached through its tailnet-only
 // Tailscale HTTPS proxy (tailscale serve --https=8443): the certificate proves it is the M2;
 // this Mac's own server is the fallback when the M2 cannot be reached.
-export const TV_HOME_ORIGINS = ['https://iantodds-macbook-air.tail8cd07b.ts.net:8443', 'http://localhost:8686'];
+// At home the M2 is asked on the home network first: the tailnet's HTTPS proxy carried a cached episode's
+// first 4 MB in about 2 s where the home network took 0.5 s (15 Nov 2026), and the Mac player was slow to
+// start. The M2's address is fixed (192.168.20.20 since 6 Nov). Away from home that address does not answer
+// within LAN_WAIT_MS and the tailnet is asked, as before.
+export const M2_HOME_ORIGIN = 'http://192.168.20.20:8686';
+export const TV_HOME_ORIGINS = [M2_HOME_ORIGIN, 'https://iantodds-macbook-air.tail8cd07b.ts.net:8443', 'http://localhost:8686'];
+const LAN_WAIT_MS = 1200;
 export const TV_HOME_ORIGIN = TV_HOME_ORIGINS[TV_HOME_ORIGINS.length - 1];
 export async function fetchTvHome(viewers, fetcher = fetch, rating = null, origins = TV_HOME_ORIGINS) {
   return firstOrigin(origins, origin => fetchHomeFrom(origin, viewers, fetcher, rating));
@@ -71,7 +77,7 @@ export async function fetchTvShows(viewers, fetcher = fetch, rating = null, orig
 }
 async function fetchHomeFrom(origin, viewers, fetcher, rating) {
   const url = audienceUrl('/api/home', origin, viewers, rating);
-  const response = await fetcher(url, { signal: AbortSignal.timeout(origin === TV_HOME_ORIGIN ? 5000 : 3000), redirect: 'error' });
+  const response = await fetcher(url, { signal: AbortSignal.timeout(origin === TV_HOME_ORIGIN ? 5000 : origin === M2_HOME_ORIGIN ? LAN_WAIT_MS : 3000), redirect: 'error' });
   if (!response.ok) throw new Error(`TV lineup unavailable (${response.status}).`);
   const home = await response.json();
   if (!home || ![null, 'G', 'PG', 'PG-13', 'M'].includes(home.ceiling)

@@ -176,7 +176,13 @@ export async function createMediaCache({ directory, maxBytes = 20 * GiB,
     for (const range of ranges) {
       if (closed) break;
       const first = Math.floor(range.start / blockBytes), last = Math.floor(range.end / blockBytes);
-      for (let i = first; i <= last && !closed; i++) { await getBlock(file, info, identity(file, info), i, { background: true }); await new Promise(resolve => setTimeout(resolve, 200)); }
+      for (let i = first; i <= last && !closed; i++) {
+        // A block already on disk costs nothing: only reads from the source are paced (they were all paced,
+        // so a pass over 235 warm titles took minutes and never reached the cold ones, 15 Nov 2026).
+        if (cacheIndex.has(cachePath(identity(file, info), i))) continue;
+        await getBlock(file, info, identity(file, info), i, { background: true });
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
     }
   };
   const keep = async list => {

@@ -44,10 +44,19 @@ test('home client sends a valid rating override and rejects others before fetchi
   for (const rating of ['R', 'm', 1, {}]) await assert.rejects(fetchTvHome(['sam'], () => assert.fail('must not fetch'), rating), /Invalid rating/);
 });
 
+test('the M2 is asked on the home network, then over the tailnet, then this Mac', async () => {
+  assert.deepEqual(TV_HOME_ORIGINS, ['http://192.168.20.20:8686', 'https://iantodds-macbook-air.tail8cd07b.ts.net:8443', 'http://localhost:8686']);
+  const home = { ceiling: 'M', viewers: ['sam','jake','mum','dad'].map(id => ({id,name:id,on:id==='dad'})), channels: [] };
+  const waits = new Map();
+  const away = async (url, options) => { waits.set(url.origin, options.signal); if (url.origin === TV_HOME_ORIGINS[0]) throw new Error('timeout'); return { ok: true, json: async () => home }; };
+  assert.equal((await fetchTvHome(['dad'], away)).origin, TV_HOME_ORIGINS[1], 'away from home, the tailnet');
+  assert.ok(waits.get(TV_HOME_ORIGINS[0]) instanceof AbortSignal);
+});
 test('home client asks the M2 first and falls back to this Mac only when the M2 fails', async () => {
   const home = { ceiling: 'M', viewers: ['sam','jake','mum','dad'].map(id => ({id,name:id,on:id==='dad'})), channels: [] };
   const asked = [];
   const m2Down = async url => { asked.push(url.origin); if (url.origin !== TV_HOME_ORIGIN) throw new Error('timeout'); return { ok: true, json: async () => home }; };
+  // Both of the M2's addresses are tried before this Mac's own server.
   assert.equal((await fetchTvHome(['dad'], m2Down)).origin, TV_HOME_ORIGIN);
   assert.deepEqual(asked, TV_HOME_ORIGINS);
   asked.length = 0;

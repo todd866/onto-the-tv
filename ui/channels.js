@@ -1,7 +1,8 @@
 /* Desktop channel browser. The server owns the lineup, picks and rating ceiling. */
 (() => {
   // The server that answered the last lineup: the M2, or this Mac's own as a fallback.
-  const ORIGINS = ['https://iantodds-macbook-air.tail8cd07b.ts.net:8443', 'http://localhost:8686'];
+  // The M2 on the home network, the M2 over the tailnet, then this Mac's own server (src/tv-home-client.js).
+  const ORIGINS = ['http://192.168.20.20:8686', 'https://iantodds-macbook-air.tail8cd07b.ts.net:8443', 'http://localhost:8686'];
   let origin = ORIGINS[0];
   const $ = id => document.getElementById(id);
   // Who's watching is a profile: a person (or Everyone) with their own colours, rating,
