@@ -1,0 +1,9 @@
+# Read by `fleet morning` (see the fleet repository, docs/morning.md).
+# The Onto the TV morning health check runs on the M2 (launchd com.iantodd.onto-the-tv-health, 23:00Z daily):
+# server and channels, the T9 media cache, Stash, downloads, rotate, viewing log, backups. Read-only, no TV control.
+command = "~/.local/state/onto-the-tv-health/health-check.py --quiet"
+max_runtime_s = 120
+where = "m2"
+# The result that check writes; Fleet reads it instead of starting the command.
+result = "~/.local/state/onto-the-tv-health/check.json"
+max_age_h = 30
