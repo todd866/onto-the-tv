@@ -2,12 +2,45 @@
 // The M2 is the TV box with the whole library, reached through its tailnet-only
 // Tailscale HTTPS proxy (tailscale serve --https=8443): the certificate proves it is the M2;
 // this Mac's own server is the fallback when the M2 cannot be reached.
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 // At home the M2 is asked on the home network first: the tailnet's HTTPS proxy carried a cached episode's
 // first 4 MB in about 2 s where the home network took 0.5 s (15 Nov 2026), and the Mac player was slow to
 // start. The M2's address is fixed (192.168.20.20 since 6 Nov). Away from home that address does not answer
 // within LAN_WAIT_MS and the tailnet is asked, as before.
+// Plain http proves nothing about who answers, and 192.168.20.20 exists on other networks too: the address
+// is used only after the server there proves it holds this Mac's pairing token (homeOrigins below).
 export const M2_HOME_ORIGIN = 'http://192.168.20.20:8686';
-export const TV_HOME_ORIGINS = [M2_HOME_ORIGIN, 'https://iantodds-macbook-air.tail8cd07b.ts.net:8443', 'http://localhost:8686'];
+export const M2_TAILNET_ORIGIN = 'https://iantodds-macbook-air.tail8cd07b.ts.net:8443';
+export const TV_HOME_ORIGINS = [M2_HOME_ORIGIN, M2_TAILNET_ORIGIN, 'http://localhost:8686'];
+
+// Ask the server at the home address for an HMAC of a fresh nonce under the pairing token; only the M2 can
+// answer it, and the token never leaves this Mac.
+export async function provesM2(token, fetcher = fetch, origin = M2_HOME_ORIGIN) {
+  if (!token) return false;
+  const nonce = randomBytes(16).toString('hex');
+  try {
+    const response = await fetcher(new URL('/api/whoami?n=' + nonce, origin), { signal: AbortSignal.timeout(LAN_WAIT_MS), redirect: 'error' });
+    if (!response.ok) return false;
+    const { proof } = await response.json();
+    const want = Buffer.from(createHmac('sha256', token).update('onto-whoami:' + nonce).digest('hex'));
+    const got = Buffer.from(typeof proof === 'string' ? proof : '');
+    return got.length === want.length && timingSafeEqual(got, want);
+  } catch { return false; }
+}
+
+// The servers to ask, in order: the home address only while it has proved itself (checked again every few
+// minutes, and soon after a failure, so leaving or coming home is noticed).
+export function createHomeOrigins({ token, fetcher = fetch, now = Date.now } = {}) {
+  let proved = null, checkedAt = 0;
+  return async function homeOrigins() {
+    const age = now() - checkedAt;
+    if (proved === null || (proved && age > 5 * 60_000) || (!proved && age > 60_000)) {
+      proved = await provesM2(await token(), fetcher);
+      checkedAt = now();
+    }
+    return proved ? TV_HOME_ORIGINS : TV_HOME_ORIGINS.slice(1);
+  };
+}
 const LAN_WAIT_MS = 1200;
 export const TV_HOME_ORIGIN = TV_HOME_ORIGINS[TV_HOME_ORIGINS.length - 1];
 export async function fetchTvHome(viewers, fetcher = fetch, rating = null, origins = TV_HOME_ORIGINS) {

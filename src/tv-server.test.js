@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TV_CHANNELS, applyScoredChannelWeight, channelScoresSignaturePart, createArtWarmer, mergeChannelScores, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseChannelScores, parseRange, scoredRotationWeight } from './tv-server.js';
+import { TV_CHANNELS, applyScoredChannelWeight, channelScoresSignaturePart, createArtWarmer, mergeChannelScores, whoamiProof, countTvChannelVideos, createFileStorage, createTvLibrary, createTvServer, inTvGenre, isHomeAddress, isHomeHost, layeredHistory, parseChannelScores, parseRange, scoredRotationWeight } from './tv-server.js';
 import { loadPlaybackHistory } from './playback-history.js';
 
 const videos = [
@@ -1037,4 +1037,22 @@ test('asking for the lineup starts its pictures', async () => {
     for (let i = 0; i < 50 && asked.length < home.channels.length; i++) await new Promise(resolve => setTimeout(resolve, 10));
     assert.deepEqual(asked.slice(0, home.channels.length).map(file => file.replace('/m/', '')), home.channels.map(card => decodeURIComponent(card.now.art.split('src=')[1])));
   } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('whoami answers a nonce with proof of the token, and nothing without a token or a proper nonce', async () => {
+  const { dir, history, storage, library } = await setup();
+  const make = async token => { const server = createTvServer({ library, history, storage, uiRoot: dir, token }); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); return server; };
+  const paired = await make('secret'), unpaired = await make('');
+  const ask = (server, nonce) => fetch(`http://127.0.0.1:${server.address().port}/api/whoami?n=${nonce}`);
+  try {
+    const nonce = 'a'.repeat(32);
+    const reply = await ask(paired, nonce);
+    assert.equal(reply.status, 200);
+    const body = await reply.json();
+    assert.equal(body.proof, whoamiProof('secret', nonce));
+    assert.ok(!JSON.stringify(body).includes('secret'));
+    assert.equal((await ask(paired, 'short')).status, 404);
+    assert.equal((await ask(paired, 'z'.repeat(32))).status, 404);
+    assert.equal((await ask(unpaired, nonce)).status, 404);
+  } finally { await Promise.all([paired, unpaired].map(server => new Promise(resolve => server.close(resolve)))); }
 });

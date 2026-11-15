@@ -1,4 +1,4 @@
-import { fetchTvHome, fetchTvShows, TV_HOME_ORIGINS } from './tv-home-client.js';
+import { createHomeOrigins, fetchTvHome, fetchTvShows, M2_TAILNET_ORIGIN, TV_HOME_ORIGINS } from './tv-home-client.js';
 import { sendToTv } from './tv-remote.js';
 import { createBlackbox } from './blackbox.js';
 import { createReportService } from './report-service.js';
@@ -267,15 +267,18 @@ handle('taste:save', input => {
   return tasteWriter(input);
 });
 handle('app:get', snapshot);
-handle('tv-home:get', (viewers, rating) => fetchTvHome(viewers, fetch, rating));
-handle('tv-shows:get', (viewers, rating) => fetchTvShows(viewers, fetch, rating));
+// The M2's home address is asked first only once it has proved itself with this Mac's pairing token.
+const pairingToken = async () => (await readFile(join(app.getPath('userData'), 'tv-server', 'pairing-token'), 'utf8').catch(() => '')).trim();
+const homeOrigins = createHomeOrigins({ token: pairingToken });
+handle('tv-home:get', async (viewers, rating) => fetchTvHome(viewers, fetch, rating, await homeOrigins()));
+handle('tv-shows:get', async (viewers, rating) => fetchTvShows(viewers, fetch, rating, await homeOrigins()));
 // Play on TV from the Channels tab: the lounge TV's own app tunes the channel or plays the named
 // episode, through the server that answered the lineup. This Mac's pairing token is the M2's
 // (the M2 was set up from this Mac's app data); a different token is refused there, and says so.
 handle('tv-remote:send', async (origin, action, value, seconds) => {
   if (!TV_HOME_ORIGINS.includes(origin)) throw new Error('Unexpected TV server.');
-  const token = (await readFile(join(app.getPath('userData'), 'tv-server', 'pairing-token'), 'utf8').catch(() => '')).trim();
-  return sendToTv({ origin, action, value, seconds, token });
+  // The token goes only over the tailnet's HTTPS, never the plain home address.
+  return sendToTv({ origin: origin === TV_HOME_ORIGINS[0] ? M2_TAILNET_ORIGIN : origin, action, value, seconds, token: await pairingToken() });
 });
 handle('history:record', async input => {
   if (await recordLocalHistory(playbackHistory, catalogue, input, { casting: channelCasting })) sendState(session.getState());

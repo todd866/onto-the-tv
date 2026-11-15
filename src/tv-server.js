@@ -7,7 +7,7 @@ import { appendFile, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, normalize } from 'node:path';
 import { isIP } from 'node:net';
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { readCatalogue } from './shuffler.js';
 import { writeAtomically } from './atomic-write.js';
 import { createDiagnosticsStore } from './tv-diagnostics.js';
@@ -254,6 +254,10 @@ export function mergeChannelScores(list) {
   const out = Object.create(null);
   for (const scores of list) if (scores) for (const [channelId, channel] of Object.entries(scores)) out[channelId] = channel;
   return Object.keys(out).length ? out : null;
+}
+
+export function whoamiProof(token, nonce) {
+  return createHmac('sha256', token).update('onto-whoami:' + nonce).digest('hex');
 }
 
 export function channelScoresSignaturePart(path, info) {
@@ -1412,6 +1416,14 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         const vtt = await readSubtitle(library.file(url.searchParams.get('src') || ''), url.searchParams.get('name') || '');
         response.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' });
         return response.end(vtt);
+      }
+      // Proof that this server holds the pairing token, without the token crossing the network: the Mac app
+      // checks it before it uses the M2's plain home-network address (the tailnet's HTTPS proves itself).
+      if (path === '/api/whoami') {
+        const nonce = url.searchParams.get('n') || '';
+        if (!token || !/^[0-9a-f]{32,128}$/.test(nonce)) return send(response, 404, { error: 'Not found.' });
+        response.setHeader('Cache-Control', 'no-store');
+        return send(response, 200, { proof: whoamiProof(token, nonce) });
       }
       if (path === '/api/home') {
         const viewers = url.searchParams.has('viewers') ? url.searchParams.get('viewers') : undefined;

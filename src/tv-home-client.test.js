@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchTvHome, fetchTvShows, TV_HOME_ORIGIN, TV_HOME_ORIGINS } from './tv-home-client.js';
+import { createHomeOrigins, fetchTvHome, fetchTvShows, provesM2, TV_HOME_ORIGIN, TV_HOME_ORIGINS } from './tv-home-client.js';
+import { whoamiProof } from './tv-server.js';
 const LOCAL = [TV_HOME_ORIGIN];
 
 test('home client preserves default vs explicitly empty audience and sends selections', async () => {
@@ -116,4 +117,38 @@ test('shows client drops what a card could not play, and never takes a picture a
   assert.deepEqual(shows.map(show => [show.title, show.art, show.episodes.map(item => [item.src, item.art])]),
     [['Ms Rachel', '/art?src=preschool%2FMs%20Rachel%2Fb.mp4', [['preschool/Ms Rachel/a.mp4', '/art?src=preschool%2FMs%20Rachel%2Fa.mp4'], ['preschool/Ms Rachel/b.mp4', '/art?src=preschool%2FMs%20Rachel%2Fb.mp4']]],
       ['Outside art', '/art?src=y.mp4', [['y.mp4', '/art?src=y.mp4']]]]);
+});
+
+// Security review, 15 Nov 2026: plain http to 192.168.20.20 proves nothing, and that address exists on other
+// networks. The home address is used only after the server there proves it holds the pairing token.
+test('the home address is used only after the server there proves it holds the pairing token', async () => {
+  const token = 'pairing-secret';
+  const m2 = async url => {
+    if (url.pathname !== '/api/whoami') throw new Error('unexpected');
+    return { ok: true, json: async () => ({ proof: whoamiProof(token, url.searchParams.get('n')) }) };
+  };
+  assert.equal(await provesM2(token, m2), true);
+  // A stranger at the same address cannot answer without the token, and the token is never sent.
+  const sent = [];
+  const stranger = async (url, options) => { sent.push([url.href, JSON.stringify(options.headers || {})]); return { ok: true, json: async () => ({ proof: whoamiProof('another-token', url.searchParams.get('n')) }) }; };
+  assert.equal(await provesM2(token, stranger), false);
+  assert.ok(sent.every(([href, headers]) => !href.includes(token) && !headers.includes(token)));
+  assert.equal(await provesM2(token, async () => ({ ok: true, json: async () => ({ proof: 'x' }) })), false);
+  assert.equal(await provesM2(token, async () => { throw new Error('no route'); }), false);
+  assert.equal(await provesM2('', m2), false, 'an unpaired Mac never uses the home address');
+});
+
+test('the origins list keeps the home address only while it is proved, and looks again later', async () => {
+  let clock = 0, home = true, asked = 0;
+  const fetcher = async url => { asked++; if (!home) throw new Error('away'); return { ok: true, json: async () => ({ proof: whoamiProof('t', url.searchParams.get('n')) }) }; };
+  const origins = createHomeOrigins({ token: async () => 't', fetcher, now: () => clock });
+  assert.deepEqual(await origins(), TV_HOME_ORIGINS);
+  assert.deepEqual(await origins(), TV_HOME_ORIGINS);
+  assert.equal(asked, 1, 'proof is remembered');
+  home = false; clock += 6 * 60_000;
+  assert.deepEqual(await origins(), TV_HOME_ORIGINS.slice(1), 'away from home: tailnet, then this Mac');
+  home = true; clock += 30_000;
+  assert.deepEqual(await origins(), TV_HOME_ORIGINS.slice(1), 'a failure is remembered for a minute');
+  clock += 40_000;
+  assert.deepEqual(await origins(), TV_HOME_ORIGINS);
 });
