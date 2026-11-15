@@ -20,6 +20,9 @@ export async function createMediaCache({ directory, maxBytes = 20 * GiB,
   const cacheIndex = new Map();
   let closed = false;
   let hits = 0, memoryHits = 0, misses = 0, bypasses = 0;
+  // Titles about to play (every card's pick and the one after, for every profile): their blocks are
+  // never evicted to make room for something else. keep() replaces the whole list.
+  let kept = new Set();
 
   const identity = (file, info) => `${file}\0${info.size}\0${info.mtimeMs}`;
   const digest = value => createHash('sha256').update(value).digest('hex');
@@ -59,6 +62,7 @@ export async function createMediaCache({ directory, maxBytes = 20 * GiB,
     for (const file of files.sort((a, b) => a.mtimeMs - b.mtimeMs)) {
       if (total + extra <= maxBytes && free >= reserveBytes + extra) break;
       if (active.has(file.path)) continue;
+      if (kept.size && kept.has(file.path.slice(file.path.lastIndexOf('/') + 1, -('.block'.length)).replace(/-\d+$/, ''))) continue;
       try { await fs.unlink(file.path); cacheIndex.delete(file.path); total -= file.size; free += file.size; } catch {}
     }
     return total + extra <= maxBytes && free >= reserveBytes + extra;
@@ -163,10 +167,25 @@ export async function createMediaCache({ directory, maxBytes = 20 * GiB,
       for (let i = first; i <= last && !closed; i++) { await getBlock(file, info, identity(file, info), i, { background: true }); await new Promise(resolve => setTimeout(resolve, 200)); }
     }
   };
+  const keep = async list => {
+    const next = new Set();
+    for (const entry of list || []) {
+      try {
+        const file = resolve(entry.file);
+        if (!eligible(file)) continue;
+        next.add(digest(identity(file, await sourceInfo(file, entry.info || {}))));
+      } catch { /* a file that has gone is not kept */ }
+    }
+    kept = next;
+    return kept.size;
+  };
+  const isKept = (file, info) => kept.has(digest(identity(resolve(file), info)));
   return {
     stream,
     warm,
+    keep,
+    isKept,
     close: async () => { closed = true; pump(); await Promise.allSettled([...inFlight.values()]); await writeQueue; },
-    stats: () => ({ hits, memoryHits, misses, bypasses, inFlight: inFlight.size, queued: jobs.length, running, bytesCached: [...cacheIndex.values()].reduce((n, f) => n + f.size, 0), maxBytes, reserveBytes, closed, directory: root, blockBytes }),
+    stats: () => ({ hits, memoryHits, misses, bypasses, kept: kept.size, inFlight: inFlight.size, queued: jobs.length, running, bytesCached: [...cacheIndex.values()].reduce((n, f) => n + f.size, 0), maxBytes, reserveBytes, closed, directory: root, blockBytes }),
   };
 }

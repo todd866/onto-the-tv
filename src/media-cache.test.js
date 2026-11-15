@@ -88,3 +88,38 @@ test('disk pressure reclaims only cached blocks before a new write',async t=>{
  await bytes(await cache.stream(file,info(12),{start:0,end:7}));assert.equal(cache.stats().bytesCached,72);
  free=10;assert.equal((await bytes(await cache.stream(file,info(12),{start:8,end:11}))).toString(),'ijkl');assert.equal(cache.stats().bytesCached,36);await cache.close();assert.equal((await fs.readFile(file)).toString(),'abcdefghijkl');
 });
+
+// 15 Nov 2026: warming all 4,084 openings through a 40 GB cache pushed out the very episodes the cards
+// were about to play, and Ms Rachel took 9 s to start. What is about to play is kept.
+test('kept titles survive pressure from other titles; a new keep list releases the old', async t => {
+  const root = await temp();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const names = ['a', 'b', 'c', 'd'];
+  for (const name of names) await fs.writeFile(join(root, name), name.repeat(8));
+  const cache = await createMediaCache({ directory: join(root, 'cache'), blockBytes: 4, maxBytes: 3 * 36, reserveBytes: 0, eligible: () => true, statfs: fakeFs() });
+  const file = name => ({ file: join(root, name), info: info(8) });
+  const held = async name => (await fs.readdir(join(root, 'cache'))).filter(entry => entry.endsWith('.block')).length && cache.isKept(join(root, name), info(8));
+  await cache.keep([file('a')]);
+  assert.equal(cache.stats().kept, 1);
+  await bytes(await cache.stream(join(root, 'a'), info(8)));                 // 2 blocks, kept
+  for (const name of ['b', 'c', 'd']) await bytes(await cache.stream(join(root, name), info(8)));
+  const original = fs.open; fs.open = async () => { throw new Error('source opened'); };
+  try { assert.equal((await bytes(await cache.stream(join(root, 'a'), info(8)))).toString(), 'aaaaaaaa', 'kept title served from cache'); }
+  finally { fs.open = original; }
+  assert.equal(await held('a'), true);
+  await cache.keep([file('b')]);
+  assert.equal(cache.isKept(join(root, 'a'), info(8)), false);
+  await cache.close();
+});
+
+test('the cache never gives itself entirely to kept titles: one block of room stays for playing anything else', async t => {
+  const root = await temp();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(join(root, 'a'), 'a'.repeat(8)); await fs.writeFile(join(root, 'z'), 'z'.repeat(8));
+  const cache = await createMediaCache({ directory: join(root, 'cache'), blockBytes: 4, maxBytes: 2 * 36, reserveBytes: 0, eligible: () => true, statfs: fakeFs() });
+  await cache.keep([{ file: join(root, 'a'), info: info(8) }]);
+  await bytes(await cache.stream(join(root, 'a'), info(8)));
+  // Nothing can be evicted for z: it still plays, straight from the source.
+  assert.equal((await bytes(await cache.stream(join(root, 'z'), info(8)))).toString(), 'zzzzzzzz');
+  await cache.close();
+});

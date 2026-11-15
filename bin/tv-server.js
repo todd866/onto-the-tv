@@ -169,7 +169,7 @@ const sceneLookup = src => {
 };
 let channelScores = await loadChannelScores(settings);
 let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers, channelScores });
-const current = { home: (viewers, rating) => library.home(viewers, rating), billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => library.next(id, input),
+const current = { home: (viewers, rating) => { const lineup = library.home(viewers, rating); warmSoon(); return lineup; }, billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => { const item = library.next(id, input); warmSoon(); return item; },
   progress: input => library.progress(input), like: input => library.like(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => library.file(src), video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
@@ -177,26 +177,40 @@ let mediaCache = null;
 try { mediaCache = await createMediaCache({ directory: join(homedir(), 'Library/Caches/Onto the TV/media'), maxBytes: 40 * 1024 ** 3,
   log: entry => log('media cache: ' + JSON.stringify(entry)) }); }
 catch (error) { log('media cache unavailable; direct streaming retained: ' + (error.code || error.message)); }
-// Warm external titles sequentially; serving always takes priority over this queue.
-let warmGeneration = 0, warming = false, warmPending = libraryVideos;
-async function warmLibrary(videos) {
+// What is about to play is on the M2's SSD before anyone presses it (Ian, 15 Nov 2026: "I don't ever wanna
+// see a 9s delay"). The cache keeps every card's pick and the one after, for every profile, and warms
+// those first. It used to warm the opening of every title in the library in turn: 4,000 openings through a
+// 40 GB cache, which pushed out the episodes the cards were about to play.
+const IMMINENT_AUDIENCES = ['sam,jake,mum,dad', 'sam,mum,dad', 'jake,mum,dad', 'dad', 'mum', 'mum,dad'];
+let warming = false, warmAgain = false, warmTimer = null;
+function imminent() {
+  const seen = new Map();
+  for (const audience of IMMINENT_AUDIENCES) {
+    for (const item of library.billing(audience)) if (item?.file && !seen.has(item.file)) seen.set(item.file, item);
+  }
+  return [...seen.values()];
+}
+async function warmImminent() {
   if (!mediaCache) return;
-  warmPending = videos; warmGeneration++;
-  if (warming) return;
+  if (warming) { warmAgain = true; return; }
   warming = true;
   try {
-    while (warmPending) {
-      const batch = warmPending, generation = warmGeneration; warmPending = null;
-      for (const video of batch) {
-        if (generation !== warmGeneration) break;
-        if (!video.file?.startsWith('/Volumes/')) continue;
-        try { await mediaCache.warm(video.file, await stat(video.file), { durationSeconds: video.duration }); }
+    do {
+      warmAgain = false;
+      const list = imminent();
+      const kept = await mediaCache.keep(list.map(item => ({ file: item.file })));
+      let done = 0;
+      for (const item of list) {
+        if (warmAgain) break;
+        try { await mediaCache.warm(item.file, await stat(item.file), { durationSeconds: item.duration }); done++; }
         catch (error) { log('cache warm skipped: ' + (error.code || error.message)); }
-        await new Promise(resolve => setTimeout(resolve, 1000));
       }
-    }
+      if (!warmAgain) log(`cache: ${done} of ${list.length} titles about to play are ready (${kept} kept)`);
+    } while (warmAgain);
   } finally { warming = false; }
 }
+// A lineup asked for, or a channel moving on, changes what is next: look again a few seconds later.
+function warmSoon() { clearTimeout(warmTimer); warmTimer = setTimeout(() => { void warmImminent(); }, 3000); warmTimer.unref?.(); }
 const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore,
   libraryRoots: async () => configuredRoots(await readSettings(join(appData, 'settings.json'))), catalogueFile: catalogue,
   playNextFile: join(homedir(), '.local/state/onto-the-tv/play-next.json'),
@@ -210,7 +224,7 @@ const guestServer = guestPort ? createGuestServer({ videos: () => catalogueHolde
 guestServer?.on('error', error => log(`guest app not started: ${error.code || error.message}`));
 guestServer?.listen(guestPort, '127.0.0.1', () => log(`guest app on http://127.0.0.1:${guestPort}/`));
 
-void warmLibrary(libraryVideos);
+void warmImminent();
 // The profiles' lineups have their pictures made before anyone opens them: each audience's cards, then
 // what each card shows next. Again after a reload, when every channel stages fresh picks.
 const PROFILE_AUDIENCES = ['sam,jake,mum,dad', 'sam,mum,dad', 'jake,mum,dad', 'dad', 'mum', 'mum,dad'];
@@ -236,7 +250,7 @@ async function rescan() {
     const outcome = await rebuild(await readSettings(join(appData, 'settings.json')), false);
     if (outcome.rescanned) {
       const refreshedVideos = await loadCatalogue(catalogue);
-      void warmLibrary(refreshedVideos);
+      warmSoon();
       catalogueHolder.videos = refreshedVideos;
       const freshSettings = await readSettings(join(appData, 'settings.json'));
       channelScores = await loadChannelScores(freshSettings);
@@ -252,6 +266,6 @@ setInterval(rescan, RESCAN_MS).unref();
 if (haveCatalogue) setTimeout(rescan, 5_000).unref();
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => { log(`${signal}: saving and stopping`); warmPending = null; warmGeneration++; guestServer?.close(); server.close(async () => { await mediaCache?.close(); process.exit(0); });
+  process.on(signal, () => { log(`${signal}: saving and stopping`); warmAgain = true; clearTimeout(warmTimer); guestServer?.close(); server.close(async () => { await mediaCache?.close(); process.exit(0); });
     setTimeout(() => process.exit(0), 3000).unref(); });
 }

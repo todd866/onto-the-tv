@@ -4,11 +4,17 @@ The full library remains owned by Onto the TV's configured source paths. Externa
 media is served through a persistent block cache on the M2 internal SSD at
 `~/Library/Caches/Onto the TV/media`. Internal media streams directly.
 
-- 20 GiB disk-cache ceiling; 40 GiB free-space reserve. Disk pressure reclaims only
+- 40 GiB disk-cache ceiling (set in `bin/tv-server.js`); 40 GiB free-space reserve. Disk pressure reclaims only
   cache blocks. No originals, catalogue entries, history or classifications are deleted.
-- Warm-up runs sequentially after startup and catalogue refresh, with background
-  priority, 200 ms between blocks and one second between titles. It starts only
-  for external paths in the actual catalogue, so it follows the verified migration.
+- **What is about to play is kept (15 Nov 2026).** The server keeps every card's pick and
+  the one after, for each profile's lineup (`IMMINENT_AUDIENCES` in `bin/tv-server.js`,
+  about 55 titles), and warms those first: at startup, after a catalogue reload, and a
+  few seconds after any lineup is asked for or a channel moves on. Kept titles' blocks are
+  never evicted for anything else (`mediaCache.keep`). It used to warm the opening of
+  every title in the library in turn: 4,000 openings through a 40 GiB cache, which pushed
+  out the very episodes the cards were about to play (Ms Rachel took 9 s to start).
+  A show picked by name in the Mac app's Find a show is not kept ahead: it is read from
+  the drive when pressed.
 - Opening coverage targets roughly 120 seconds using average bitrate plus 50%
   margin, bounded to 32–128 MiB per title (or the entire file when smaller).
   This is an estimate, not a guarantee of exactly two minutes for variable-bitrate
