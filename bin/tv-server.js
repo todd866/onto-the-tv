@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { readSettings } from '../src/settings.js';
 import { rebuildCatalogue } from '../src/library.js';
@@ -175,22 +176,42 @@ const current = { home: (viewers, rating) => { const lineup = library.home(viewe
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
 let mediaCache = null;
-// Ian, 15 Nov 2026: "I just don't want the m2 internal drive getting full and I want snappy response".
-// A small, fixed ceiling (it was 40 GB, half the free space) that gives way whenever the disk has less
-// than 50 GB free, kept titles included. Inside it: what is about to play, then each kids' show's opening.
-const CACHE_BYTES = 10 * 1024 ** 3, CACHE_FREE_FLOOR = 50 * 1024 ** 3;
-try { mediaCache = await createMediaCache({ directory: join(homedir(), 'Library/Caches/Onto the TV/media'), maxBytes: CACHE_BYTES,
-  reserveBytes: CACHE_FREE_FLOOR, log: entry => log('media cache: ' + JSON.stringify(entry)) }); }
-catch (error) { log('media cache unavailable; direct streaming retained: ' + (error.code || error.message)); }
+// Where the cache lives (Ian, 15 Nov 2026: "I just don't want the m2 internal drive getting full and I want
+// snappy response"; "surely the SSD external is fast enough to serve this"). The M2's T9 SSD is the fast tier
+// in the storage architecture (~/Projects/external-drives/docs/ARCHITECTURE.md: "fast media for the TV
+// server", folder hot/). The volume is Research until it is reformatted as M2-Fast. With the T9 away the
+// cache shrinks to a small fallback on the internal disk, which always keeps 50 GB free.
+const GiB = 1024 ** 3;
+const FAST_ROOTS = ['/Volumes/M2-Fast', '/Volumes/Research'];
+const INTERNAL_CACHE = join(homedir(), 'Library/Caches/Onto the TV/media');
+const fastRoot = FAST_ROOTS.find(root => existsSync(join(root, '.')));
+const place = fastRoot
+  ? { directory: join(fastRoot, 'hot/onto-the-tv-media'), maxBytes: 80 * GiB, reserveBytes: 40 * GiB, where: `the T9 SSD (${fastRoot})` }
+  : { directory: INTERNAL_CACHE, maxBytes: 2 * GiB, reserveBytes: 50 * GiB, where: 'the internal disk (T9 not attached)' };
+const CACHE_BYTES = place.maxBytes;
+try {
+  // A file already on the fast SSD gains nothing from a copy beside it.
+  mediaCache = await createMediaCache({ directory: place.directory, maxBytes: place.maxBytes, reserveBytes: place.reserveBytes,
+    eligible: file => file.startsWith('/Volumes/') && !(fastRoot && file.startsWith(fastRoot + '/')),
+    log: entry => log('media cache: ' + JSON.stringify(entry)) });
+  log(`media cache on ${place.where}: up to ${place.maxBytes / GiB} GB, keeping ${place.reserveBytes / GiB} GB free there`);
+  // The internal cache from before the move is emptied by the cache's own eviction (ceiling 0).
+  if (fastRoot && existsSync(INTERNAL_CACHE)) {
+    const old = await createMediaCache({ directory: INTERNAL_CACHE, maxBytes: 0, reserveBytes: 0, eligible: () => false });
+    const before = old.stats().bytesCached;
+    await old.trim(); await old.close();
+    if (before) log(`media cache: ${Math.round(before / GiB)} GB released from the internal disk`);
+  }
+} catch (error) { log('media cache unavailable; direct streaming retained: ' + (error.code || error.message)); }
 // What is about to play is on the M2's SSD before anyone presses it (Ian, 15 Nov 2026: "I don't ever wanna
 // see a 9s delay"). The cache keeps every card's pick and the one after, for every profile, and warms
 // those first. It used to warm the opening of every title in the library in turn: 4,000 openings through a
 // 40 GB cache, which pushed out the episodes the cards were about to play.
 const IMMINENT_AUDIENCES = ['sam,jake,mum,dad', 'sam,mum,dad', 'jake,mum,dad', 'dad', 'mum', 'mum,dad'];
 let warming = false, warmAgain = false, warmTimer = null;
-// The kids' own shows are the ones asked for by name (Ms Rachel, 15 Nov 2026): the episode each opens on
-// in Find a show (left part-way, else the first not finished), music folders aside.
-const OPENING_AUDIENCES = ['sam,mum,dad', 'jake,mum,dad'];
+// Then the episode each show opens on in Find a show (left part-way, else the first not finished): the
+// kids' first (Ms Rachel, 15 Nov 2026), then the grown-ups', music folders aside, as far as the budget goes.
+const OPENING_AUDIENCES = ['sam,mum,dad', 'jake,mum,dad', 'mum,dad', 'dad', 'mum'];
 function imminent() {
   const seen = new Map();
   for (const audience of IMMINENT_AUDIENCES) {
