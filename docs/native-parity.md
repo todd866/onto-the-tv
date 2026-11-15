@@ -48,7 +48,7 @@ and shows them as the same cards in the current layout; Enter plays the first. A
 opens on the episode last left part-way, else the first unfinished one, and the rest of
 the show follows it (`play`, `title`, `show`, `at` in the player's address, then
 `onto:desktop-queue`). A new audience never sees the previous audience's results.
-The TV reaches named shows through its Library tile instead.
+The TV reaches named shows through its Library tile (on-screen keyboard search); since 15 Nov an episode picked there also plays the rest of the show after it, as on the Mac.
 
 **Play on** (Mac | TV in the toolbar) applies to Channels too (15 Nov 2026; before, it did
 nothing there). On TV, a card does not open the player here: the lounge TV's own app is told
