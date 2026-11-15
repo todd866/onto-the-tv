@@ -4,12 +4,17 @@ The full library remains owned by Onto the TV's configured source paths. Externa
 media is served through a persistent block cache on the M2 internal SSD at
 `~/Library/Caches/Onto the TV/media`. Internal media streams directly.
 
-- 10 GiB ceiling and a 50 GiB free-disk floor (`CACHE_BYTES`, `CACHE_FREE_FLOOR` in
-  `bin/tv-server.js`; Ian, 15 Nov 2026: "I just don't want the m2 internal drive getting
-  full and I want snappy response"). Below the floor the cache gives way, kept titles
-  included; `trim()` enforces both on every warm and every ten minutes. Kept titles fill at
-  most 80% of the ceiling, in order: every card's pick and the one after for each profile,
-  then the episode each kids' show opens on in Find a show (193 titles, 7.4 GB on 15 Nov). Disk pressure reclaims only
+- **Where (15 Nov 2026):** on the T9 SSD, `hot/onto-the-tv-media` on the fast-tier volume
+  (`/Volumes/M2-Fast`, or `Research` until it is reformatted), as the storage architecture
+  places the TV server's hot media. Up to 80 GiB, keeping 40 GiB of the T9 free. Ian: "I just
+  don't want the m2 internal drive getting full and I want snappy response"; "surely the SSD
+  external is fast enough". Files already on the T9 are not cached. With the T9 away the
+  cache is 2 GiB on the internal disk, which always keeps 50 GiB free. The old internal
+  cache is emptied at startup by the cache's own eviction.
+- Below its floor the cache gives way, kept titles included; `trim()` enforces the ceiling
+  and floor on every warm and every ten minutes. Kept titles fill at most 80% of the ceiling,
+  in order: every card's pick and the one after for each profile, then the episode every
+  show opens on in Find a show (kids' first, then the grown-ups'), music folders aside. Disk pressure reclaims only
   cache blocks. No originals, catalogue entries, history or classifications are deleted.
 - **What is about to play is kept (15 Nov 2026).** The server keeps every card's pick and
   the one after, for each profile's lineup (`IMMINENT_AUDIENCES` in `bin/tv-server.js`,
