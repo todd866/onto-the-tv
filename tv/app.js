@@ -1148,6 +1148,11 @@
     return !!(play && (play.resumePending || play.errorOn)) || (upNextCard && upNextCard.active());
   }
   function osdOpen() { return osd && !osd.classList.contains('hidden'); }
+  function clearTapSeekChrome() {
+    $('player').classList.remove('is-tap-seeking');
+    var bubble = $('osd-seek-time');
+    if (bubble) bubble.textContent = '';
+  }
   function showOsd() {
     osd.classList.remove('hidden');
     paintBackChip();
@@ -1155,6 +1160,8 @@
     osdTimer = setTimeout(function () {
       // The directions tray is read, not glanced at: it stays three times as long.
       if (directionsShown && Date.now() - directionsShown.touched < OSD_MS * 3 - 100) { directionsShown.touched -= 1; showOsd(); return; }
+      // Transport, continue, and scrub focus keep the bar up until the user steps away.
+      if (overlayFocus) { showOsd(); return; }
       if (!media.paused() && !playerOverlay()) {
         osd.classList.add('hidden');
         paintBackChip();
@@ -1162,6 +1169,7 @@
         closeContinue();
         clearTransportFocus();
         clearScrubFocus();
+        clearTapSeekChrome();
       }
     }, OSD_MS);
   }
@@ -2944,6 +2952,7 @@
     clearScrubFocus();
     closeContinue();
     clearContinueFocus();
+    clearTapSeekChrome();
     paintTransportFocus();
     showOsd();
   }
@@ -3004,17 +3013,29 @@
   function scrubTapStepSize(tapIndex) { return window.ontoPlayerExtras.seekTapStepSize(tapIndex); }
   function scrubHoldStepSize(holdIndex) { return window.ontoPlayerExtras.seekHoldStepSize(holdIndex); }
   function paintScrub() {
-    var bubble = $('osd-seek-time'), delta, sign;
+    var bubble = $('osd-seek-time'), delta, sign, duration, mark, elapsed;
     if (!scrub) return;
     seekPreview = scrub.target;
     delta = Math.round(scrub.target - scrub.from);
     sign = delta < 0 ? '\u2212' : '+';
-    // The elapsed time already shows where the marker is; the bubble says how far that is from here.
+    // Bubble and marker in this frame; the full bar refresh can wait until after the key has been felt.
     if (bubble) bubble.textContent = sign + clock(Math.abs(delta));
     $('player').classList.add('is-seeking');
-    updateOsd();
-    showOsd();
-    showStrip(scrub.target, true);
+    elapsed = $('osd-elapsed');
+    if (elapsed) { elapsed.textContent = clock(seekPreview); elapsed.classList.add('is-preview'); }
+    duration = durationNow();
+    mark = $('osd-seek');
+    if (mark && duration) {
+      mark.hidden = false;
+      mark.style.left = Math.min(100, 100 * scrub.target / duration) + '%';
+    }
+    osd.classList.remove('hidden');
+    setTimeout(function () {
+      if (!scrub) return;
+      updateOsd();
+      showOsd();
+      showStrip(scrub.target, true);
+    }, 0);
   }
   function scrubStep(direction, held) {
     var duration, target, step;

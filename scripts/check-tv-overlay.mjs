@@ -287,7 +287,8 @@ try {
   // Seek mode: the forward key holds the picture and moves a marker; nothing is skipped and no arrow seeks.
   const beforeSeek = await state();
   calls = nextCalls;
-  const seekPressTiming = await page.evaluate(() => new Promise(resolve => {
+  // Same sync stopwatch as arrowBurst above: the handler must leave the bubble painted before it returns.
+  const seekPressTiming = await page.evaluate(() => {
     function down() {
       const e = new Event('keydown', { bubbles: true, cancelable: true });
       Object.defineProperty(e, 'keyCode', { get: () => 417 });
@@ -301,23 +302,16 @@ try {
     }
     const t0 = performance.now();
     down();
-    requestAnimationFrame(function () {
-      const firstMs = performance.now() - t0;
-      const firstDelta = document.getElementById('osd-seek-time').textContent;
-      up();
-      const t1 = performance.now();
-      down();
-      requestAnimationFrame(function () {
-        resolve({
-          ms: firstMs,
-          delta: firstDelta,
-          secondMs: performance.now() - t1,
-          secondDelta: document.getElementById('osd-seek-time').textContent,
-        });
-        up();
-      });
-    });
-  }));
+    const firstMs = performance.now() - t0;
+    const firstDelta = document.getElementById('osd-seek-time').textContent;
+    up();
+    const t1 = performance.now();
+    down();
+    const secondMs = performance.now() - t1;
+    const secondDelta = document.getElementById('osd-seek-time').textContent;
+    up();
+    return { ms: firstMs, delta: firstDelta, secondMs, secondDelta };
+  });
   const seeking = { ...(await state()), calls: nextCalls - calls };
   await fire(39);   // an arrow in seek mode does nothing
   await fire(37);
