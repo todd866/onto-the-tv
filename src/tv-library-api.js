@@ -128,6 +128,7 @@ function continueRow(items, now) {
   }
   const row = [];
   for (const item of latest.values()) {
+    if (item.tier === 'music') continue;
     if (!seen(item)) { if (item.positionSeconds >= 60) row.push(item); continue; }
     if (episodeNumber(item) === null) continue;
     const next = nextEpisode(items, item);

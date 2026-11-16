@@ -18,6 +18,10 @@ import { adDecade, buildPlayQueue, isAdSrc } from './ads.js';
 import { listSidecars, readSubtitle } from './subtitles.js';
 import { libraryView, showsView } from './tv-library-api.js';
 import { catalogueStatus, libraryHealthReport } from './library.js';
+import {
+  artistKeyForVideo, buildMusicHeardMap, isMusicVideoChannel, isMusicVideoItem, isMusicVideoPick,
+  mildMusicSkipWeight, musicRankScore, pickMusicVideoIndex,
+} from './music-pick.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
 // episode with the same picker and learning rules as the app's player, and streams
@@ -470,12 +474,13 @@ export function parseRange(header, size) {
  * The TV-facing model. `videos` comes from readCatalogue; `history` is a
  * loadPlaybackHistory store; `storage` a createFileStorage store.
  */
-export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, channelScores = null, now = () => Date.now() }) {
+export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, channelScores = null, musicEmbed = null, now = () => Date.now() }) {
   const bySrc = new Map(videos.map((video, index) => [video.src, index]));
   // Per-channel memory of recently played indices, as the player keeps per tab.
   const recent = new Map();
   // Home's "now" pick, so OK plays the episode on the card.
   const staged = new Map();
+  const musicHeardExtra = new Map();
 
   function video(src) {
     const index = bySrc.get(src);
@@ -484,12 +489,32 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   }
 
   function describe(item) {
-    const resume = history.get(item.file);
+    const resume = isMusicVideoItem(item) ? 0 : history.get(item.file);
     // The player shows these words: the tidy episode name and the show's name, never the upload's raw title.
     const label = cardShow(item);
     return { src: item.src, title: item.title || item.src, show: item.channel || '', tier: item.tier,
       display: { show: label, episode: isFilm(item) ? '' : episodeLabel(item, label) },
       channels: channelsOf(item), duration: item.duration || 0, resume: resume > 5 ? resume : 0, liked: !!likes()[item.src] };
+  }
+
+  function markMusicHeard(src) {
+    if (!src) return;
+    musicHeardExtra.set(src, now());
+  }
+
+  function musicHeardMap() {
+    return buildMusicHeardMap({ historyList: history.list(), videos, extra: musicHeardExtra, nowMs: now() });
+  }
+
+  function musicAnchorKey(currentIndex) {
+    if (currentIndex < 0) return '';
+    return artistKeyForVideo(videos[currentIndex]);
+  }
+
+  function musicScore(index, tasteWeight, currentIndex, heard) {
+    return musicRankScore({
+      index, videos, tasteWeight, embed: musicEmbed?.state, anchorKey: musicAnchorKey(currentIndex), heard,
+    });
   }
 
   // Likes pressed on the TV: { src: { at, key, was } }. A like doubles the episode's weight on the audience's
@@ -900,8 +925,13 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       if (options.reason === 'skip' || options.reason === 'ended') {
         const stored = player.readStored(storage, key);
         const was = player.weightFor(stored, item.src);
-        const now = player.learnedWeight(was, options.reason, Number(options.time), Number(options.duration) || item.duration, Number(options.watched));
-        if (now !== was) { stored[item.src] = now; player.saveWeights(storage, key, stored); }
+        let weightNow = player.learnedWeight(was, options.reason, Number(options.time), Number(options.duration) || item.duration, Number(options.watched));
+        if (isMusicVideoPick(channelId, item)) {
+          markMusicHeard(item.src);
+          const mild = mildMusicSkipWeight(was, options.reason, Number(options.time));
+          if (mild !== null) weightNow = Math.min(weightNow, mild);
+        }
+        if (weightNow !== was) { stored[item.src] = weightNow; player.saveWeights(storage, key, stored); }
         player.appendLog(storage, { t: Date.now(), age: key, src: item.src, reason: options.reason, at: Math.round(Number(options.time) || 0),
           watched: Math.round(Number(options.watched) || 0), dur: Math.round(Number(options.duration) || item.duration || 0), via: 'tv' });
       }
@@ -968,7 +998,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       }
       if (fresh.length) pool = fresh;
     }
-    if (index < 0 && (serial || personal)) {
+    if (index < 0 && (serial || personal) && !isMusicVideoChannel(channelId)) {
       const cont = continuationIndex(storyPool, watched.places, watched.finished);
       if (cont >= 0 && pool.includes(cont) && !ban.has(showOf(cont))) index = cont;
     }
@@ -977,6 +1007,13 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (index < 0 && evening) {
       const long = pool.filter(candidate => (videos[candidate].duration || 0) >= LONG_FORM_SECONDS);
       if (long.length) pool = long;
+    }
+    if (index < 0 && isMusicVideoChannel(channelId) && musicEmbed?.state?.ready) {
+      const heard = musicHeardMap();
+      index = pickMusicVideoIndex({
+        videos, pool, weights, currentIndex, played, random,
+        embed: musicEmbed?.state, heard, anchorKey: musicAnchorKey(currentIndex),
+      });
     }
     if (index < 0) {
       index = player.pickVideo(videos, pool, weights, currentIndex, new Set(), played, random, !evening);
@@ -993,6 +1030,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const played = recent.get(channelId) || [];
     played.push(index);
     recent.set(channelId, played.slice(-RECENT_LIMIT));
+    if (isMusicVideoChannel(channelId)) markMusicHeard(videos[index].src);
     // Kept on disk too: what each channel last put on, so a channel can pick up what was left on it.
     const lasts = lastOn();
     lasts[channelId] = { src: videos[index].src, at: now() };
@@ -1011,6 +1049,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     } catch { return {}; }
   }
   function leftOn(channelId, ids, rating) {
+    if (isMusicVideoChannel(channelId)) return undefined;
     const last = lastOn()[channelId];
     const index = last && bySrc.get(last.src);
     if (!last || index === undefined) return undefined;
@@ -1117,6 +1156,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     // Surfing is not watching: start an entry only after half a minute.
     if (!completed && positionSeconds < 30 && !history.has(item.file)) return false;
     history.set(item.file, { title: item.title || item.src, positionSeconds, durationSeconds: duration, completed });
+    if (isMusicVideoItem(item)) markMusicHeard(item.src);
     return true;
   }
 
@@ -1151,9 +1191,16 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (!TV_CHANNELS.some(channel => channel.id === channelId)) throw Object.assign(new Error('Unknown channel.'), { status: 404 });
     const key = channelTasteKey(channelId, ids) || channelId;
     const weights = weightsFor(key);
+    const musicChannel = isMusicVideoChannel(channelId) && musicEmbed?.state?.ready;
+    const musicHeard = musicChannel ? musicHeardMap() : null;
+    const anchorIndex = fromIndex;
     const weight = index => player.weightFor(weights, videos[index].src);
+    const score = index => musicChannel
+      ? musicScore(index, weight(index), anchorIndex, musicHeard)
+      : weight(index);
     const { places, finished } = watchMaps();
     const begun = index => finished.has(videos[index].src) || !!places[videos[index].src];
+    const musicUnheard = index => !musicHeard?.has(videos[index].src);
     const held = likes();
     const used = new Set(current === undefined ? [] : [current]);
     const usable = index => !used.has(index) && !isAdSrc(videos[index].src);
@@ -1188,12 +1235,19 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       if (index === undefined) return;
       planned.push({ kind, label, index, channel });
     };
-    if (current !== undefined) {
+    if (current !== undefined && !(musicChannel && isMusicVideoItem(videos[current]))) {
       const show = showOf(current);
       plan('more', show, pickTop(pool.filter(index => showOf(index) === show), index => weight(index) - (finished.has(videos[index].src) ? 2 : 0)));
     }
-    plan('new', 'New to you', pickTop(pool.filter(index => !begun(index)), weight));
-    plan('favourite', 'Favourite', pickTop(pool, index => (held[videos[index].src] ? 10 : 0) + weight(index) > 1 ? (held[videos[index].src] ? 10 : 0) + weight(index) : -Infinity));
+    if (musicChannel) {
+      plan('new', 'New to you', pickTop(pool.filter(index => musicUnheard(index)), index => score(index)));
+      plan('favourite', 'Favourite', pickTop(
+        pool.filter(index => !(places[videos[index].src] && !finished.has(videos[index].src))),
+        index => (held[videos[index].src] ? 10 : 0) + weight(index) > 1 ? (held[videos[index].src] ? 10 : 0) + weight(index) : -Infinity));
+    } else {
+      plan('new', 'New to you', pickTop(pool.filter(index => !begun(index)), weight));
+      plan('favourite', 'Favourite', pickTop(pool, index => (held[videos[index].src] ? 10 : 0) + weight(index) > 1 ? (held[videos[index].src] ? 10 : 0) + weight(index) : -Infinity));
+    }
     const long = current !== undefined && (videos[current].duration || 0) >= 1200;
     if (long) plan('short', 'Quick one', pickTop(pool.filter(index => videos[index].duration > 0 && videos[index].duration <= 420), weight));
     else plan('long', 'Long set', pickTop(pool.filter(index => videos[index].duration >= 1800), index => weight(index) + videos[index].duration / 36000));
@@ -1212,7 +1266,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (away) { used.add(away.index); plan('elsewhere', away.channel.name, away.index, away.channel); }
     const taken = directionTally();
     planned.sort((a, b) => (taken[b.kind] || 0) - (taken[a.kind] || 0));
-    for (const index of rankCandidates(fromIndex, pool, weight)) {
+    for (const index of rankCandidates(fromIndex, pool, score)) {
       if (used.has(index)) continue;
       used.add(index);
       plan('on', showOf(index), index, here);

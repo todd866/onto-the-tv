@@ -993,8 +993,8 @@ test('a measured score leans Dance without deciding who is on it', async () => {
   const picks = new Map();
   let current;
   for (let i = 0; i < 600; i++) {
-    // A one-second look teaches nothing, so only the measured score separates the acts.
-    const item = library.next('dance', { viewers: 'sam', current, reason: 'skip', time: 1, duration: 240, watched: 1 });
+    // Surfing teaches nothing on a skip before half a minute; music's early-skip rule uses the clock position, not watched seconds.
+    const item = library.next('dance', { viewers: 'sam', current, reason: 'skip', time: 35, duration: 240, watched: 1 });
     picks.set(item.src, (picks.get(item.src) || 0) + 1); current = item.src;
   }
   const total = list => list.reduce((sum, item) => sum + (picks.get(item.src) || 0), 0);

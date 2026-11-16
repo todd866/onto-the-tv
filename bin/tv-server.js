@@ -20,6 +20,7 @@ import { createSceneStore } from '../src/scenes.js';
 import { showsView } from '../src/tv-library-api.js';
 import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
+import { createMusicEmbedLoader } from '../src/music-pick.js';
 import { createGuestInvites } from '../src/guest-invites.js';
 import { createGuestServer } from '../src/guest-server.js';
 
@@ -170,7 +171,10 @@ const sceneLookup = src => {
   return video ? sceneStore.load(video.file) : null;
 };
 let channelScores = await loadChannelScores(settings);
-let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers, channelScores });
+const musicEmbed = createMusicEmbedLoader({ dir: settings.musicVectorsDir, log });
+await musicEmbed.refresh(true).catch(() => {});
+setInterval(() => { void musicEmbed.refresh(); }, 60_000).unref();
+let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers, channelScores, musicEmbed });
 // The library drive (a WD My Passport) spins itself down after a few idle minutes, whatever macOS's disk
 // sleep says, and the first title after that took 19 s to start (16 Nov 2026). A tiny synced write keeps it
 // spinning in the household's hours, and the TV opening its home or tuning wakes it before OK is pressed.
@@ -326,7 +330,7 @@ async function rescan() {
       catalogueHolder.videos = refreshedVideos;
       const freshSettings = await readSettings(join(appData, 'settings.json'));
       channelScores = await loadChannelScores(freshSettings);
-      library = createTvLibrary({ videos: refreshedVideos, history, storage, scenes: sceneLookup, showTiers, channelScores });
+      library = createTvLibrary({ videos: refreshedVideos, history, storage, scenes: sceneLookup, showTiers, channelScores, musicEmbed });
       knownSources.clear();
       for (const video of refreshedVideos) knownSources.add(video.src);
       log(`catalogue reloaded: ${library.home().channels.length} channels`);
