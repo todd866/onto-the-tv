@@ -1499,9 +1499,14 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
       }
       if (path === '/api/health') {
         if (libraryRoots == null) return send(response, 200, { ok: true });
-        const roots = typeof libraryRoots === 'function' ? await libraryRoots() : libraryRoots;
-        const status = await catalogueStatus(roots, catalogueFile);
-        return send(response, 200, { ok: true, library: libraryHealthReport(status) });
+        // The TV finds the server by this answer within 2.5 s. A library disk that hangs (16 Nov 2026: a stat on the
+        // Stash drive never returned behind an unanswered macOS prompt) must not hide a server that is up.
+        const report = (async () => {
+          const roots = typeof libraryRoots === 'function' ? await libraryRoots() : libraryRoots;
+          return libraryHealthReport(await catalogueStatus(roots, catalogueFile));
+        })();
+        const library = await Promise.race([report, new Promise(resolve => setTimeout(() => resolve({ status: 'slow' }), 1500))]);
+        return send(response, 200, { ok: true, library });
       }
       // Static TV UI. A trailing slash is that folder's index, so /games/ is the games page.
       let name = path === '/' ? '/index.html' : path;
