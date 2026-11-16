@@ -1065,5 +1065,8 @@ test('titles read as people write them: no emoji, broadcaster tags, upload paddi
   assert.equal(tidyTitle('Kylie Minogue reads The Australian 12 Days of Christmas ｜ CBeebies Bedtime Story', 'CBeebies Bedtime Stories'), 'Kylie Minogue reads The Australian 12 Days of Christmas');
   assert.equal(tidyTitle('Camping in the Garden ｜ Season 3 Episode 21-22 ｜ ｜ 20+ MINS', 'Charlie and Lola'), 'Camping in the Garden · Season 3 Episode 21-22');
   assert.equal(tidyTitle('Boo', 'Bing'), 'Boo');
+  assert.equal(tidyTitle('Baby cartoons & baby learning videos for kids - Hop Hop the owl & funny cartoons for kids', 'Hop Hop the Owl'), '');
+  assert.equal(tidyTitle('Four Tet - Sing', 'Four Tet'), 'Sing');
+  assert.equal(tidyTitle('Episode 5', 'Bluey'), 'Episode 5');
   assert.equal(tidyTitle('｜ CBeebies ｜', 'Bing'), 'CBeebies');
 });
