@@ -64,6 +64,7 @@ WIKI_API = "https://en.wikipedia.org/w/api.php"
 WIKI_REST = "https://en.wikipedia.org/api/rest_v1/page/summary/"
 META_MAX_AGE = timedelta(days=30)
 YOUTUBE_PACE_SECONDS = 20
+YT_DLP = shutil.which("yt-dlp") or "/opt/homebrew/bin/yt-dlp"
 SIGN_IN_MARKER = "Sign in to confirm"
 
 
@@ -430,9 +431,10 @@ def yt_dlp_descriptions(
     for index, video_id in enumerate(video_ids):
         if index:
             sleeper(pace)
-        proc = runner(
+        try:
+            proc = runner(
             [
-                "yt-dlp",
+                YT_DLP,
                 "--skip-download",
                 "--no-warnings",
                 "--dump-json",
@@ -440,7 +442,11 @@ def yt_dlp_descriptions(
             ],
             capture_output=True,
             text=True,
-        )
+            )
+        except FileNotFoundError:
+            # No yt-dlp on this Mac: the show still gets its Wikipedia and IMDb data.
+            out.append({"videoId": video_id, "error": "yt-dlp not found"})
+            return out, False
         combined = (proc.stdout or "") + (proc.stderr or "")
         if SIGN_IN_MARKER in combined:
             return out, True
