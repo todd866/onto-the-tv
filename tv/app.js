@@ -1117,6 +1117,7 @@
     if (box) box.hidden = true;
     osd.classList.remove('has-error');
   }
+  function playFailed() { return !!(play && (play.errorOn || mediaState === 'error')); }
   function rememberShow() {
     if (!play || !play.item || !play.channel) return;
     var channelId = play.channel.id;
@@ -1125,7 +1126,9 @@
     showStack.push({ channelId: channelId, item: play.item, time: typeof play.showTime === 'number' ? play.showTime : (play.item.resume || 0) });
     if (showStack.length > 30) showStack.shift();
     var snap = snapshotPlaying();
-    if (snap && watchBack) {
+    // A title that failed to play is no place to go back to: Back during the error's move to the next title
+    // would retune the failure (16 Nov 2026: two TNG episodes failing in turn, Back retuned the broken one).
+    if (snap && watchBack && !playFailed()) {
       watchBack.leave(profileId, snap, Date.now());
       persistBack();
       paintBackChip();
@@ -2242,9 +2245,7 @@
     };
   }
   function noteCurrent() {
-    // A title that failed to play is no place to go back to: Back during the next tune would replay the failure
-    // (16 Nov 2026: two TNG episodes in turn, Back retuned the broken one instead of going home).
-    if (play && (play.errorOn || mediaState === 'error')) return;
+    if (playFailed()) return;   // nor a title to continue
     var snap = snapshotPlaying();
     if (!snap || !watchBack) return;
     watchBack.note(profileId, snap);
@@ -3046,9 +3047,9 @@
     if (document.hidden && play) { saveProgress(false); media.pause(); }
     if (!document.hidden && hiddenAt && Date.now() - hiddenAt > STALE_AFTER_MS && !GUEST && window.tizen) {
       hiddenAt = 0;
+      setTimeout(function () { location.reload(); }, 400);
       diag('wake_reload', { page: play ? 'player' : 'home' });
-      if (play) stopPlayback();
-      setTimeout(function () { location.reload(); }, 50);
+      try { if (play) stopPlayback(); } catch (e) {}
     } else if (!document.hidden) hiddenAt = 0;
   });
 
