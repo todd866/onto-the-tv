@@ -10,10 +10,75 @@ export const MUSIC_NEUTRAL_SIMILARITY = 0.8;
 export const MUSIC_WEIGHT_FLOOR = 0.15;
 export const MUSIC_MILD_DISLIKE = 0.85;
 export const DEFAULT_MUSIC_VECTORS_DIR = join(homedir(), '.local/state/glancebar-music-embed/vectors');
+export const MUSIC_EMBED_DIM = 3072;
 
 const FEAT_MARKERS = [',', '&', ' feat.', ' feat ', ' ft.', ' ft ', ' featuring '];
 const PUNCT_RE = /[^a-z0-9\s]+/g;
 const SPACE_RE = /\s+/g;
+const BRACKET_RE = /\[[^\]]*\]|\([^)]*\)/g;
+const REMASTERED_RE = /\s*-\s*remastered.*$/i;
+const MUSIC_SESSION_FOLDER_HINTS = [
+  'kexp', 'tiny desk', 'mahogany', 'colors', 'cercle', 'like a version',
+  'from the basement', 'live at the wireless', 'audiotree', 'npr',
+];
+
+function folderKey(text) {
+  return String(text || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+export function isMusicSessionFolder(channel) {
+  const key = folderKey(channel);
+  if (!key) return false;
+  return MUSIC_SESSION_FOLDER_HINTS.some(hint => key === hint || key.includes(hint));
+}
+
+/** Glancebar embed.py normalize_title / match_key title half. */
+export function normalizeTitle(title) {
+  let text = String(title || '').toLowerCase();
+  text = text.replace(REMASTERED_RE, '');
+  text = text.replace(BRACKET_RE, '');
+  text = text.replace(/[^\w\s]/g, ' ').replace(SPACE_RE, ' ').trim();
+  return text;
+}
+
+export function songMatchKey(artist, title) {
+  return `${normalizeArtist(artist)}\0${normalizeTitle(title)}`;
+}
+
+function stripTitleForParse(text) {
+  return String(text || '').normalize('NFKC').replace(BRACKET_RE, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Performing artist and song title for embed lookup; session folders never supply the artist. */
+export function parseArtistTitleFromVideo(item) {
+  const channel = String(item?.channel || '').trim();
+  const session = isMusicSessionFolder(channel);
+  let text = stripTitleForParse(item?.title || item?.src || '');
+
+  const coverLav = /^(.+?)\s+covers?\s+(.+?)\s+for\s+like a version/i.exec(text);
+  if (coverLav) return { artist: coverLav[1].trim(), title: coverLav[2].trim() };
+
+  const performs = /^(.+?)\s+(?:performs?|plays?|sings?)\s+(.+?)\s+(?:live\s+)?(?:for|at|on|in)\s+(.+)$/i.exec(text);
+  if (performs && (session || isMusicSessionFolder(performs[3]))) {
+    return { artist: performs[1].trim(), title: performs[2].trim() };
+  }
+
+  const dash = /^(.+?)\s+(?:[—–\-]|·)\s+(.+)$/i.exec(text);
+  if (dash) return { artist: dash[1].trim(), title: dash[2].trim() };
+
+  const colon = /^([^:]{2,80}):\s*(.+)$/i.exec(text);
+  if (colon && session && (isMusicSessionFolder(colon[2]) || folderKey(colon[2]).includes('tiny desk'))) {
+    return { artist: colon[1].trim(), title: '' };
+  }
+
+  if (channel && !session) {
+    const song = dash ? dash[2].trim() : (colon ? colon[2].trim() : text);
+    return { artist: channel, title: song };
+  }
+
+  if (session) return { artist: text.trim(), title: '' };
+  return { artist: text.trim(), title: '' };
+}
 
 export function isMusicVideoChannel(channelId) {
   return MUSIC_VIDEO_CHANNEL_IDS.has(channelId);
@@ -40,13 +105,8 @@ export function normalizeArtist(artist) {
   return text;
 }
 
-/** Folder/show name, else the artist part of "Artist — Song". */
 export function artistFromVideo(item) {
-  const show = String(item?.channel || '').trim();
-  if (show) return show;
-  const title = String(item?.title || item?.src || '');
-  const match = title.match(/^(.+?)\s+(?:[—–\-]|·)\s+/);
-  return match ? match[1].trim() : title.trim();
+  return parseArtistTitleFromVideo(item).artist;
 }
 
 export function artistKeyForVideo(item) {
@@ -91,8 +151,8 @@ function weightedChoice(items, weightFn, random) {
   return items[items.length - 1];
 }
 
-export function buildMusicHeardMap({ historyList, videos, extra = null, nowMs = Date.now() }) {
-  const byPath = new Map(videos.map(item => [item.file, item]));
+export function buildMusicHeardMap({ historyList, videos, byFile = null, extra = null, nowMs = Date.now() }) {
+  const byPath = byFile || new Map(videos.map(item => [item.file, item]));
   const heard = new Map();
   const horizon = nowMs - MUSIC_HEARD_MS;
   for (const entry of historyList || []) {
@@ -129,6 +189,7 @@ export function createMusicEmbedState() {
   return {
     ready: false,
     centroids: new Map(),
+    tracks: new Map(),
     dim: 0,
     dir: '',
     indexMtime: 0,
@@ -137,7 +198,19 @@ export function createMusicEmbedState() {
   };
 }
 
-export async function loadMusicEmbeddings(state, dir, log = () => {}) {
+function embeddingVector(embed, item) {
+  if (!embed?.ready || !item) return null;
+  const { artist, title } = parseArtistTitleFromVideo(item);
+  if (title) {
+    const track = embed.tracks?.get(songMatchKey(artist, title));
+    if (track) return track;
+  }
+  const key = normalizeArtist(artist);
+  return key ? embed.centroids.get(key) : null;
+}
+
+export async function loadMusicEmbeddings(state, dir, log = () => {}, options = {}) {
+  const expectedDim = options.expectedDim ?? MUSIC_EMBED_DIM;
   const indexPath = join(dir, 'tracks-index.jsonl');
   const f32Path = join(dir, 'tracks.f32');
   let indexInfo, f32Info;
@@ -145,29 +218,33 @@ export async function loadMusicEmbeddings(state, dir, log = () => {}) {
     indexInfo = await stat(indexPath);
     f32Info = await stat(f32Path);
   } catch {
+    if (!state.ready) {
+      state.centroids = new Map();
+      state.tracks = new Map();
+    }
     state.ready = false;
-    state.centroids = new Map();
     return false;
   }
   const raw = await readFile(f32Path);
   const lines = (await readFile(indexPath, 'utf8')).split('\n').filter(Boolean);
-  if (!lines.length || raw.length < 4) {
-    log('music vectors: empty index or f32');
-    state.ready = false;
-    return false;
-  }
-  const dim = Math.floor(raw.length / (lines.length * 4));
-  if (dim < 1 || raw.length !== lines.length * dim * 4) {
+  const needBytes = lines.length * expectedDim * 4;
+  if (!lines.length || raw.length !== needBytes) {
     log('music vectors: f32 size does not match index rows');
-    state.ready = false;
-    return false;
+    return state.ready;
   }
   const view = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+  const dim = expectedDim;
   const sums = new Map();
   const counts = new Map();
+  const tracks = new Map();
   for (let row = 0; row < lines.length; row++) {
     let rowMeta;
     try { rowMeta = JSON.parse(lines[row]); } catch { continue; }
+    const rowVec = new Float32Array(dim);
+    const offset = row * dim;
+    for (let i = 0; i < dim; i++) rowVec[i] = view[offset + i];
+    const unit = l2Normalize(rowVec, dim);
+    if (unit && rowMeta.title) tracks.set(songMatchKey(rowMeta.artist, rowMeta.title), unit);
     const key = normalizeArtist(rowMeta.artist);
     if (!key) continue;
     if (!sums.has(key)) {
@@ -175,7 +252,6 @@ export async function loadMusicEmbeddings(state, dir, log = () => {}) {
       counts.set(key, 0);
     }
     const sum = sums.get(key);
-    const offset = row * dim;
     for (let i = 0; i < dim; i++) sum[i] += view[offset + i];
     counts.set(key, counts.get(key) + 1);
   }
@@ -187,62 +263,79 @@ export async function loadMusicEmbeddings(state, dir, log = () => {}) {
     const unit = l2Normalize(vec, dim);
     if (unit) centroids.set(key, unit);
   }
-  state.ready = centroids.size > 0;
+  if (!centroids.size) {
+    log('music vectors: empty index or f32');
+    return state.ready;
+  }
+  state.ready = true;
   state.centroids = centroids;
+  state.tracks = tracks;
   state.dim = dim;
   state.dir = dir;
   state.indexMtime = indexInfo.mtimeMs;
   state.f32Mtime = f32Info.mtimeMs;
-  return state.ready;
+  return true;
 }
 
-export function musicSimilarity(embed, fromKey, toKey) {
-  if (!embed?.ready || !fromKey || !toKey) return MUSIC_NEUTRAL_SIMILARITY;
-  const a = embed.centroids.get(fromKey);
-  const b = embed.centroids.get(toKey);
+export function musicSimilarity(embed, fromItem, toItem) {
+  if (!fromItem || !toItem) return MUSIC_NEUTRAL_SIMILARITY;
+  const a = embeddingVector(embed, fromItem);
+  const b = embeddingVector(embed, toItem);
   if (!a || !b) return MUSIC_NEUTRAL_SIMILARITY;
   return dot(a, b);
 }
 
-export function musicCandidateWeight({ index, videos, tasteWeight, embed, anchorKey, heard }) {
+export function musicCandidateWeight({ index, videos, tasteWeight, embed, anchorItem, heard }) {
   const item = videos[index];
-  const artistKey = artistKeyForVideo(item);
-  const sim = anchorKey ? musicSimilarity(embed, anchorKey, artistKey) : MUSIC_NEUTRAL_SIMILARITY;
+  const sim = anchorItem ? musicSimilarity(embed, anchorItem, item) : MUSIC_NEUTRAL_SIMILARITY;
   const flow = musicFlowFactor(sim);
   return Math.max(0, tasteWeight) * flow * (heard.has(item.src) ? 0.02 : 1);
 }
 
-export function musicRankScore({ index, videos, tasteWeight, embed, anchorKey, heard }) {
+export function musicRankScore({ index, videos, tasteWeight, embed, anchorItem, heard }) {
   const unheardBoost = musicHeardRecently(videos[index].src, heard) ? 0 : 1e12;
-  return unheardBoost + musicCandidateWeight({ index, videos, tasteWeight, embed, anchorKey, heard });
+  return unheardBoost + musicCandidateWeight({ index, videos, tasteWeight, embed, anchorItem, heard });
 }
 
-export function pickMusicVideoIndex({ videos, pool, weights, currentIndex, played, random, embed, heard, anchorKey }) {
-  const available = pool.filter(index => index !== currentIndex);
+export function pickMusicVideoIndex({
+  videos, pool, weights, currentIndex, played, random, embed, heard, anchorItem = null,
+  preferLong = false, longFormSeconds = 20 * 60,
+}) {
+  let available = pool.filter(index => index !== currentIndex);
   if (!available.length) return -1;
-  if (available.length === 1) return available[0];
   const currentArtist = currentIndex >= 0 ? artistKeyForVideo(videos[currentIndex]) : '';
-  let unheard = available.filter(index => !heard.has(videos[index].src));
-  let candidates = unheard.length ? unheard : available;
-  const maxWeight = candidates.reduce((max, index) => {
-    const taste = weights[videos[index].src] ?? 1;
-    return Math.max(max, musicCandidateWeight({ index, videos, tasteWeight: taste, embed, anchorKey, heard: new Map() }));
-  }, 0);
-  let sameArtistOnly = candidates.filter(index => artistKeyForVideo(videos[index]) === currentArtist);
-  if (currentArtist && sameArtistOnly.length < candidates.length) candidates = candidates.filter(index => artistKeyForVideo(videos[index]) !== currentArtist);
-  if (!candidates.length) candidates = sameArtistOnly.length ? sameArtistOnly : available;
+  if (currentArtist) {
+    const varied = available.filter(index => artistKeyForVideo(videos[index]) !== currentArtist);
+    if (!varied.length) return -1;
+    available = varied;
+  }
+  const unheard = available.filter(index => !heard.has(videos[index].src));
+  const candidates = unheard.length ? unheard : available;
   const recentShows = played.slice(-2).map(index => artistKeyForVideo(videos[index]));
   const lastArtist = recentShows[recentShows.length - 1] || currentArtist;
+  const maxWeight = candidates.reduce((max, index) => {
+    const taste = weights[videos[index].src] ?? 1;
+    return Math.max(max, musicCandidateWeight({ index, videos, tasteWeight: taste, embed, anchorItem, heard: new Map() }));
+  }, 0);
   const pickWeight = index => {
     const taste = weights[videos[index].src] ?? 1;
-    let w = musicCandidateWeight({ index, videos, tasteWeight: taste, embed, anchorKey: anchorKey || lastArtist, heard });
+    let anchor = anchorItem;
+    if (!anchor && lastArtist) {
+      const prior = played.slice().reverse().find(i => artistKeyForVideo(videos[i]) === lastArtist);
+      if (prior !== undefined) anchor = videos[prior];
+    }
+    let w = musicCandidateWeight({ index, videos, tasteWeight: taste, embed, anchorItem: anchor, heard });
     if (lastArtist && artistKeyForVideo(videos[index]) === lastArtist) w *= 0.35;
-    return exploreBlend(w, maxWeight);
+    if (preferLong && (videos[index].duration || 0) >= longFormSeconds) w *= 1.25;
+    return embed?.ready ? exploreBlend(w, maxWeight) : w;
   };
   return weightedChoice(candidates, pickWeight, random);
 }
 
-export function createMusicEmbedLoader({ dir = DEFAULT_MUSIC_VECTORS_DIR, log = () => {}, pollMs = 60_000, now = () => Date.now() } = {}) {
+export function createMusicEmbedLoader({
+  dir = DEFAULT_MUSIC_VECTORS_DIR, log = () => {}, pollMs = 60_000, now = () => Date.now(),
+  expectedDim = MUSIC_EMBED_DIM,
+} = {}) {
   const state = createMusicEmbedState();
   let loading = null;
   async function refresh(force = false) {
@@ -257,17 +350,18 @@ export function createMusicEmbedLoader({ dir = DEFAULT_MUSIC_VECTORS_DIR, log = 
       f32Info = await stat(f32Path);
     } catch {
       if (state.dir !== dir || state.ready) log('music vectors: missing or unreadable');
-      state.ready = false;
-      state.centroids = new Map();
+      if (!state.ready) {
+        state.centroids = new Map();
+        state.tracks = new Map();
+      }
       state.dir = dir;
-      return false;
+      return state.ready;
     }
     if (!force && state.ready && state.dir === dir
       && state.indexMtime === indexInfo.mtimeMs && state.f32Mtime === f32Info.mtimeMs) return true;
-    loading = loading || loadMusicEmbeddings(state, dir, log).catch(error => {
+    loading = loading || loadMusicEmbeddings(state, dir, log, { expectedDim }).catch(error => {
       log(`music vectors unavailable: ${error.message}`);
-      state.ready = false;
-      return false;
+      return state.ready;
     }).finally(() => { loading = null; });
     await loading;
     return state.ready;

@@ -476,6 +476,7 @@ export function parseRange(header, size) {
  */
 export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, channelScores = null, musicEmbed = null, now = () => Date.now() }) {
   const bySrc = new Map(videos.map((video, index) => [video.src, index]));
+  const videoByFile = new Map(videos.map(item => [item.file, item]));
   // Per-channel memory of recently played indices, as the player keeps per tab.
   const recent = new Map();
   // Home's "now" pick, so OK plays the episode on the card.
@@ -503,17 +504,17 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   }
 
   function musicHeardMap() {
-    return buildMusicHeardMap({ historyList: history.list(), videos, extra: musicHeardExtra, nowMs: now() });
+    return buildMusicHeardMap({ historyList: history.list(), videos, byFile: videoByFile, extra: musicHeardExtra, nowMs: now() });
   }
 
-  function musicAnchorKey(currentIndex) {
-    if (currentIndex < 0) return '';
-    return artistKeyForVideo(videos[currentIndex]);
+  function musicAnchorItem(currentIndex) {
+    if (currentIndex < 0) return null;
+    return videos[currentIndex];
   }
 
   function musicScore(index, tasteWeight, currentIndex, heard) {
     return musicRankScore({
-      index, videos, tasteWeight, embed: musicEmbed?.state, anchorKey: musicAnchorKey(currentIndex), heard,
+      index, videos, tasteWeight, embed: musicEmbed?.state, anchorItem: musicAnchorItem(currentIndex), heard,
     });
   }
 
@@ -929,7 +930,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         if (isMusicVideoPick(channelId, item)) {
           markMusicHeard(item.src);
           const mild = mildMusicSkipWeight(was, options.reason, Number(options.time));
-          if (mild !== null) weightNow = Math.min(weightNow, mild);
+          if (mild !== null) weightNow = mild;
         }
         if (weightNow !== was) { stored[item.src] = weightNow; player.saveWeights(storage, key, stored); }
         player.appendLog(storage, { t: Date.now(), age: key, src: item.src, reason: options.reason, at: Math.round(Number(options.time) || 0),
@@ -1004,16 +1005,18 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     }
     if (index < 0 && channelId === 'forjake') pool.sort((a, b) => jakeLeadRank(videos[a].channel) - jakeLeadRank(videos[b].channel));
     const evening = new Date(now()).getHours() >= 19 && grownOnly(ids, ratingOf(options.rating));
-    if (index < 0 && evening) {
+    if (index < 0 && isMusicVideoChannel(channelId)) {
+      const heard = musicHeardMap();
+      const musicPick = pickMusicVideoIndex({
+        videos, pool, weights, currentIndex, played, random,
+        embed: musicEmbed?.state, heard, anchorItem: musicAnchorItem(currentIndex),
+        preferLong: evening, longFormSeconds: LONG_FORM_SECONDS,
+      });
+      if (musicPick >= 0) index = musicPick;
+    }
+    if (index < 0 && evening && !isMusicVideoChannel(channelId)) {
       const long = pool.filter(candidate => (videos[candidate].duration || 0) >= LONG_FORM_SECONDS);
       if (long.length) pool = long;
-    }
-    if (index < 0 && isMusicVideoChannel(channelId) && musicEmbed?.state?.ready) {
-      const heard = musicHeardMap();
-      index = pickMusicVideoIndex({
-        videos, pool, weights, currentIndex, played, random,
-        embed: musicEmbed?.state, heard, anchorKey: musicAnchorKey(currentIndex),
-      });
     }
     if (index < 0) {
       index = player.pickVideo(videos, pool, weights, currentIndex, new Set(), played, random, !evening);
@@ -1191,7 +1194,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (!TV_CHANNELS.some(channel => channel.id === channelId)) throw Object.assign(new Error('Unknown channel.'), { status: 404 });
     const key = channelTasteKey(channelId, ids) || channelId;
     const weights = weightsFor(key);
-    const musicChannel = isMusicVideoChannel(channelId) && musicEmbed?.state?.ready;
+    const musicChannel = isMusicVideoChannel(channelId);
     const musicHeard = musicChannel ? musicHeardMap() : null;
     const anchorIndex = fromIndex;
     const weight = index => player.weightFor(weights, videos[index].src);
