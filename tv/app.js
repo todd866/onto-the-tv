@@ -39,6 +39,8 @@
   var data = { channels: [], viewers: [], ceiling: null };
   var rows = [];
   var focus = { row: 0, col: 0 };
+  var nowPage = 0;
+  var nowAllCards = [];
   var homeRequest = 0;
   var play = null;          // { mode: 'channel', channel, item, visitStart, lastSave }
   var osdTimer = 0, gameState = null, tuneRequest = 0, tuneMark = 0, tuneTimer = 0;
@@ -294,6 +296,65 @@
     // The server orders the lineup for this audience; the app tiles follow it.
     return cards;
   }
+  function nowLayoutActive() { return layoutMode() === 'now' && !GUEST; }
+  function nowResumeEntries() {
+    var entries = resumeEntries(), have = {}, r;
+    for (r = 0; r < entries.length; r++) have[entries[r].src] = true;
+    if (!GUEST) entries = entries.concat(likedEntries(have));
+    return entries;
+  }
+  function buildNowAllCards() {
+    var entries = nowResumeEntries(), cards = [], i;
+    for (i = 0; i < entries.length; i++) cards.push({ _resumeEntry: entries[i] });
+    return cards.concat(gridCards());
+  }
+  function nowCols() { return columnCount(); }
+  function nowPageCount() { return Math.max(1, Math.ceil(nowAllCards.length / nowCols())); }
+  function paintNowPager() {
+    var el = $('now-pager');
+    if (!nowLayoutActive()) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    var cur = nowPage + 1, total = nowPageCount();
+    el.innerHTML = 'page <b>' + cur + '</b> / ' + total;
+  }
+  function paintHeroFromEntry(entry) {
+    if (!entry) return;
+    paintHero({ number: entry.liked ? '\u2665' : 'Continue', name: entry.liked ? 'Liked' : ('resume ' + clock(entry.positionSeconds || 0)),
+      now: { show: entry.show || entry.title || '', title: entry.title && entry.title !== entry.show ? entry.title : '',
+        art: entry.art, minutes: entry.duration ? Math.max(1, Math.round(entry.duration / 60)) : 0 } });
+  }
+  function heroForNowEl(el) {
+    if (!el) return;
+    if (el._entry) paintHeroFromEntry(el._entry);
+    else if (el._item && !el._item.app) paintHero(el._item);
+  }
+  function channelsRowIndex() {
+    var i;
+    for (i = 0; i < rows.length; i++) if (rows[i].kind === 'channels') return i;
+    return -1;
+  }
+  function refreshNowPageRow(col) {
+    var cols = nowCols(), holder = $('channels'), start = nowPage * cols, els = [], c;
+    holder.innerHTML = '';
+    for (c = start; c < start + cols && c < nowAllCards.length; c++) {
+      var btn = channelButton(nowAllCards[c], c);
+      holder.appendChild(btn);
+      els.push(btn);
+    }
+    paintNowPager();
+    var ri = channelsRowIndex();
+    if (ri >= 0) rows[ri].els = els;
+    if (col < 0) col = 0;
+    if (col >= els.length) col = els.length - 1;
+    focus.col = col;
+    var focused = document.querySelectorAll('.focused');
+    for (var f = 0; f < focused.length; f++) focused[f].classList.remove('focused');
+    var pick = els[col];
+    if (!pick) return;
+    pick.classList.add('focused');
+    try { pick.focus(); } catch (e) {}
+    heroForNowEl(pick);
+  }
   function selectedIds() {
     var ids = [], people = data.viewers || [];
     for (var i = 0; i < people.length; i++) if (people[i].on) ids.push(people[i].id);
@@ -335,6 +396,7 @@
   function chooseLayout(id) {
     layoutStore[profileId] = id;
     saveLayoutStore();
+    if (id === 'now') nowPage = 0;
     render();
   }
   function chooseRating(rating) {
@@ -477,6 +539,11 @@
   }
   function columnCount() {
     var mode = layoutMode();
+    if (nowLayoutActive()) {
+      if (window.innerWidth <= 600) return 1;
+      if (window.innerWidth <= 1100) return 2;
+      return 4;
+    }
     if (mode === 'guide') return 1;
     if (mode === 'pictures') {
       if (window.innerWidth <= 600) return 1;
@@ -560,6 +627,60 @@
       pill.textContent = item.name;
       bezelP.appendChild(pill);
       button.appendChild(bezelP);
+    } else if (nowLayoutActive()) {
+      var entryNow = item._resumeEntry;
+      var pic = document.createElement('span');
+      pic.className = 'now-card-pic';
+      if (item.app) {
+        var glyphNow = document.createElement('span');
+        glyphNow.className = 'app-glyph';
+        glyphNow.setAttribute('aria-hidden', 'true');
+        glyphNow.innerHTML = appGlyph(item.app);
+        pic.appendChild(glyphNow);
+      } else if (entryNow) {
+        var imgR = document.createElement('img');
+        imgR.className = 'art';
+        imgR.alt = '';
+        pic.appendChild(imgR);
+        var artR = entryNow.art || (entryNow.src ? '/art?src=' + q(entryNow.src) : '');
+        if (artR) loadArt(imgR, artUrl(artR));
+      } else if (item.now && item.now.art) {
+        var imgN = document.createElement('img');
+        imgN.className = 'art';
+        imgN.alt = '';
+        pic.appendChild(imgN);
+        loadArt(imgN, artUrl(item.now.art));
+      }
+      button.appendChild(pic);
+      var text = document.createElement('span');
+      text.className = 'now-card-text';
+      var line1 = document.createElement('span');
+      line1.className = 'now-card-line1';
+      var line2 = document.createElement('span');
+      line2.className = 'now-card-line2 clamp2';
+      if (entryNow) {
+        button._entry = entryNow;
+        var showName = entryNow.show || entryNow.title || '';
+        var resumeMark = document.createElement('span');
+        resumeMark.className = 'resume-mark';
+        resumeMark.textContent = entryNow.liked ? '\u2665 ' : '\u25b6 ';
+        line1.appendChild(resumeMark);
+        line1.appendChild(document.createTextNode(showName));
+        var ep = (entryNow.title && entryNow.title !== entryNow.show) ? entryNow.title : '';
+        line2.textContent = ep;
+        button.setAttribute('aria-label', (entryNow.liked ? 'Liked: ' : 'Continue: ') + showName + (ep ? ', ' + ep : ''));
+      } else {
+        var numNow = document.createElement('span');
+        numNow.className = 'num';
+        numNow.textContent = String(item.number);
+        line1.appendChild(numNow);
+        line1.appendChild(document.createTextNode(' ' + item.name));
+        if (show) line2.textContent = show;
+        button.setAttribute('aria-label', item.number + ' ' + item.name + (show ? ', ' + show : ''));
+      }
+      text.appendChild(line1);
+      text.appendChild(line2);
+      button.appendChild(text);
     } else {
       button.appendChild(antennaEl());
       var bezel = document.createElement('span');
@@ -610,11 +731,20 @@
       button.appendChild(bezel);
     }
     button.addEventListener('click', function () {
-      var topRows = 0, rowIndex;
-      for (rowIndex = 0; rowIndex < rows.length; rowIndex++) if (rows[rowIndex].kind !== 'channels') topRows++;
-      focus = { row: Math.floor(index / columnCount()) + topRows, col: index % columnCount() };
-      moveFocus(0, 0);
-      activate(item);
+      var ri = channelsRowIndex(), col = index % columnCount(), rowAt = ri >= 0 ? ri : rows.length - 1;
+      if (nowLayoutActive()) {
+        var colsTap = nowCols();
+        nowPage = Math.floor(index / colsTap);
+        focus = { row: rowAt, col: index - nowPage * colsTap };
+        refreshNowPageRow(focus.col);
+      } else {
+        var topRows = 0, rowIndex;
+        for (rowIndex = 0; rowIndex < rows.length; rowIndex++) if (rows[rowIndex].kind !== 'channels') topRows++;
+        focus = { row: Math.floor(index / columnCount()) + topRows, col: col };
+        moveFocus(0, 0);
+      }
+      if (button._entry) playResume(button._entry);
+      else activate(item);
     });
     return button;
   }
@@ -714,14 +844,30 @@
       badge.className = 'rating';
     }
     paintClock();
-    var resumeEls = paintResumeRow();
-    var cards = gridCards();
+    $('home').classList.toggle('home-now', nowLayoutActive());
+    var resumeEls = [], resumeRow = $('resume-row'), c;
+    if (nowLayoutActive()) {
+      resumeRow.hidden = true;
+      resumeRow.innerHTML = '';
+      nowAllCards = buildNowAllCards();
+      if (nowPage >= nowPageCount()) nowPage = Math.max(0, nowPageCount() - 1);
+    } else {
+      resumeEls = paintResumeRow();
+    }
+    var cards = nowLayoutActive() ? nowAllCards : gridCards();
     var holder = $('channels');
     holder.className = 'layout-' + layoutMode();
     holder.innerHTML = '';
-    for (var c = 0; c < cards.length; c++) holder.appendChild(channelButton(cards[c], c));
+    if (nowLayoutActive()) {
+      var colsRender = nowCols(), from = nowPage * colsRender, to = from + colsRender;
+      for (c = from; c < to && c < cards.length; c++) holder.appendChild(channelButton(cards[c], c));
+      paintNowPager();
+    } else {
+      for (c = 0; c < cards.length; c++) holder.appendChild(channelButton(cards[c], c));
+      paintNowPager();
+    }
     var firstChannel = null;
-    for (var fc = 0; fc < cards.length; fc++) if (!cards[fc].app) { firstChannel = cards[fc]; break; }
+    for (var fc = 0; fc < gridCards().length; fc++) if (!gridCards()[fc].app) { firstChannel = gridCards()[fc]; break; }
     paintHero(firstChannel);
     rows = [];
     if (viewers.children.length && !GUEST) {
@@ -729,10 +875,16 @@
       rows.push({ kind: 'viewers', els: controls });
     }
     if (resumeEls.length) rows.push({ kind: 'resume', els: resumeEls });
-    for (var start = 0; start < holder.children.length; start += columnCount()) {
-      var slice = [];
-      for (var n = start; n < holder.children.length && n < start + columnCount(); n++) slice.push(holder.children[n]);
-      rows.push({ kind: 'channels', els: slice });
+    if (nowLayoutActive()) {
+      var pageEls = [];
+      for (var pe = 0; pe < holder.children.length; pe++) pageEls.push(holder.children[pe]);
+      if (pageEls.length) rows.push({ kind: 'channels', els: pageEls });
+    } else {
+      for (var start = 0; start < holder.children.length; start += columnCount()) {
+        var slice = [];
+        for (var n = start; n < holder.children.length && n < start + columnCount(); n++) slice.push(holder.children[n]);
+        rows.push({ kind: 'channels', els: slice });
+      }
     }
     if (!rows.length) return;
     if (focus.row > rows.length - 1) focus.row = rows.length - 1;
@@ -741,6 +893,19 @@
   }
   function moveFocus(dRow, dCol) {
     if (!rows.length) return;
+    if (nowLayoutActive() && dCol && rows[focus.row] && rows[focus.row].kind === 'channels') {
+      var prow = rows[focus.row];
+      if (dCol === 1 && focus.col === prow.els.length - 1 && (nowPage + 1) * nowCols() < nowAllCards.length) {
+        nowPage++;
+        refreshNowPageRow(0);
+        return;
+      }
+      if (dCol === -1 && focus.col === 0 && nowPage > 0) {
+        nowPage--;
+        refreshNowPageRow(prow.els.length - 1);
+        return;
+      }
+    }
     var previous = rows[focus.row] || rows[0];
     if (!rows[focus.row]) focus.row = 0;
     focus.row = Math.max(0, Math.min(rows.length - 1, focus.row + dRow));
@@ -765,11 +930,13 @@
           minutes: held.duration ? Math.max(1, Math.round(held.duration / 60)) : 0 } });
     }
     if (row.kind === 'channels') {
-      var holder = $('channels'), box = el.getBoundingClientRect(), area = holder.getBoundingClientRect();
-      var padTop = 36, padBottom = 40;
-      if (box.top < area.top + padTop) holder.scrollTop -= area.top + padTop - box.top;
-      if (box.bottom > area.bottom - padBottom) holder.scrollTop += box.bottom - area.bottom + padBottom;
-      if (el._item && !el._item.app) paintHero(el._item);
+      if (!nowLayoutActive()) {
+        var holder = $('channels'), box = el.getBoundingClientRect(), area = holder.getBoundingClientRect();
+        var padTop = 36, padBottom = 40;
+        if (box.top < area.top + padTop) holder.scrollTop -= area.top + padTop - box.top;
+        if (box.bottom > area.bottom - padBottom) holder.scrollTop += box.bottom - area.bottom + padBottom;
+      }
+      heroForNowEl(el);
     }
   }
   function activate(item) {
@@ -793,6 +960,7 @@
       return chooseRating(el.getAttribute('data-rating'));
     }
     if (row.kind === 'resume') return playResume(el._entry);
+    if (row.kind === 'channels' && el._entry) return playResume(el._entry);
     activate(el._item);
   }
   function applyHome(home, request) {

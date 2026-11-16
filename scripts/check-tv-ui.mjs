@@ -108,9 +108,25 @@ try {
       fire('keyup');
     }, code);
   }
+  async function toLibraryCard(page) {
+    await page.keyboard.press('ArrowDown');
+    for (let i = 0; i < 80; i++) {
+      if (await page.locator('.channel.app-library').count()) return;
+      await page.keyboard.press('ArrowRight');
+    }
+    await page.locator('.channel.app-library').waitFor();
+  }
   async function downToChannel(page) {
     for (let i = 0; i < 6 && await page.locator('.channel.focused').count() === 0; i++) {
       await page.keyboard.press('ArrowDown');
+    }
+    for (let i = 0; i < 24; i++) {
+      const resume = await page.evaluate(() => {
+        const el = document.querySelector('.channel.focused');
+        return !!(el && el._entry);
+      });
+      if (!resume) break;
+      await page.keyboard.press('ArrowRight');
     }
   }
   async function pickProfile(page, id) {
@@ -168,7 +184,7 @@ try {
   assert.equal(await page.locator('h1, h2').count(), 0);
   assert.equal(await page.getByText('Continue Watching').count(), 0);
   assert.equal(await page.getByText('Browse shows').count(), 0);
-  assert.equal(await page.getByText('Games', { exact: true }).count(), 1);
+  assert.equal(await page.locator('#channels.layout-now .channel .now-card-line1').filter({ hasText: 'Cartoons' }).count(), 1);
   const homeControls = () => page.evaluate(() => ({
     profile: document.querySelector('.profile-name')?.textContent,
     ratings: [...document.querySelectorAll('#viewers .seg-rating')].map(el =>
@@ -185,20 +201,27 @@ try {
   assert.match((await homeControls()).channelsClass, /layout-guide/);
   await page.locator('.seg[data-layout="now"]').click();
   assert.match((await homeControls()).channelsClass, /layout-now/);
-  assert.equal(await page.locator('.channel .now').first().getAttribute('title'), longShow);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollHeight <= 1080), 'now layout must not scroll vertically');
+  assert.equal(await page.locator('#channels.layout-now .channel').count(), 4, 'exactly four visible now cards');
+  assert.equal(await page.evaluate(() => document.querySelector('#channels.layout-now .channel .now-card-line2')?.textContent), longShow);
   const tooSmall = await page.evaluate(() => {
-    const nodes = [...document.querySelectorAll('#home button, #home .num, #home .name, #home .now, #home .profile-name, #home .hero-show, #home .hero-channel, #home .hero-length, #clock')];
+    const nodes = [...document.querySelectorAll('#home button, #home .num, #home .name, #home .now-card-line1, #home .profile-name, #home .hero-show, #home .hero-channel, #home .hero-length, #clock')];
     return nodes.filter(el => el.textContent.trim() && parseFloat(getComputedStyle(el).fontSize) < 28).map(el => el.className + ' ' + getComputedStyle(el).fontSize);
   });
   assert.deepEqual(tooSmall, []);
-  const card = await page.locator('.channel').first().boundingBox();
-  assert.ok(card.width > 280 && card.width < 300 && Math.abs(card.height - 212) < 2, 'six tiles a row at 1920: ' + JSON.stringify(card));
-  const clipped = await page.evaluate(() => [...document.querySelectorAll('.channel .name, .channel .now-title, .profile-name, .hero-show')]
+  const card = await page.locator('#channels.layout-now .channel').first().boundingBox();
+  assert.ok(card.width > 400 && card.width < 450 && Math.abs(card.height - 420) < 4, 'four big cards a row at 1920: ' + JSON.stringify(card));
+  const clipped = await page.evaluate(() => [...document.querySelectorAll('.now-card-line1, .profile-name, .hero-show, .hero-title')]
     .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent));
   assert.deepEqual(clipped, [], 'no clipped channel or control text');
   await assertViewport(page, { primary: [{ selector: '#home' }], controls: [{ selector: '.viewer.focused' }] });
   await page.keyboard.press('ArrowDown');
   await page.locator('.channel.focused').waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector('#now-pager b')?.textContent), '1');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  await page.locator('.channel.focused').waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector('#now-pager b')?.textContent), '2');
+  assert.equal(await page.locator('#channels.layout-now .channel').count(), 4);
   await page.screenshot({ path: path.join(out, 'home-focus-dark.png') });
 
   await page.emulateMedia({ colorScheme: 'light' });
@@ -293,7 +316,7 @@ try {
 
   const preparedRequests = artRequests;
   artUnavailable = true;
-  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
   await page.waitForTimeout(200);
   await assertViewport(page, { primary: ['#home'], controls: ['.channel.focused', '#viewers'] });
   await page.screenshot({ path: path.join(out, 'home-last-row-light.png') });
@@ -401,6 +424,7 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('#home:visible').waitFor();
   await page.keyboard.press('2');
+  await page.waitForTimeout(1250);
   await page.locator('#player:visible').waitFor();
   await page.waitForTimeout(80);
   assert.equal(nextRequests.at(-1).channel, 'movies', 'number key tunes that channel');
@@ -525,17 +549,16 @@ try {
       await page.locator('.channel.focused').waitFor();
       await page.evaluate(() => { const el = document.querySelector('.channel.focused'); if (el) el.scrollIntoView({ block: 'center', inline: 'nearest' }); });
       await page.waitForTimeout(200);
-      await assertViewport(page, { primary: ['#home'], controls: [{ selector: '.channel.focused', fit: 'visible', minWidth: 200, minHeight: 120 }] });
+      await assertViewport(page, { primary: ['#home'], controls: [{ selector: '.channel.focused', fit: 'visible', minWidth: 180, minHeight: 120 }] });
     }
     await page.screenshot({ path: path.join(out, 'home-' + width + 'x' + height + '.png') });
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('http://tv.test/');
-  await page.locator('.channel.app-library').waitFor();
+  await toLibraryCard(page);
   const polish = fileURLToPath(new URL('../audit/tv-polish/library/', import.meta.url));
   await mkdir(polish, { recursive: true });
-  await page.locator('.channel.app-library').scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(polish, 'library-card-dark.png') });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.screenshot({ path: path.join(polish, 'library-card-light.png') });
