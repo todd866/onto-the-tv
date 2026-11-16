@@ -895,6 +895,19 @@ test('a channel resumes the episode left on it; a skip or a short look does not 
   assert.equal(third.resume, 150);
 });
 
+test('a channel does not resume a title within 30 s of its end', async () => {
+  const { library } = await setup();
+  const viewers = 'sam,jake,mum,dad';
+  const other = library.home(viewers).channels.find(channel => channel.id !== 'cartoons').id;
+  const first = library.next('cartoons', { viewers });
+  const nearEnd = first.duration - 5;
+  library.progress({ src: first.src, positionSeconds: nearEnd, durationSeconds: first.duration, completed: false });
+  library.next(other, { viewers });
+  const back = library.next('cartoons', { viewers });
+  assert.notEqual(back.src, first.src, 'nearly over is not held as the episode left on this channel');
+  assert.notEqual(library.next('cartoons', { viewers, prefetch: true }).src, first.src);
+});
+
 test('a channel does not hold an episode that was barely started', async () => {
   const { library } = await setup();
   const viewers = 'sam,jake,mum,dad';

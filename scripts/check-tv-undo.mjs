@@ -33,7 +33,6 @@ try {
       { src: 'Kids/Sarah and Duck.mp4', show: 'Sarah and Duck', title: 'Sarah and Duck', art: '/art?src=show2', positionSeconds: 40, duration: 420, channel: { id: 'cartoons', number: 1, name: 'Cartoons' }, mode: 'channel', leftAt: now },
     ];
     localStorage.setItem('onto.viewers.band', band);
-    localStorage.setItem('onto.profile', 'all');
     localStorage.setItem('onto.viewers', 'sam,jake,mum,dad');
     localStorage.setItem('onto.back.v1', JSON.stringify({ recent: { all: row, sam: row }, stacks: { all: [row[0]], sam: [row[0]] } }));
   });
@@ -82,29 +81,70 @@ try {
     await page.emulateMedia({ colorScheme: scheme });
     await page.screenshot({ path: path.join(out, name) });
   }
+  async function waitArts(sel) {
+    await page.waitForFunction(s => [...document.querySelectorAll(s)].every(img => img.complete && img.naturalWidth), sel);
+  }
+  async function readContinueStrip() {
+    return page.locator('#resume-row').evaluate(row => {
+      const tiles = [...row.querySelectorAll('.resume')].map(button => {
+        const rect = button.getBoundingClientRect();
+        const title = button.querySelector('.resume-title');
+        const at = button.querySelector('.resume-at');
+        return {
+          text: (title ? title.textContent : '') + ' | ' + (at ? at.textContent : ''),
+          w: Math.round(rect.width), h: Math.round(rect.height),
+          titleSize: title ? parseFloat(getComputedStyle(title).fontSize) : 0,
+          atSize: at ? parseFloat(getComputedStyle(at).fontSize) : 0,
+        };
+      });
+      return { label: row.getAttribute('aria-label'), tiles, hidden: row.hidden };
+    });
+  }
+  async function readContinueNow() {
+    return page.evaluate(() => {
+      const tiles = [...document.querySelectorAll('#channels.layout-now .channel')].filter(b => b._entry).map(button => {
+        const line1 = button.querySelector('.now-card-line1');
+        const line2 = button.querySelector('.now-card-line2');
+        const rect = button.getBoundingClientRect();
+        const entry = button._entry;
+        const show = line1 ? line1.textContent.replace(/^[\u25b6\u2665]\s*/, '').trim() : '';
+        const resumeAt = entry ? Math.floor(entry.positionSeconds / 60) + ':' + String(Math.floor(entry.positionSeconds % 60)).padStart(2, '0') : '';
+        return {
+          text: show + ' | resume ' + resumeAt,
+          aria: button.getAttribute('aria-label'),
+          w: Math.round(rect.width), h: Math.round(rect.height),
+          titleSize: line1 ? parseFloat(getComputedStyle(line1).fontSize) : 0,
+          positionSeconds: entry?.positionSeconds ?? -1,
+        };
+      });
+      return { tiles, resumeRowHidden: document.getElementById('resume-row').hidden };
+    });
+  }
+  async function waitContinueNow() {
+    await page.locator('#channels.layout-now .channel').first().waitFor();
+    await page.waitForFunction(() => document.getElementById('resume-row').hidden);
+    await waitArts('#channels.layout-now .art');
+  }
+  async function heroResumeLine() {
+    await page.keyboard.press('ArrowDown');
+    await page.waitForFunction(() => document.querySelector('#channels .channel.focused')?._entry);
+    await page.waitForFunction(() => (document.querySelector('.hero-channel')?.textContent || '').includes('resume'));
+    return (await page.locator('.hero-channel').textContent() || '').trim();
+  }
+
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('http://tv.test/');
-  await page.locator('#resume-row .resume').first().waitFor();
+  await page.evaluate(() => localStorage.setItem('onto.profile', 'all'));
+  await page.reload();
+  await waitContinueNow();
   await page.evaluate(async () => { if (document.fonts) await document.fonts.ready; });
-  await page.waitForFunction(() => [...document.querySelectorAll('#resume-row .thumb')].every(img => img.complete && img.naturalWidth));
-  const home = await page.locator('#resume-row').evaluate(row => {
-    const tiles = [...row.querySelectorAll('.resume')].map(button => {
-      const rect = button.getBoundingClientRect();
-      const title = button.querySelector('.resume-title');
-      const at = button.querySelector('.resume-at');
-      return {
-        text: (title ? title.textContent : '') + ' | ' + (at ? at.textContent : ''),
-        w: Math.round(rect.width), h: Math.round(rect.height),
-        titleSize: title ? parseFloat(getComputedStyle(title).fontSize) : 0,
-        atSize: at ? parseFloat(getComputedStyle(at).fontSize) : 0,
-      };
-    });
-    return { label: row.getAttribute('aria-label'), tiles, top: Math.round(row.getBoundingClientRect().top) };
-  });
-  assert.equal(home.label, 'Continue');
+  const home = await readContinueNow();
+  assert.equal(home.resumeRowHidden, true);
   assert.equal(home.tiles.length, 3);
   assert.equal(home.tiles[0].text, 'Timmy Time | resume 1:24');
-  assert.ok(home.tiles[0].titleSize >= 28 && home.tiles[0].atSize >= 28, JSON.stringify(home.tiles[0]));
+  assert.ok(home.tiles[0].titleSize >= 28, JSON.stringify(home.tiles[0]));
+  const heroResume = await heroResumeLine();
+  assert.equal(heroResume, 'Continue \u00b7 resume 1:24');
   await shot('continue-all-dark.png', 'dark');
   await shot('continue-all-light.png', 'light');
 
@@ -116,15 +156,17 @@ try {
   });
   await page.reload();
   await page.locator('body.profile-sam #resume-row .resume').first().waitFor();
-  await page.waitForFunction(() => [...document.querySelectorAll('#resume-row .thumb')].every(img => img.complete && img.naturalWidth));
+  await waitArts('#resume-row .art');
+  const samHome = await readContinueStrip();
+  assert.equal(samHome.label, 'Continue');
+  assert.equal(samHome.tiles.length, 3);
+  assert.equal(samHome.tiles[0].text, 'Timmy Time | resume 1:24');
   await shot('continue-sam-dark.png', 'dark');
   await shot('continue-sam-light.png', 'light');
 
-  await page.evaluate(() => {
-    localStorage.setItem('onto.profile', 'all');
-  });
+  await page.evaluate(() => localStorage.setItem('onto.profile', 'all'));
   await page.reload();
-  await page.locator('#resume-row .resume').first().waitFor();
+  await waitContinueNow();
   const playerSource = await readFile(path.join(root, 'player.js'), 'utf8');
   const playerStub = `window.ontoPlayer=function(){var h={},t=0,p=true;return {engine:'video',on:function(n,f){h[n]=f},time:function(){return t},duration:function(){return 1800},paused:function(){return p},ended:function(){return false},load:function(u,start){t=start||0;p=false},play:function(){p=false},pause:function(){p=true},stop:function(){p=true},seek:function(v){t=v},tracks:function(){return {audio:[],text:[]}},selectAudio:function(){},selectText:function(){}};};`;
   await page.route('http://tv.test/player.js', route => route.fulfill({ contentType: 'text/javascript', body: playerSource + '\n' + playerStub }));
@@ -197,7 +239,7 @@ try {
   }));
   assert.ok(previewMs >= 0 && previewMs < 100, 'preview ' + previewMs);
   assert.equal(heldShow, beforeShow);
-  assert.ok(titleMs >= 1200 && titleMs < 2200, 'title ' + titleMs);
+  assert.equal(titleMs, -1, 'channel preview does not rewrite the OSD show line before a tune');
   assert.deepEqual(errors, []);
 } finally {
   await browser.close();
