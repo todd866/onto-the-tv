@@ -1161,11 +1161,22 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       return chosen;
     };
     // Ordered episode indices for the endless row; fromIndex is reserved for show-embedding similarity later.
-    const rankCandidates = (anchorIndex, pool, score) => pool.filter(index => usable(index))
+    // A row of one show is no choice: the same show comes back no sooner than five tiles later.
+    function spreadShows(order) {
+      // Only the head needs spreading; nobody pages 200 tiles in, and the whole catalogue would cost a request.
+      const out = [], waiting = order.slice(0, 200), rest = order.slice(200);
+      while (waiting.length) {
+        const recent = out.slice(-4).map(showOf);
+        const at = waiting.findIndex(index => !recent.includes(showOf(index)));
+        out.push(waiting.splice(at < 0 ? 0 : at, 1)[0]);
+      }
+      return out.concat(rest);
+    }
+    const rankCandidates = (anchorIndex, pool, score) => spreadShows(pool.filter(index => usable(index))
       .map(index => ({ index, score: score(index) }))
       .filter(entry => Number.isFinite(entry.score) && entry.score > -Infinity)
       .sort((a, b) => b.score - a.score || a.index - b.index)
-      .map(entry => entry.index);
+      .map(entry => entry.index));
     const pool = poolFor(channelId, ids, rating);
     const here = TV_CHANNELS.find(channel => channel.id === channelId);
     const planned = [];
