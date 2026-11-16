@@ -7,7 +7,7 @@ import { createRemoteLog } from '../src/tv-remote-log.js';
 import { homedir } from 'node:os';
 import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { readSettings } from '../src/settings.js';
@@ -171,7 +171,20 @@ const sceneLookup = src => {
 };
 let channelScores = await loadChannelScores(settings);
 let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers, channelScores });
-const current = { home: (viewers, rating) => { const lineup = library.home(viewers, rating); warmSoon(); return lineup; }, billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => { const item = library.next(id, input); warmSoon(); return item; },
+// The library drive (a WD My Passport) spins itself down after a few idle minutes, whatever macOS's disk
+// sleep says, and the first title after that took 19 s to start (16 Nov 2026). A tiny synced write keeps it
+// spinning in the household's hours, and the TV opening its home or tuning wakes it before OK is pressed.
+let diskTouching = false;
+async function keepDiskAwake() {
+  if (diskTouching || typeof settings.library !== 'string' || !isAbsolute(settings.library)) return;
+  diskTouching = true;
+  let handle = null;
+  try { handle = await open(join(settings.library, '.onto-keep-awake'), 'w'); await handle.writeFile(String(Date.now())); await handle.sync(); }
+  catch (error) { log('keep-awake write failed: ' + (error.code || error.message)); }
+  finally { await handle?.close().catch(() => {}); diskTouching = false; }
+}
+setInterval(() => { const h = new Date().getHours(); if (h >= 6 && h < 23) void keepDiskAwake(); }, 3 * 60_000).unref();
+const current = { home: (viewers, rating) => { const lineup = library.home(viewers, rating); warmSoon(); keepDiskAwake(); return lineup; }, billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => { const item = library.next(id, input); warmSoon(); keepDiskAwake(); return item; },
   progress: input => library.progress(input), like: input => library.like(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => library.file(src), video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
