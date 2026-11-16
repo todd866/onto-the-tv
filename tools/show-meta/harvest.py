@@ -116,7 +116,8 @@ def read_catalogue(html: str, source_path: str | Path = "", output_path: str | P
             {
                 "src": video["src"],
                 "file": str(resolved),
-                "path": str(resolved.relative_to(output.parent.resolve())) if output.parent else path,
+                # The server's catalogue holds absolute paths on the library drive, not paths under its own folder.
+                "path": str(resolved.relative_to(output.parent.resolve())) if resolved.is_relative_to(output.parent.resolve()) else path,
                 "title": video["title"] if isinstance(video.get("title"), str) else "",
                 "channel": video["channel"] if isinstance(video.get("channel"), str) else "",
                 "tier": video["tier"],
