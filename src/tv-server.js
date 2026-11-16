@@ -346,6 +346,34 @@ export function isHomeAddress(address) {
   return false;
 }
 
+// Broadcaster and channel tags YouTube uploads carry; the card already says where it is from.
+const BROADCASTER_TAGS = /^(?:abc kids|abc iview|abc kids listen|abc tv|cbeebies|cbbc|bbc|bbc earth|bbc kids|netflix(?: jr\.?| kids)?|disney(?: junior| jr\.?)?|nick jr\.?|nickelodeon|pbs kids|milkshake!?|sesame street|official|full episodes?|compilation|kids cartoons?|cartoons? for kids|for kids|hd|4k)$/i;
+// Upload padding that says nothing about the episode: "30+ MINS", "TRIPLE", "CBeebies Bedtime Story for Toddlers".
+const MARKETING_TAGS = /^(?:(?:\d+\s*\+?\s*(?:mins?|minutes?|hours?|hrs?)(?:\s+of\s+.*)?)|(?:double|triple|quadruple|mega|super)(?:\s+episodes?)?|(?:full\s+)?(?:story\s+|bonus\s+season\s+|season\s+|episode\s+)?compilation|all\s+episodes|(?:abc kids|cbeebies|cbbc|nick jr\.?|pbs kids)\b.*\b(?:story|stories|for (?:toddlers|kids|children)|full episodes?|compilation|songs?)\b.*|(?:learn|songs?|nursery rhymes?)\s+for\s+(?:toddlers|kids|children|babies)|for\s+(?:toddlers|kids|children|babies))$/i;
+const PICTOGRAPH = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu;
+const showKey = text => String(text).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** A title as people would write it: no emoji, no full-width punctuation, no broadcaster tags, no repeat of the show. */
+export function tidyTitle(raw, show = '') {
+  let text = String(raw || '').normalize('NFKC').replace(PICTOGRAPH, '').replace(/\s*\[[^\]]*\]\s*/g, ' ')
+    .replace(/[｜|]/g, ' · ').replace(/\s+[-–—]\s+/g, ' · ').replace(/(?:^|\s)[@#][\w.]+/g, ' ')
+    .replace(/\(\s*(?:official[^)]*|full episodes?|hd|4k)\s*\)/gi, '').replace(/\bfull episodes?\b\s*/gi, '')
+    .replace(/\s+([?!.,:;])/g, '$1').replace(/([?!])\s+(?=[?!])/g, '$1').replace(/\s+/g, ' ').trim();
+  const key = showKey(show);
+  const parts = text.split(/\s*·\s*/).map(part => part.replace(/^[\s.:,\-–—]+|[\s,:\-–—]+$/g, '').trim()).filter(part => {
+    if (!part || /^[^a-z0-9]+$/i.test(part) || BROADCASTER_TAGS.test(part) || MARKETING_TAGS.test(part)) return false;
+    return !key || showKey(part) !== key;
+  });
+  // "JoJo & Gran Gran: It's Time to Play" on JoJo and Gran Gran's card is "It's Time to Play".
+  text = parts.map(part => {
+    if (!key) return part;
+    const colon = /^([^:]{2,60}):\s*(.+)$/.exec(part);
+    return colon && showKey(colon[1]) === key ? colon[2] : part;
+  }).join(' · ').trim();
+  // A title that was nothing but tags keeps its plainest form rather than vanishing.
+  return text || String(raw || '').normalize('NFKC').replace(PICTOGRAPH, '').replace(/\s*\[[^\]]*\]\s*/g, ' ').replace(/[｜|]/g, ' · ').replace(/\s+/g, ' ').replace(/^[\s·]+|[\s·]+$/g, '').trim();
+}
+
 function sameSecret(offered, token) {
   if (!token || typeof offered !== 'string') return false;
   const a = Buffer.from(offered), b = Buffer.from(token);
@@ -434,7 +462,10 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   function describe(item) {
     const resume = history.get(item.file);
+    // The player shows these words: the tidy episode name and the show's name, never the upload's raw title.
+    const label = cardShow(item);
     return { src: item.src, title: item.title || item.src, show: item.channel || '', tier: item.tier,
+      display: { show: label, episode: isFilm(item) ? '' : episodeLabel(item, label) },
       channels: channelsOf(item), duration: item.duration || 0, resume: resume > 5 ? resume : 0, liked: !!likes()[item.src] };
   }
 
@@ -610,7 +641,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   // What a card says about a pick: the episode in words people use ("S3 E1 · Cactus Hour"),
   // not the file name, and its length in minutes.
   function episodeLabel(item, show) {
-    let text = String(item.title || item.src || '').replace(/\.[a-z0-9]{2,4}$/i, '').replace(/\s*\[[^\]]*\]\s*/g, ' ');
+    let text = tidyTitle(String(item.title || item.src || '').replace(/\.[a-z0-9]{2,4}$/i, ''), show);
     // Scene-style names ("The.One.where.Monica.Gets...") read as words.
     if ((text.match(/\./g) || []).length >= 3 && (text.match(/ /g) || []).length < 2) text = text.replace(/\.(?!\d)/g, ' ');
     text = text.replace(/[｜|]/g, ' · ').replace(/\(official (?:music )?video\)|\(official audio\)|full episode\s*-?/gi, '')

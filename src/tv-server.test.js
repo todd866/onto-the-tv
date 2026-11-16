@@ -1056,3 +1056,14 @@ test('whoami answers a nonce with proof of the token, and nothing without a toke
     assert.equal((await ask(unpaired, nonce)).status, 404);
   } finally { await Promise.all([paired, unpaired].map(server => new Promise(resolve => server.close(resolve)))); }
 });
+
+test('titles read as people write them: no emoji, broadcaster tags, upload padding or repeats of the show', async () => {
+  const { tidyTitle } = await import('./tv-server.js');
+  assert.equal(tidyTitle('Hidden treasure in Porthole？! 💰🗺️｜ Stan & Gran ｜ ABC Kids', 'Stan & Gran'), 'Hidden treasure in Porthole?!');
+  assert.equal(tidyTitle("JoJo & Gran Gran： It's Time to Play Beach Cricket ｜ FULL EPISODE ｜ CBeebies", 'JoJo and Gran Gran'), "It's Time to Play Beach Cricket");
+  assert.equal(tidyTitle('Bonobo - Drift (Official Video)', 'Bonobo'), 'Drift');
+  assert.equal(tidyTitle('Kylie Minogue reads The Australian 12 Days of Christmas ｜ CBeebies Bedtime Story', 'CBeebies Bedtime Stories'), 'Kylie Minogue reads The Australian 12 Days of Christmas');
+  assert.equal(tidyTitle('Camping in the Garden ｜ Season 3 Episode 21-22 ｜ ｜ 20+ MINS', 'Charlie and Lola'), 'Camping in the Garden · Season 3 Episode 21-22');
+  assert.equal(tidyTitle('Boo', 'Bing'), 'Boo');
+  assert.equal(tidyTitle('｜ CBeebies ｜', 'Bing'), 'CBeebies');
+});

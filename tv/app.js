@@ -999,8 +999,9 @@
     var duration = media.duration() || play.item.duration || 0;
     var channel = play.channel;
     paintChannel(channel);
-    $('osd-show').textContent = play.item.show || '';
-    $('osd-episode').textContent = '';
+    var shown0 = play.item.display || {};
+    $('osd-show').textContent = shown0.show || play.item.show || '';
+    $('osd-episode').textContent = shown0.episode || '';
     $('osd-show').title = play.item.title || play.item.show || '';
     $('osd-play').setAttribute('aria-label', media.paused() ? 'Play' : 'Pause');
     var shown = seekPreview != null ? seekPreview : media.time();
@@ -2233,10 +2234,11 @@
     if (!play || !play.item || play.airing === 'ad') return null;
     var item = play.item;
     var channel = play.channel || { id: '', number: '', name: '' };
+    var shown = item.display || {};
     return {
       src: item.src,
-      title: item.title || item.show || '',
-      show: item.show || item.title || '',
+      title: shown.episode || item.title || item.show || '',
+      show: shown.show || item.show || item.title || '',
       art: item.art || (channel.now && channel.now.art) || ('/art?src=' + q(item.src)),
       positionSeconds: playbackPosition(),
       duration: item.duration || (media && media.duration ? media.duration() : 0) || 0,
@@ -2351,7 +2353,7 @@
     for (i = 0; i < list.length; i++) {
       item = list[i];
       if (!item || !item.src || skip[item.src]) continue;
-      out.push({ liked: true, src: item.src, title: item.title, show: item.show, art: '/art?src=' + q(item.src),
+      out.push({ liked: true, src: item.src, title: (item.display && item.display.episode) || item.title, show: (item.display && item.display.show) || item.show, art: '/art?src=' + q(item.src),
         positionSeconds: item.resume || 0, duration: item.duration || 0, channel: channelView(item.channel), mode: 'channel' });
     }
     return out;
