@@ -1,0 +1,14 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "Beautiful People (British TV series)",
+        "snippet": "Beautiful People is a British television sitcom."
+      },
+      {
+        "title": "Adventures",
+        "snippet": "Adventures may refer to several topics."
+      }
+    ]
+  }
+}

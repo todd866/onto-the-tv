@@ -1,0 +1,14 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "Amine and Hamza",
+        "snippet": "Amine and Hamza are musicians."
+      },
+      {
+        "title": "Aminé (rapper)",
+        "snippet": "Aminé is an American rapper."
+      }
+    ]
+  }
+}

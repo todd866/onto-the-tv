@@ -1,0 +1,14 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "The Way (Put Your Hand in My Hand)",
+        "snippet": "The Way is a 1999 song by Divine."
+      },
+      {
+        "title": "Moda",
+        "snippet": "Moda may refer to various topics."
+      }
+    ]
+  }
+}

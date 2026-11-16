@@ -165,7 +165,7 @@ def is_music_tv_channel(channel: str) -> bool:
 
 def looks_like_record_label(name: str) -> bool:
     text = name.strip()
-    return bool(re.match(r"^\d+[A-Za-z]{1,4}$", text))
+    return bool(re.match(r"^\d+[A-Z]{1,4}$", text))
 
 
 def looks_like_live_series(name: str, raw_channels: Sequence[str]) -> bool:
@@ -270,6 +270,70 @@ def guess_kind(name: str, items: Sequence[Mapping[str, Any]], *, raw_channels: S
     return "series"
 
 
+WIKIPEDIA_TRAILING_QUALIFIER = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def normalize_for_wikipedia_match(text: str) -> str:
+    text = unicodedata.normalize("NFKD", wikipedia_title_stem(str(text or "")))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.casefold().replace("&", " and ")
+    text = text.replace("$", "").replace(".", "")
+    text = re.sub(r"[^\w\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def wikipedia_title_stem(title: str) -> str:
+    return WIKIPEDIA_TRAILING_QUALIFIER.sub("", str(title or "")).strip()
+
+
+def wikidata_name_variants(wikidata: Mapping[str, Any] | None) -> set[str]:
+    if not wikidata:
+        return set()
+    names: set[str] = set()
+    for key in ("label", "labels", "alias", "aliases"):
+        value = wikidata.get(key)
+        if isinstance(value, str):
+            names.add(value)
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            names.update(str(entry) for entry in value if entry)
+    return names
+
+
+def wikipedia_title_matches_show(
+    title: str,
+    show_name: str,
+    *,
+    wikidata: Mapping[str, Any] | None = None,
+) -> bool:
+    target = normalize_for_wikipedia_match(show_name)
+    if not target:
+        return False
+    if normalize_for_wikipedia_match(wikipedia_title_stem(title)) == target:
+        return True
+    for name in wikidata_name_variants(wikidata):
+        if normalize_for_wikipedia_match(name) == target:
+            return True
+        if normalize_for_wikipedia_match(wikipedia_title_stem(name)) == target:
+            return True
+    return False
+
+
+def wikipedia_kind_title_variants(show_name: str, kind: str) -> list[str]:
+    base = show_name.strip()
+    if kind == "music artist":
+        suffixes = ("", " (band)", " (musician)", " (rapper)", " (singer)")
+    elif kind == "record label":
+        suffixes = ("", " (record label)")
+    elif kind in {"series", "live series"}:
+        suffixes = ("", " (TV series)", " (British TV series)", " (Australian TV series)")
+    elif kind == "film":
+        suffixes = ("", " (film)")
+    else:
+        suffixes = ("",)
+    return list(dict.fromkeys(f"{base}{suffix}" for suffix in suffixes))
+
+
 def wikipedia_search_queries(show_name: str, kind: str) -> list[str]:
     base = show_name.strip()
     queries = [base]
@@ -287,23 +351,31 @@ def wikipedia_search_queries(show_name: str, kind: str) -> list[str]:
 
 
 def normalize_title_match(a: str, b: str) -> float:
-    na = re.sub(r"[^a-z0-9]+", "", a.lower())
-    nb = re.sub(r"[^a-z0-9]+", "", b.lower())
-    if not na or not nb:
-        return 0.0
-    if na == nb:
+    na = normalize_for_wikipedia_match(wikipedia_title_stem(a))
+    nb = normalize_for_wikipedia_match(wikipedia_title_stem(b))
+    if na and nb and na == nb:
         return 3.0
-    if na in nb or nb in na:
-        return 1.5
     return 0.0
 
 
-def reject_wikipedia_candidate(title: str, kind: str, show_name: str) -> str | None:
+def reject_wikipedia_candidate(
+    title: str,
+    kind: str,
+    show_name: str,
+    *,
+    wikidata: Mapping[str, Any] | None = None,
+) -> str | None:
     lower = title.lower()
     if lower.startswith("list of"):
         return "list page"
-    if "(disambiguation)" in lower:
+    if lower.endswith("(disambiguation)") or "(disambiguation)" in lower:
         return "disambiguation"
+    if not wikipedia_title_matches_show(title, show_name, wikidata=wikidata):
+        return "title mismatch"
+    if wikidata:
+        wd_kind = score_wikidata_instance(wikidata.get("instanceOf") or [], kind)
+        if wd_kind < 0:
+            return "wikidata kind mismatch"
     if kind in {"music artist", "record label"}:
         for bad in ("(ep)", "(album)", "(song)", "(single)", "(compilation album)"):
             if bad in lower:
@@ -348,7 +420,7 @@ def wikipedia_pick_score(
     score = 0.0
     reasons: list[str] = []
 
-    reject = reject_wikipedia_candidate(title, kind, show_name)
+    reject = reject_wikipedia_candidate(title, kind, show_name, wikidata=wikidata)
     if reject:
         return -10.0, f"rejected: {reject}"
 
@@ -639,6 +711,64 @@ def wikidata_entities(
     }
 
 
+def wikipedia_resolve_title(session: RateLimitedSession, title: str) -> str | None:
+    params = {
+        "action": "query",
+        "titles": title,
+        "redirects": 1,
+        "format": "json",
+    }
+    response = session.get(WIKI_API, params=params, timeout=60)
+    response.raise_for_status()
+    payload = response.json()
+    resolved = title
+    for redirect in payload.get("query", {}).get("redirects", []):
+        if str(redirect.get("to") or ""):
+            resolved = str(redirect["to"])
+    pages = payload.get("query", {}).get("pages", {})
+    for page in pages.values():
+        if int(page.get("pageid", -1)) < 0:
+            return None
+        missing = page.get("missing")
+        if missing:
+            return None
+    return resolved
+
+
+def wikipedia_pick_from_exact_titles(
+    session: RateLimitedSession,
+    show_name: str,
+    kind: str,
+    *,
+    youtube_text: str = "",
+    imdb_year: str | None = None,
+) -> tuple[str | None, float, str, str, dict[str, Mapping[str, Any]]]:
+    wikidata_by_title: dict[str, Mapping[str, Any]] = {}
+    for candidate in wikipedia_kind_title_variants(show_name, kind):
+        resolved = wikipedia_resolve_title(session, candidate)
+        if not resolved:
+            continue
+        wd = wikipedia_page_wikidata(session, resolved)
+        if wd:
+            wikidata_by_title[resolved] = wd
+        reject = reject_wikipedia_candidate(resolved, kind, show_name, wikidata=wd)
+        if reject:
+            continue
+        score, confidence = wikipedia_pick_score(
+            resolved,
+            "",
+            kind,
+            show_name,
+            wikidata=wd,
+            youtube_text=youtube_text,
+            imdb_year=imdb_year,
+        )
+        if score >= WIKIPEDIA_MIN_ACCEPT_SCORE:
+            conf_word = confidence.split(" ", 1)[0]
+            return resolved, score, conf_word, confidence, wikidata_by_title
+    return None, 0.0, "low", "no exact-title match", wikidata_by_title
+
+
 def wikipedia_page_wikidata(session: RateLimitedSession, title: str) -> dict[str, Any] | None:
     params = {
         "action": "query",
@@ -666,6 +796,40 @@ def fetch_wikipedia(
     imdb_year: str | None = None,
     max_candidates: int = 6,
 ) -> dict[str, Any] | None:
+    title, score, confidence, pick_reason, wikidata_by_title = wikipedia_pick_from_exact_titles(
+        session,
+        show_name,
+        kind,
+        youtube_text=youtube_text,
+        imdb_year=imdb_year,
+    )
+    if title:
+        summary_url = WIKI_REST + urllib.parse.quote(title.replace(" ", "_"), safe="/()")
+        summary = session.get(summary_url, timeout=60)
+        if summary.status_code == 404:
+            return {
+                "title": title,
+                "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
+                "confidence": confidence,
+                "searchScore": score,
+                "pickReason": pick_reason,
+            }
+        summary.raise_for_status()
+        body = summary.json()
+        wikidata_id = body.get("wikibase_item")
+        wikidata = wikidata_by_title.get(title) or (wikidata_entities(session, wikidata_id) if wikidata_id else None)
+        return {
+            "title": body.get("title") or title,
+            "extract": body.get("extract"),
+            "description": body.get("description"),
+            "url": body.get("content_urls", {}).get("desktop", {}).get("page")
+            or f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
+            "wikidata": wikidata,
+            "confidence": confidence,
+            "searchScore": score,
+            "pickReason": pick_reason,
+        }
+
     search_payloads: list[Mapping[str, Any]] = []
     for query in wikipedia_search_queries(show_name, kind):
         search_params = {
@@ -690,7 +854,7 @@ def fetch_wikipedia(
     pre_ranked.sort(key=lambda row: row[0], reverse=True)
     top_hits = [hit for _, hit in pre_ranked[:max_candidates]]
 
-    wikidata_by_title: dict[str, Mapping[str, Any]] = {}
+    wikidata_by_title = dict(wikidata_by_title)
     for hit in top_hits:
         title = str(hit.get("title") or "")
         wd = wikipedia_page_wikidata(session, title)

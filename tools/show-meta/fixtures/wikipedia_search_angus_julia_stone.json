@@ -1,0 +1,14 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "Julia Stone",
+        "snippet": "Julia Stone is an Australian singer-songwriter."
+      },
+      {
+        "title": "Angus & Julia Stone",
+        "snippet": "Angus & Julia Stone are an Australian folk music duo."
+      }
+    ]
+  }
+}

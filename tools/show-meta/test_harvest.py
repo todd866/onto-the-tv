@@ -47,6 +47,8 @@ class HarvestTests(unittest.TestCase):
         self.assertEqual(harvest.guess_kind("Radiohead", music), "music artist")
         label = [{"channel": "4AD", "src": "music/x.mp4", "tier": "music"}]
         self.assertEqual(harvest.guess_kind("4AD", label), "record label")
+        pac = [{"channel": "2Pac", "src": "music/x.mp4", "tier": "music"}]
+        self.assertEqual(harvest.guess_kind("2Pac", pac), "music artist")
         preschool = [{"channel": "Bluey", "src": "Bluey/S01E01.mp4", "tier": "preschool"}]
         self.assertEqual(harvest.guess_kind("Bluey", preschool), "series")
 
@@ -81,6 +83,34 @@ class HarvestTests(unittest.TestCase):
                 )
                 self.assertEqual(title, expected_title, msg=reason)
                 self.assertGreaterEqual(score, harvest.WIKIPEDIA_MIN_ACCEPT_SCORE)
+
+    def test_wikipedia_second_trial_fixture_picks(self):
+        cases = [
+            ("wikipedia_search_asap_rocky.json", "A$AP Rocky", "music artist", "ASAP Rocky"),
+            ("wikipedia_search_air_french_band.json", "Air", "music artist", "Air (French band)"),
+            ("wikipedia_search_air_safety_institute.json", "Air Safety Institute", "series", None),
+            ("wikipedia_search_any_young_mechanic.json", "Any Young Mechanic", "series", None),
+            ("wikipedia_search_alyss.json", "ALYSS", "music artist", None),
+            ("wikipedia_search_altra_moda_music.json", "Altra Moda Music", "music artist", None),
+            ("wikipedia_search_america_band.json", "America (the band)", "music artist", "America (band)"),
+            ("wikipedia_search_amine.json", "Aminé", "music artist", "Aminé (rapper)"),
+            ("wikipedia_search_angus_julia_stone.json", "Angus & Julia Stone", "music artist", "Angus & Julia Stone"),
+            ("wikipedia_search_andys_adventures.json", "Andy's Adventures", "series", None),
+        ]
+        for filename, show_name, kind, expected_title in cases:
+            with self.subTest(filename=filename):
+                payload = json.loads((FIXTURES / filename).read_text(encoding="utf-8"))
+                title, score, confidence, reason = harvest.pick_wikipedia_title(
+                    payload,
+                    show_name,
+                    kind,
+                    wikidata_by_title=self.wikidata,
+                )
+                self.assertEqual(title, expected_title, msg=reason)
+                if expected_title is not None:
+                    self.assertGreaterEqual(score, harvest.WIKIPEDIA_MIN_ACCEPT_SCORE)
+                else:
+                    self.assertIsNone(title)
 
     def test_imdb_match_on_fixture(self):
         basics = FIXTURES / "title.basics.tsv.gz"

@@ -1,0 +1,14 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "Mechanic",
+        "snippet": "A mechanic is a tradesperson who uses tools to build or repair machinery."
+      },
+      {
+        "title": "Mechanic (2016 film)",
+        "snippet": "Mechanic is a 2016 film."
+      }
+    ]
+  }
+}

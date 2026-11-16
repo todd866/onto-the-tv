@@ -1,0 +1,14 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "Alyssa",
+        "snippet": "Alyssa is a feminine given name."
+      },
+      {
+        "title": "ALYSSA",
+        "snippet": "ALYSSA may refer to several topics."
+      }
+    ]
+  }
+}

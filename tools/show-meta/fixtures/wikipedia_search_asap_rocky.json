@@ -1,0 +1,18 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "Gangsta (Free Nationals, ASAP Rocky and Vince Staples song)",
+        "snippet": "Gangsta is a song by Free Nationals, ASAP Rocky and Vince Staples."
+      },
+      {
+        "title": "ASAP Rocky",
+        "snippet": "ASAP Rocky is an American rapper."
+      },
+      {
+        "title": "Live.Love.A$AP",
+        "snippet": "Live.Love.A$AP is a mixtape by ASAP Rocky."
+      }
+    ]
+  }
+}
