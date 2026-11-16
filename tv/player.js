@@ -240,20 +240,39 @@ window.ontoPlayerExtras = (function () {
     return time;
   }
 
+  function seekTapStepSize(tapIndex) {
+    return tapIndex < 1 ? 10 : tapIndex < 2 ? 30 : tapIndex < 3 ? 60 : 300;
+  }
+
+  function seekHoldStepSize(holdIndex) {
+    return holdIndex < 4 ? 10 : holdIndex < 12 ? 30 : holdIndex < 24 ? 60 : 300;
+  }
+
   function seek() {
-    var origin = null, steps = 0;
+    var origin = null, offset = 0, taps = 0, sign = 0;
     return {
       tap: function (time, duration, direction) {
-        if (origin === null) origin = time;
-        steps += direction < 0 ? -1 : 1;
-        return clampTime(origin + steps * 10, duration);
+        var dir = direction < 0 ? -1 : 1, size;
+        if (origin === null) { origin = time; offset = 0; taps = 0; sign = dir; }
+        else if (sign !== dir) {
+          origin = clampTime(origin + offset, duration);
+          offset = 0;
+          taps = 0;
+          sign = dir;
+        }
+        size = seekTapStepSize(taps);
+        taps += 1;
+        offset += dir * size;
+        return clampTime(origin + offset, duration);
       },
       hold: function (time, duration, direction) {
         origin = null;
-        steps = 0;
+        offset = 0;
+        taps = 0;
+        sign = 0;
         return clampTime(time + (direction < 0 ? -30 : 30), duration);
       },
-      clear: function () { origin = null; steps = 0; }
+      clear: function () { origin = null; offset = 0; taps = 0; sign = 0; }
     };
   }
 
@@ -352,6 +371,8 @@ window.ontoPlayerExtras = (function () {
     upNextDue: upNextDue,
     upNext: upNext,
     seek: seek,
+    seekTapStepSize: seekTapStepSize,
+    seekHoldStepSize: seekHoldStepSize,
     resumeOffer: resumeOffer,
     resumeLabel: resumeLabel,
     resumeMove: resumeMove,

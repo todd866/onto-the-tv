@@ -2996,9 +2996,9 @@
     next('skip');
   }
   // ---------- seek mode (the rewind and forward keys) ----------
-  // As Netflix does it: the picture holds, a marker moves along the line with the time and the scene pictures,
-  // OK or play goes there and Back returns to where it was. Each press is 10 s; a held key speeds up.
-  function scrubStepSeconds(held) { return held < 4 ? 10 : held < 12 ? 30 : held < 24 ? 60 : 300; }
+  // Netflix-style steps: docs/netflix-seek.md — 10 s, 30 s, 60 s, 5 min per tap; hold uses a repeat ramp.
+  function scrubTapStepSize(tapIndex) { return window.ontoPlayerExtras.seekTapStepSize(tapIndex); }
+  function scrubHoldStepSize(holdIndex) { return window.ontoPlayerExtras.seekHoldStepSize(holdIndex); }
   function paintScrub() {
     var bubble = $('osd-seek-time'), delta, sign;
     if (!scrub) return;
@@ -3013,22 +3013,42 @@
     showStrip(scrub.target, true);
   }
   function scrubStep(direction, held) {
-    var duration, target;
+    var duration, target, step;
     if (!play || !play.item || (play.resumePending) || play.errorOn) return;
     if (inAd()) { if (direction > 0 && !held) skipBreak(); showOsd(); return; }
     duration = durationNow();
     if (!scrub) {
-      scrub = { from: media.time(), target: media.time(), wasPaused: pausedNow(), held: 0 };
+      scrub = {
+        from: media.time(), target: media.time(), wasPaused: pausedNow(), taps: 0, holdRepeats: 0,
+        direction: direction, holding: false
+      };
       if (optionOpen) closeOptions();
       clearTransportFocus();
       closeContinue();
       clearContinueFocus();
       overlayFocus = 'seek';
-      // The marker paints first; the picture is held straight after.
-      if (!scrub.wasPaused) setTimeout(function () { if (scrub && play && !media.paused()) media.pause(); }, 0);
+      // Marker and paused chrome in this frame; tell the player on the next tick (same pattern as togglePause).
+      if (!scrub.wasPaused) {
+        pendingPause = true;
+        $('osd-play').classList.add('is-paused');
+        $('osd-play').setAttribute('aria-label', 'Play');
+        setTimeout(function () { if (scrub && play && !media.paused()) media.pause(); }, 0);
+      }
+    } else if (!held && scrub.direction !== direction) {
+      scrub.from = scrub.target;
+      scrub.taps = 0;
+      scrub.holdRepeats = 0;
+      scrub.direction = direction;
     }
-    scrub.held = held ? scrub.held + 1 : 0;
-    target = scrub.target + direction * scrubStepSeconds(scrub.held);
+    if (held) {
+      scrub.holding = true;
+      step = scrubHoldStepSize(scrub.holdRepeats);
+      scrub.holdRepeats += 1;
+    } else {
+      step = scrubTapStepSize(scrub.taps);
+      scrub.taps += 1;
+    }
+    target = scrub.target + direction * step;
     if (target < 0) target = 0;
     if (duration > 1 && target > duration - 1) target = duration - 1;
     scrub.target = target;
@@ -3038,6 +3058,7 @@
     var was = scrub;
     scrub = null;
     seekPreview = null;
+    pendingPause = null;
     if (overlayFocus === 'seek') overlayFocus = '';
     $('player').classList.remove('is-seeking');
     hideStripSoon();
@@ -3274,6 +3295,7 @@
     event.preventDefault();
   });
   document.addEventListener('keyup', function (event) {
+    var key = event.keyCode;
     if ($('player').hidden) return;
     if (window.ontoUke && window.ontoUke.isOpen()) return;
     if (window.ontoGames && window.ontoGames.isOpen()) return;
@@ -3281,6 +3303,7 @@
     if (consoleState) return;
     clearInterval(sweepTimer);
     sweepDir = 0;
+    if (scrub && scrub.holding && (key === KEY.FF || key === KEY.RW)) commitScrub();
   });
 
   // Media keys reach the app only once registered (Tizen). SUBT is mapped when the TV exposes it.

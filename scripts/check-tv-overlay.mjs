@@ -242,8 +242,37 @@ try {
   // Seek mode: the forward key holds the picture and moves a marker; nothing is skipped and no arrow seeks.
   const beforeSeek = await state();
   calls = nextCalls;
-  await fire(417);
-  await fire(417);
+  const seekPressTiming = await page.evaluate(() => new Promise(resolve => {
+    function down() {
+      const e = new Event('keydown', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'keyCode', { get: () => 417 });
+      Object.defineProperty(e, 'repeat', { get: () => false });
+      document.dispatchEvent(e);
+    }
+    function up() {
+      const e = new Event('keyup', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'keyCode', { get: () => 417 });
+      document.dispatchEvent(e);
+    }
+    const t0 = performance.now();
+    down();
+    requestAnimationFrame(function () {
+      const firstMs = performance.now() - t0;
+      const firstDelta = document.getElementById('osd-seek-time').textContent;
+      up();
+      const t1 = performance.now();
+      down();
+      requestAnimationFrame(function () {
+        resolve({
+          ms: firstMs,
+          delta: firstDelta,
+          secondMs: performance.now() - t1,
+          secondDelta: document.getElementById('osd-seek-time').textContent,
+        });
+        up();
+      });
+    });
+  }));
   const seeking = { ...(await state()), calls: nextCalls - calls };
   await fire(39);   // an arrow in seek mode does nothing
   await fire(37);
@@ -256,6 +285,36 @@ try {
   const seekingBack = await state();
   await fire(10009);
   const cancelled = await state();
+  const holdGrowth = await page.evaluate(() => new Promise(resolve => {
+    let repeats = 0;
+    function down(repeat) {
+      const e = new Event('keydown', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'keyCode', { get: () => 417 });
+      Object.defineProperty(e, 'repeat', { get: () => !!repeat });
+      document.dispatchEvent(e);
+    }
+    function up() {
+      const e = new Event('keyup', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'keyCode', { get: () => 417 });
+      document.dispatchEvent(e);
+    }
+    down(false);
+    const start = document.getElementById('osd-elapsed').textContent.trim();
+    const tick = setInterval(function () {
+      repeats += 1;
+      down(true);
+      if (repeats >= 5) {
+        clearInterval(tick);
+        up();
+        resolve({
+          start,
+          end: document.getElementById('osd-elapsed').textContent.trim(),
+          bubble: document.getElementById('osd-seek-time').textContent,
+        });
+      }
+    }, 35);
+  }));
+  await fire(10009);
   // INFO: the drawing of the remote; the keys still work under it and INFO puts it away.
   await fire(457);
   const guideOpen = await state();
@@ -347,7 +406,7 @@ try {
     await page.waitForTimeout(600);
     afterChoice = await page.evaluate(() => ({ show: document.getElementById('osd-show').textContent.trim(), strip: !document.getElementById('continue-strip').hidden }));
   }
-  console.log(JSON.stringify({ before, homeRow, likedHero, prefetchSkipTiming, backWithOsd, backAfterOsd, oneRight, directions, afterChoice, directionCalls, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seeking, seekArrow, sought, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
+  console.log(JSON.stringify({ before, homeRow, likedHero, prefetchSkipTiming, backWithOsd, backAfterOsd, oneRight, directions, afterChoice, directionCalls, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seekPressTiming, seeking, seekArrow, sought, holdGrowth, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
   assert.equal(oneRight.calls, 0, 'an arrow while watching never skips');
   assert.equal(oneRight.show, before, 'an arrow while watching leaves the show on');
   assert.equal(oneRight.paused, false, 'an arrow while watching does not pause');
@@ -369,7 +428,12 @@ try {
   assert.equal(seeking.seeking, true, 'the forward key enters seek mode');
   assert.equal(seeking.paused, true, 'the picture holds while seeking');
   assert.equal(seeking.calls, 0, 'seeking never skips');
-  assert.match(seeking.seekTime, /^\+0:20$/, 'two presses are 20 s: ' + seeking.seekTime);
+  assert.ok(seekPressTiming.ms < 100, 'first forward step paints within 100 ms: ' + seekPressTiming.ms);
+  assert.equal(seekPressTiming.delta, '+0:10', 'first step is 10 s');
+  assert.ok(seekPressTiming.secondMs < 100, 'second forward step paints within 100 ms: ' + seekPressTiming.secondMs);
+  assert.equal(seekPressTiming.secondDelta, '+0:40', 'two taps are 10 s + 30 s');
+  assert.match(seeking.seekTime, /^\+0:40$/, 'two presses are 40 s: ' + seeking.seekTime);
+  assert.notEqual(holdGrowth.start, holdGrowth.end, 'holding grows the preview: ' + holdGrowth.start + ' -> ' + holdGrowth.end);
   assert.equal(seekArrow.seekTime, seeking.seekTime, 'arrows do nothing in seek mode');
   assert.equal(seekArrow.seeking, true);
   assert.equal(sought.seeking, false, 'OK leaves seek mode');

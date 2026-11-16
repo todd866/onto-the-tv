@@ -8,7 +8,7 @@
        RETURN         close the controls, else leave (or undo the last change of show)
        CH up / down   channel up / down          0-9   channel number          PRE-CH   back to what was on
        GUIDE, CH LIST the channel grid (home)
-       rewind / fwd   seek mode: the picture holds, each press moves the marker 10 s (faster while held);
+       rewind / fwd   seek mode (Netflix steps — docs/netflix-seek.md): pause, 10/30/60/300 s taps, hold ramp;
                       OK or play goes there, RETURN goes back to where it was. Arrows do nothing here.
        pause play stop   as printed
        A red          previous        B green   like        D blue   next

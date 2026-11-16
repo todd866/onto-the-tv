@@ -65,12 +65,14 @@ test('OK plays the next episode now and Back cancels the countdown', () => {
   assert.equal(card.arm(), true);
 });
 
-test('left and right seek 10 seconds, and a hold seeks 30', () => {
+test('netflix tap steps 10/30/60/300 from an anchor, and a hold seeks 30', () => {
   const api = extras();
+  assert.deepEqual([0, 1, 2, 3].map(api.seekTapStepSize), [10, 30, 60, 300]);
   const seek = api.seek();
   assert.equal(seek.tap(100, 1000, 1), 110);
-  assert.equal(seek.tap(100, 1000, 1), 120);
-  assert.equal(seek.tap(100, 1000, -1), 110);
+  assert.equal(seek.tap(100, 1000, 1), 140);
+  assert.equal(seek.tap(100, 1000, 1), 200);
+  assert.equal(seek.tap(100, 1000, -1), 190);
   assert.equal(seek.hold(110, 1000, 1), 140);
   assert.equal(seek.tap(0, 1000, -1), 0);
   assert.equal(seek.hold(990, 1000, 1), 999);
