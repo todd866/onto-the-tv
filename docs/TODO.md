@@ -3,23 +3,19 @@
 Open work for Onto the TV, newest first. Each item says what "done" means.
 Song-map work that belongs to Glancebar is in `~/Projects/glancebar/docs/TODO.md`; the TV half is here.
 
-## Waiting to ship (built, tested, on the M2 or in a worktree)
+## Shipped 16 Nov 2026 (on the M2; the TV loads it when the app next opens)
 
-- [ ] **Back chip only with the controls** ("< KEXP" / "< COLORS" stuck on screen, 16 Nov). Merged on the M2
-  (bd4629e); live after the next TV reload. Done: the chip never sits alone on a playing picture.
-- [ ] **Skip names the next title at once.** Merged (bd4629e + f46cbdc). Done: the title shows in the frame of
-  the press when the next pick is known, else when /api/next answers.
-- [ ] **Endless Down row.** Merged (60dc18c, 6fa7091). Done: Down while watching opens a sideways row that
-  loads 12 more at a time, no show twice within five tiles, full title under the row.
-- [ ] **Music picks the Glancebar way** (worktree `tv-music-pick`, 4e578b9, not reviewed or merged). Heard in
-  the last 3 days goes to the back; a skip under 30 s is a mild dislike; music never offers "resume"; next pick
-  by Glancebar's song vectors (artist centroids). Review, then match a video to its exact song first, artist
-  average second. Done: on Live Sets / Music, nothing heard today comes back and no skipped half-played video
-  is offered.
+- [x] Back chip only with the controls; skip names the next title at once; endless Down row.
+- [x] Music picks the Glancebar way (heard in 3 days to the back, <30 s skip a mild dislike, no music resume,
+  next pick by Glancebar's song vectors: exact song first, artist second; session folders are not artists).
+  Reviewed by Codex (7 findings, all fixed).
+- [x] Netflix seek on the D-pad: a tap jumps at once while playing; quick taps grow 10 / 30 / 60 / 300 s;
+  hold scans. Netflix publishes a 10 s tap and hold-to-scan; the growing taps are Ian's spec
+  (`docs/netflix-seek.md`). Live check pending: Ian to try it.
 
 ## Next
 
-- [ ] **Netflix-style seek** (Ian, 16 Nov: "click right or left ... instantly jump, 10 s on first click, 30 s on
+- [x] **Netflix-style seek** (shipped, see above) (Ian, 16 Nov: "click right or left ... instantly jump, 10 s on first click, 30 s on
   second, then bigger. Figure out *exactly* what the Netflix UX does and copy that"). First write down Netflix's
   real behaviour on a Samsung TV (step sizes, acceleration, preview thumbnails, when playback resumes), from its
   own help pages and a recording, then match it. Done: a press jumps at once, repeated presses grow the step as
@@ -54,8 +50,8 @@ Song-map work that belongs to Glancebar is in `~/Projects/glancebar/docs/TODO.md
   hung on a Stash read and the TV lost every picture. Find out whether it is the drive, the USB path or
   macOS prompts; keep the server answering whatever the drive does.
 - [ ] **A channel resumed a title at its last second** and the TV stuck (fixed in b420833: nearly over is
-  over). Add a test for it.
-- [ ] **`scripts/check-tv-undo.mjs` fails on main** (waits for a Continue row that the now layout no longer
+  over). Test added (45f1a4e).
+- [x] **`scripts/check-tv-undo.mjs` updated** (passes; one flaky run seen 16 Nov) (waits for a Continue row that the now layout no longer
   shows). Update it to the paged cards.
 - [ ] **Push to GitHub needs Ian's yes** (public repo). The M2 runs commits that are not on origin; the morning
   check warns about it until they are pushed.
