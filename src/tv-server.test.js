@@ -849,6 +849,26 @@ test('directions offers different real episodes, never the one playing, and mark
   }
   assert.equal(storage.getItem('kidshuffle.log.v1'), before, 'asking for directions teaches nothing');
   assert.throws(() => library.directions('nope', {}), /Unknown channel/);
+
+  const opt = { current: 'Bluey/a.mp4', viewers: 'sam,jake,mum,dad' };
+  const batchA = library.directions('cartoons', { ...opt, offset: 0, limit: 1 });
+  const batchB = library.directions('cartoons', { ...opt, offset: 1, limit: 1 });
+  assert.equal(batchA.tiles.length, 1);
+  assert.equal(batchA.next, 1);
+  assert.equal(batchB.tiles.length, 1);
+  assert.notEqual(batchA.tiles[0].src, batchB.tiles[0].src, 'paged batches do not overlap');
+  let cursor = 0, pages = 0, allSrcs = [];
+  for (;;) {
+    const page = library.directions('cartoons', { ...opt, offset: cursor, limit: 1 });
+    pages += 1;
+    for (const tile of page.tiles) assert.ok(!allSrcs.includes(tile.src), 'no duplicate src across pages');
+    allSrcs.push(...page.tiles.map(tile => tile.src));
+    if (page.next == null) break;
+    cursor = page.next;
+    if (pages > 40) break;
+  }
+  assert.ok(pages >= 2, 'directions eventually pages');
+  assert.equal(storage.getItem('kidshuffle.log.v1'), before, 'paging for directions teaches nothing');
 });
 
 test('a channel resumes the episode left on it; a skip or a short look does not hold it', async () => {

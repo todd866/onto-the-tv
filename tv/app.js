@@ -2452,7 +2452,8 @@
     button._entry = entry;
     var name = (entry.direction || entry.liked) ? (entry.title || entry.show || '') : (entry.show || entry.title || '');
     var place = entry.direction ? entry.label : entry.liked ? ('\u2665 ' + (entry.show || '')) : entry.queued ? 'next' : ('resume ' + clock(entry.positionSeconds || 0));
-    if (entry.direction) button.className = 'resume direction';
+    if (entry.direction === 'wait') button.className = 'resume direction loading';
+    else if (entry.direction) button.className = 'resume direction';
     if (entry.liked) button.className = 'resume liked';
     button.setAttribute('aria-label', entry.direction ? (place + ': ' + name) : entry.liked ? ('Liked: ' + name) : ('Continue ' + name + ' ' + place));
     button.title = name;
@@ -2536,19 +2537,83 @@
     holder.hidden = false;
     return paintResumeInto(holder, entries);
   }
+  function scrollContinueTo(index) {
+    var strip = $('continue-strip'), els = strip ? strip.children : [];
+    if (!strip || !els.length || !els[index]) return;
+    var tile = els[index].getBoundingClientRect(), view = strip.getBoundingClientRect();
+    if (tile.left < view.left + 16) strip.scrollLeft -= view.left + 16 - tile.left;
+    if (tile.right > view.right - 16) strip.scrollLeft += tile.right - view.right + 16;
+  }
+  function directionTileFromOffer(tile) {
+    return { direction: tile.kind, label: tile.label, src: tile.src, title: tile.title, show: tile.show, art: '/art?src=' + q(tile.src),
+      positionSeconds: tile.resume || 0, duration: tile.duration || 0, channel: channelView(tile.channel), mode: 'channel' };
+  }
+  function appendResumeTiles(holder, entries) {
+    var els = [], i, button;
+    if (!holder) return els;
+    for (i = 0; i < entries.length; i++) {
+      button = resumeButton(entries[i]);
+      holder.appendChild(button);
+      els.push(button);
+    }
+    return els;
+  }
+  function directionPlaceholder() {
+    return { direction: 'wait', label: '\u2026', title: '', show: '', src: '', art: '', positionSeconds: 0, duration: 0, channel: { id: '', number: '', name: '' }, mode: 'channel' };
+  }
+  function ensureDirectionPlaceholder(holder) {
+    var last = holder && holder.lastElementChild, entry;
+    if (last && last._entry && last._entry.direction === 'wait') return last;
+    entry = directionPlaceholder();
+    return resumeButton(entry);
+  }
+  function removeDirectionPlaceholder(holder) {
+    var last = holder && holder.lastElementChild;
+    if (last && last._entry && last._entry.direction === 'wait') holder.removeChild(last);
+  }
+  function maybeFetchMoreDirections() {
+    var shown = directionsShown, holder = $('continue-strip'), body, ph;
+    if (!shown || !holder || GUEST || shown.fetching) return;
+    if (shown.next === null || shown.next === undefined) return;
+    if (continueIndex < holder.children.length - 4) return;
+    shown.fetching = true;
+    if (continueIndex >= holder.children.length - 1) {
+      ph = ensureDirectionPlaceholder(holder);
+      if (ph.parentNode !== holder) holder.appendChild(ph);
+    }
+    body = directionsBody();
+    body.offset = shown.next;
+    body.limit = 12;
+    post('/api/directions', body).then(function (offer) {
+      shown.fetching = false;
+      removeDirectionPlaceholder(holder);
+      if (!directionsShown || directionsShown !== shown || !play || overlayFocus !== 'continue') return;
+      if (!offer || !offer.tiles || !offer.tiles.length) return;
+      var entries = [], i;
+      for (i = 0; i < offer.tiles.length; i++) entries.push(directionTileFromOffer(offer.tiles[i]));
+      appendResumeTiles(holder, entries);
+      shown.tiles = shown.tiles.concat(entries);
+      shown.next = offer.next;
+      if (continueIndex >= holder.children.length - 4) maybeFetchMoreDirections();
+    }).catch(function () { if (directionsShown === shown) shown.fetching = false; removeDirectionPlaceholder(holder); });
+  }
   function focusContinue(index) {
     var els = $('continue-strip') ? $('continue-strip').children : [];
     if (!els.length) return;
+    if (directionsShown && index < 0) return;
     if (index < 0) index = 0;
     if (index >= els.length) index = els.length - 1;
     continueIndex = index;
     var i;
     for (i = 0; i < els.length; i++) els[i].classList.toggle('focused', i === index);
     try { els[index].focus(); } catch (e) {}
+    scrollContinueTo(index);
+    if (directionsShown) maybeFetchMoreDirections();
     // The focused direction's whole title, which a tile may not have room for.
     var caption = $('direction-caption'), entry = els[index]._entry;
     if (caption) {
-      if (entry && entry.direction) { caption.textContent = entry.title || ''; caption.hidden = false; if (directionsShown) directionsShown.touched = Date.now(); }
+      if (entry && entry.direction && entry.direction !== 'wait') { caption.textContent = entry.title || ''; caption.hidden = false; if (directionsShown) directionsShown.touched = Date.now(); }
+      else if (entry && entry.direction === 'wait') caption.hidden = true;
       else caption.hidden = true;
     }
   }
@@ -2563,23 +2628,24 @@
     if (rating) body.rating = rating;
     return body;
   }
-  function fetchDirections(then) {
-    var item = play && play.item;
+  function fetchDirections(then, offset) {
+    var item = play && play.item, body;
     if (!item || !item.src || GUEST || inAd()) { if (then) then(null); return; }
-    post('/api/directions', directionsBody()).then(function (offer) {
+    body = directionsBody();
+    body.offset = offset || 0;
+    body.limit = 12;
+    post('/api/directions', body).then(function (offer) {
       if (!play || play.item !== item) return;
-      if (offer && offer.tiles && offer.tiles.length) item.directions = { at: Date.now(), tiles: offer.tiles };
-      if (then) then(item.directions || null);
+      if (offer && offer.tiles && offer.tiles.length && (!offset || offset === 0)) {
+        item.directions = { at: Date.now(), tiles: offer.tiles, next: offer.next === undefined ? null : offer.next };
+      }
+      if (then) then(offer && offer.tiles && offer.tiles.length ? offer : (item.directions || null));
     }).catch(function () { if (then && play && play.item === item) then(item.directions || null); });
   }
   function paintDirections(offer) {
     var holder = $('continue-strip'), entries = [], i, tile;
     if (!holder || !offer || !offer.tiles.length || !play || !play.item || overlayFocus === 'seek') return;
-    for (i = 0; i < offer.tiles.length && i < 5; i++) {
-      tile = offer.tiles[i];
-      entries.push({ direction: tile.kind, label: tile.label, src: tile.src, title: tile.title, show: tile.show, art: '/art?src=' + q(tile.src),
-        positionSeconds: tile.resume || 0, duration: tile.duration || 0, channel: channelView(tile.channel), mode: 'channel' });
-    }
+    for (i = 0; i < offer.tiles.length; i++) entries.push(directionTileFromOffer(offer.tiles[i]));
     dismissArm();
     if (optionOpen) closeOptions();
     if (directionsShown) directionsShown = null;
@@ -2587,9 +2653,12 @@
     clearTransportFocus();
     overlayFocus = 'continue';
     continueOpen = true;
+    holder.scrollLeft = 0;
     paintResumeInto(holder, entries);
     holder.hidden = false;
-    directionsShown = { openedAt: Date.now(), touched: Date.now(), from: play.item.src, position: Math.floor(media.time()), channel: play.channel ? String(play.channel.id) : '', tiles: entries };
+    holder.classList.add('directions-open');
+    directionsShown = { openedAt: Date.now(), touched: Date.now(), from: play.item.src, position: Math.floor(media.time()),
+      channel: play.channel ? String(play.channel.id) : '', tiles: entries, next: offer.next === undefined ? null : offer.next, fetching: false };
     focusContinue(0);
     showOsd();
   }
@@ -2617,7 +2686,7 @@
     var caption = $('direction-caption'); if (caption) caption.hidden = true;
     continueOpen = false;
     var holder = $('continue-strip');
-    if (holder) { holder.hidden = true; holder.innerHTML = ''; }
+    if (holder) { holder.hidden = true; holder.innerHTML = ''; holder.scrollLeft = 0; holder.classList.remove('directions-open'); }
   }
   function toggleContinue() {
     if (continueOpen) { closeContinue(); return; }
@@ -3005,7 +3074,12 @@
       showOsd();
       return;
     }
-    if (action.type === 'move') { focusContinue(continueIndex + action.delta); showOsd(); return; }
+    if (action.type === 'move') {
+      if (directionsShown && action.delta < 0 && continueIndex === 0) { showOsd(); return; }
+      focusContinue(continueIndex + action.delta);
+      showOsd();
+      return;
+    }
     if (action.type === 'seek') { seekBy(action.seconds); return; }
     if (action.type === 'play-pause') {
       if (inAd()) { skipBreak(); showOsd(); return; }
@@ -3015,7 +3089,10 @@
     if (action.type === 'activate') {
       if (overlayFocus === 'continue' || continueOpen) {
         chosen = $('continue-strip') && $('continue-strip').children[continueIndex];
-        if (chosen && chosen._entry) { if (chosen._entry.direction) sendDirection(chosen._entry); playResume(chosen._entry); }
+        if (chosen && chosen._entry && chosen._entry.direction && chosen._entry.direction !== 'wait') {
+          if (chosen._entry.direction) sendDirection(chosen._entry);
+          playResume(chosen._entry);
+        }
         return;
       }
       activateTransport();

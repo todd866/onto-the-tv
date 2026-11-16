@@ -1133,6 +1133,13 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
   function directions(channelId, options = {}) {
     const ids = viewerIds(options.viewers), rating = ratingOf(options.rating);
     const current = typeof options.current === 'string' ? bySrc.get(options.current) : undefined;
+    const fromIndex = current;
+    const offset = Math.max(0, Number(options.offset) || 0);
+    let limit = Number(options.limit);
+    if (!Number.isFinite(limit) || limit < 1) limit = 12;
+    if (limit > 30) limit = 30;
+    const exclude = new Set();
+    if (Array.isArray(options.exclude)) for (const src of options.exclude) if (typeof src === 'string' && src) exclude.add(src);
     // A show put on by hand (Continue, the Library, a command) plays on no channel: use one it belongs to.
     if (!TV_CHANNELS.some(channel => channel.id === channelId) && current !== undefined) {
       channelId = channelsOf(videos[current]).find(id => poolFor(id, ids, rating).includes(current)) || channelId;
@@ -1146,30 +1153,35 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const held = likes();
     const used = new Set(current === undefined ? [] : [current]);
     const usable = index => !used.has(index) && !isAdSrc(videos[index].src);
-    // The best few by score, then one of them at random, so the tray is not the same five tiles every time.
-    const pick = (list, score) => {
-      const ranked = list.filter(usable).map(index => [score(index), index]).filter(([value]) => value > -Infinity).sort((a, b) => b[0] - a[0]).slice(0, 4);
+    const pickTop = (list, score) => {
+      const ranked = list.filter(usable).map(index => [score(index), index]).filter(([value]) => value > -Infinity).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
       if (!ranked.length) return undefined;
-      const chosen = ranked[Math.min(ranked.length - 1, Math.floor(random() * ranked.length))][1];
+      const chosen = ranked[0][1];
       used.add(chosen);
       return chosen;
     };
+    // Ordered episode indices for the endless row; fromIndex is reserved for show-embedding similarity later.
+    const rankCandidates = (anchorIndex, pool, score) => pool.filter(index => usable(index))
+      .map(index => ({ index, score: score(index) }))
+      .filter(entry => Number.isFinite(entry.score) && entry.score > -Infinity)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map(entry => entry.index);
     const pool = poolFor(channelId, ids, rating);
     const here = TV_CHANNELS.find(channel => channel.id === channelId);
-    const tiles = [];
-    const add = (kind, label, index, channel = here) => {
+    const planned = [];
+    const plan = (kind, label, index, channel = here) => {
       if (index === undefined) return;
-      tiles.push({ kind, label, ...describe(videos[index]), channel: { id: channel.id, number: channel.number, name: channel.name } });
+      planned.push({ kind, label, index, channel });
     };
     if (current !== undefined) {
       const show = showOf(current);
-      add('more', show, pick(pool.filter(index => showOf(index) === show), index => weight(index) - (finished.has(videos[index].src) ? 2 : 0)));
+      plan('more', show, pickTop(pool.filter(index => showOf(index) === show), index => weight(index) - (finished.has(videos[index].src) ? 2 : 0)));
     }
-    add('new', 'New to you', pick(pool.filter(index => !begun(index)), weight));
-    add('favourite', 'Favourite', pick(pool, index => (held[videos[index].src] ? 10 : 0) + weight(index) > 1 ? (held[videos[index].src] ? 10 : 0) + weight(index) : -Infinity));
+    plan('new', 'New to you', pickTop(pool.filter(index => !begun(index)), weight));
+    plan('favourite', 'Favourite', pickTop(pool, index => (held[videos[index].src] ? 10 : 0) + weight(index) > 1 ? (held[videos[index].src] ? 10 : 0) + weight(index) : -Infinity));
     const long = current !== undefined && (videos[current].duration || 0) >= 1200;
-    if (long) add('short', 'Quick one', pick(pool.filter(index => videos[index].duration > 0 && videos[index].duration <= 420), weight));
-    else add('long', 'Long set', pick(pool.filter(index => videos[index].duration >= 1800), index => weight(index) + videos[index].duration / 36000));
+    if (long) plan('short', 'Quick one', pickTop(pool.filter(index => videos[index].duration > 0 && videos[index].duration <= 420), weight));
+    else plan('long', 'Long set', pickTop(pool.filter(index => videos[index].duration >= 1800), index => weight(index) + videos[index].duration / 36000));
     // Somewhere else: the other channel whose best unwatched episode this audience rates highest.
     let away = null;
     for (const channel of TV_CHANNELS) {
@@ -1179,14 +1191,39 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       const otherKey = channelTasteKey(channel.id, ids) || channel.id;
       const otherWeights = otherKey === key ? weights : weightsFor(otherKey);
       const best = other.reduce((top, index) => (player.weightFor(otherWeights, videos[index].src) > player.weightFor(otherWeights, videos[top].src) ? index : top), other[0]);
-      const score = player.weightFor(otherWeights, videos[best].src) + random() * 0.5;
+      const score = player.weightFor(otherWeights, videos[best].src);
       if (!away || score > away.score) away = { score, index: best, channel };
     }
-    if (away) { used.add(away.index); add('elsewhere', away.channel.name, away.index, away.channel); }
-    // The directions chosen most often lead the tray.
+    if (away) { used.add(away.index); plan('elsewhere', away.channel.name, away.index, away.channel); }
     const taken = directionTally();
-    tiles.sort((a, b) => (taken[b.kind] || 0) - (taken[a.kind] || 0));
-    return { channel: channelId, from: current === undefined ? '' : videos[current].src, tiles };
+    planned.sort((a, b) => (taken[b.kind] || 0) - (taken[a.kind] || 0));
+    for (const index of rankCandidates(fromIndex, pool, weight)) {
+      if (used.has(index)) continue;
+      used.add(index);
+      plan('on', showOf(index), index, here);
+    }
+    for (const channel of TV_CHANNELS) {
+      if (channel.id === channelId || channel.app) continue;
+      const otherPool = poolFor(channel.id, ids, rating);
+      const otherKey = channelTasteKey(channel.id, ids) || channel.id;
+      const otherWeights = otherKey === key ? weights : weightsFor(otherKey);
+      const otherWeight = index => player.weightFor(otherWeights, videos[index].src);
+      for (const index of rankCandidates(fromIndex, otherPool, otherWeight)) {
+        if (used.has(index)) continue;
+        used.add(index);
+        plan('on', channel.name, index, channel);
+      }
+    }
+    const tiles = [];
+    for (const entry of planned) {
+      const src = videos[entry.index].src;
+      if (exclude.has(src)) continue;
+      tiles.push({ kind: entry.kind, label: entry.label, ...describe(videos[entry.index]),
+        channel: { id: entry.channel.id, number: entry.channel.number, name: entry.channel.name } });
+    }
+    const page = tiles.slice(offset, offset + limit);
+    const nextOffset = offset + page.length < tiles.length ? offset + page.length : null;
+    return { channel: channelId, from: current === undefined ? '' : videos[current].src, tiles: page, next: nextOffset };
   }
   const DIRECTION_KEY = 'onto.tv.directionKinds';
   function directionTally() {
