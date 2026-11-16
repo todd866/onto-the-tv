@@ -28,10 +28,18 @@ Song-map work that belongs to Glancebar is in `~/Projects/glancebar/docs/TODO.md
   - add Chill, Dance, Alt and Rap channels;
   - decide whether the TV also plays the lossless songs themselves (audio with cover art) from OTV Mirror
     (asked 16 Nov, no answer yet).
-- [ ] **Show metadata follow-ups** (full run started 16 Nov 20:20 on the M2, `~/.local/state/onto-tv-embed/run-full.log`):
+- [ ] **Show metadata: resume the run** (17 Nov). The full run on the M2 stopped after 48 shows (87 of ~717 saved in
+  `~/.local/state/onto-tv-embed/meta/`); find why in `run-full.log` (YouTube bot-check stop or a limit), then rerun
+  `harvest.py --catalogue "<catalogue.html>" --resume` with `PATH=/opt/homebrew/bin:$PATH` and the venv python.
+  Redirect and band-vs-singer fixes are merged (ceab1c0).
+- [ ] **Show vectors: first run** (code merged, a574ffd, `tools/show-embed/`). On the M2: install
+  `tools/show-embed/requirements.txt` into `~/.local/state/onto-tv-embed/venv` (~2 GB with torch; check
+  `~/.local/state/METERED_LINK` first), `embed.py` then `neighbours "South Park"`, `"Bluey"`, `"KEXP"`; show Ian
+  before the TV uses `show-space.json`.
+- [x] **Show metadata follow-ups** (full run started 16 Nov 20:20 on the M2, `~/.local/state/onto-tv-embed/run-full.log`):
   accept a page reached by redirect from the exact name (2Pac → Tupac Shakur, A$AP Rocky → ASAP Rocky); prefer
   "(band)"/"(French band)" over "(singer)" for groups (Air came out as "Air (singer)"); retry shows left `throttled`.
-- [ ] **Use the YouTube Takeout** (Ian, 16 Nov). Unpacked at `~/.local/state/youtube-takeout/2026-11-16/Takeout/`
+- [x] **Use the YouTube Takeout** (shipped 16 Nov: playlists x2, searched artists up to x1.5) (Ian, 16 Nov). Unpacked at `~/.local/state/youtube-takeout/2026-11-16/Takeout/`
   (M5 and M2): 8,901 searches 2012–2026 (647 on YouTube Music) and ~2,300 playlist video ids (Music,
   Watch later, YouTube Library Sync, Apple Music Delta). No watch history in this export. Searches are a shared
   account's (household members' too), so weight Ian's own playlists above searches. Done: music artists and
@@ -45,7 +53,7 @@ Song-map work that belongs to Glancebar is in `~/Projects/glancebar/docs/TODO.md
 - [ ] **Home layout per person.** The paged "now" layout is the default for everyone; narrow per profile once
   Ian has lived with it (Jake keeps `tube`).
 
-- [ ] **Fold unslop's audit into `instrument-ux`** (Ian, 16 Nov: "sure"). From github.com/heydamir/unslop
+- [x] **Fold unslop's audit into `instrument-ux`** (done 16 Nov) (Ian, 16 Nov: "sure"). From github.com/heydamir/unslop
   (CC BY 4.0, credit Damir Sokolovsky): its `references/signs.md` checklist (emoji labels, tracked uppercase,
   uneven spacing, glows, mixed number formats) and its copy rules (no `!` in interface text, short labels, no
   hype words, sentence case, tabular figures) become an audit step in `~/.claude/skills/instrument-ux/SKILL.md`,
