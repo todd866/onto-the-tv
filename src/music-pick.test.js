@@ -157,7 +157,7 @@ test('early music skip stores mild dislike, not the generic learner value', asyn
   const storage = await createFileStorage(join(dir, 'taste.json'));
   const video = tune('music/Alpha One/a.mp4', 'Alpha One');
   const library = createTvLibrary({ videos: [video], history: await loadPlaybackHistory(join(dir, 'history.json')), storage, random: () => 0 });
-  library.next('music', { viewers: 'dad', current: video.src, reason: 'skip', time: 12, duration: 240, watched: 5 });
+  assert.throws(() => library.next('music', { viewers: 'dad', current: video.src, reason: 'skip', time: 12, duration: 240, watched: 5 }), /empty/);
   const stored = player.readStored(storage, 'grown');
   assert.equal(stored[video.src], 0.85);
 });
@@ -170,14 +170,15 @@ test('music videos never resume from history or channel left-on', async () => {
     tune('music/Alpha One/a.mp4', 'Alpha One'),
     { src: 'Films/x.mkv', file: '/m/Films/x.mkv', title: 'Film', channel: 'Films', tier: 'grownup', duration: 6000 },
   ];
-  const library = createTvLibrary({ videos, history, storage, random: () => 0 });
-  library.progress({ src: videos[0].src, positionSeconds: 120, durationSeconds: 240, completed: false });
-  const back = library.next('music', { viewers: 'dad' });
+  let nowMs = Date.now();
+  const fresh = createTvLibrary({ videos, history, storage, random: () => 0, now: () => nowMs });
+  fresh.progress({ src: videos[0].src, positionSeconds: 120, durationSeconds: 240, completed: false });
+  assert.throws(() => fresh.next('music', { viewers: 'dad' }), /empty/);
+  nowMs += MUSIC_HEARD_MS + 1000;
+  const back = fresh.next('music', { viewers: 'dad' });
   assert.equal(back.resume, 0);
-  library.next('music', { viewers: 'dad', current: back.src, reason: 'skip', time: 150, duration: 240, watched: 30 });
-  library.next('movies', { viewers: 'dad' });
-  const again = library.next('music', { viewers: 'dad' });
-  assert.equal(again.resume, 0);
+  fresh.next('movies', { viewers: 'dad' });
+  assert.throws(() => fresh.next('music', { viewers: 'dad' }), /empty/);
 });
 
 test('similar artist is preferred when embeddings are present', async () => {

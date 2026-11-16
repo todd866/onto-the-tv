@@ -9,6 +9,7 @@ export function defaults(home = homedir()) {
   const library = join(home, 'Movies', 'kids-holiday');
   return { tvHost: '', avTransportUrl: '', bindHost: '', library,
     playerPath: join(library, 'kids-shuffler.html'), tiersPath: '', sourcesPath: '', mediaFolders: [], playOn: '',
+    youtubeTakeoutDir: join(home, '.local/state/youtube-takeout/2026-11-16/Takeout/YouTube and YouTube Music'),
     musicVectorsDir: join(home, '.local/state/glancebar-music-embed/vectors'),
     ambient: { ...DEFAULT_AMBIENT_OPTIONS } };
 }
@@ -40,7 +41,7 @@ export async function readSettings(path, home) {
     const data = JSON.parse(await readFile(path, 'utf8'));
     Object.assign(result, validateTvSettings({ tvHost: data.tvHost || '',
       avTransportUrl: data.avTransportUrl || '', bindHost: data.bindHost || '' }));
-    for (const key of ['library', 'playerPath', 'tiersPath', 'sourcesPath', 'musicVectorsDir']) {
+    for (const key of ['library', 'playerPath', 'tiersPath', 'sourcesPath', 'musicVectorsDir', 'youtubeTakeoutDir']) {
       if (typeof data[key] === 'string' && isAbsolute(data[key])) result[key] = data[key];
     }
     if (Array.isArray(data.mediaFolders)) result.mediaFolders = [...new Set(data.mediaFolders.filter(path =>

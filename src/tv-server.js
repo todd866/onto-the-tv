@@ -20,7 +20,7 @@ import { libraryView, showsView } from './tv-library-api.js';
 import { catalogueStatus, libraryHealthReport } from './library.js';
 import {
   artistKeyForVideo, buildMusicHeardMap, isMusicVideoChannel, isMusicVideoItem, isMusicVideoPick,
-  mildMusicSkipWeight, musicRankScore, pickMusicVideoIndex,
+  mildMusicSkipWeight, musicRankScore, pickMusicVideoIndex, youtubeTasteBoost,
 } from './music-pick.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
@@ -474,7 +474,7 @@ export function parseRange(header, size) {
  * The TV-facing model. `videos` comes from readCatalogue; `history` is a
  * loadPlaybackHistory store; `storage` a createFileStorage store.
  */
-export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, channelScores = null, musicEmbed = null, now = () => Date.now() }) {
+export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, channelScores = null, musicEmbed = null, youtubeTaste = null, now = () => Date.now() }) {
   const bySrc = new Map(videos.map((video, index) => [video.src, index]));
   const videoByFile = new Map(videos.map(item => [item.file, item]));
   // Per-channel memory of recently played indices, as the player keeps per tab.
@@ -514,7 +514,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   function musicScore(index, tasteWeight, currentIndex, heard) {
     return musicRankScore({
-      index, videos, tasteWeight, embed: musicEmbed?.state, anchorItem: musicAnchorItem(currentIndex), heard,
+      index, videos, tasteWeight, embed: musicEmbed?.state, anchorItem: musicAnchorItem(currentIndex), heard, youtubeTaste,
     });
   }
 
@@ -805,6 +805,13 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         && poolFor(channel.id, ids, rating).some(index => !billed.has(videos[index].channel || 'Other'))) {
         staged.delete(stage); staged.delete(stage + '\nnext');
       }
+      if (isMusicVideoChannel(channel.id)) {
+        const heard = musicHeardMap();
+        for (const key of [stage, stage + '\nnext']) {
+          if (staged.has(key) && heard.has(videos[staged.get(key)].src)) staged.delete(key);
+        }
+        if (!poolFor(channel.id, ids, rating).some(index => !heard.has(videos[index].src))) continue;
+      }
       if (!staged.has(stage)) staged.set(stage, chooseIndex(channel.id, ids, { rating, billing: true, avoid: billed }));
       billed.add(videos[staged.get(stage)].channel || 'Other');
       // What comes after the card's pick, for the guide and the "now on" panel; it becomes the
@@ -937,6 +944,10 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
           watched: Math.round(Number(options.watched) || 0), dur: Math.round(Number(options.duration) || item.duration || 0), via: 'tv' });
       }
     }
+    if (isMusicVideoChannel(channelId)) {
+      const heard = musicHeardMap();
+      pool = pool.filter(index => !heard.has(videos[index].src));
+    }
     let weights = weightsFor(key);
     const favourites = FAVOURITES[CHANNEL_BY_ID.get(channelId)?.person];
     // Rationed shows are the kids' favourites the parents tire of; grown-ups alone are not rationed.
@@ -1009,7 +1020,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       const heard = musicHeardMap();
       const musicPick = pickMusicVideoIndex({
         videos, pool, weights, currentIndex, played, random,
-        embed: musicEmbed?.state, heard, anchorItem: musicAnchorItem(currentIndex),
+        embed: musicEmbed?.state, heard, youtubeTaste, anchorItem: musicAnchorItem(currentIndex),
         preferLong: evening, longFormSeconds: LONG_FORM_SECONDS,
       });
       if (musicPick >= 0) index = musicPick;
@@ -1019,7 +1030,11 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       if (long.length) pool = long;
     }
     if (index < 0) {
-      index = player.pickVideo(videos, pool, weights, currentIndex, new Set(), played, random, !evening);
+      // The same-artist fallback still uses Takeout taste, on the unheard pool only.
+      const fallbackWeights = isMusicVideoChannel(channelId)
+        ? Object.fromEntries(pool.map(i => [videos[i].src, (weights[videos[i].src] ?? 1) * youtubeTasteBoost(videos[i], youtubeTaste)]))
+        : weights;
+      index = player.pickVideo(videos, pool, fallbackWeights, currentIndex, new Set(), played, random, !evening);
       if ((serial || personal) && index >= 0 && player.episodeNumber(videos[index]) !== null) {
         const following = story(showOf(index), pool, currentIndex, binge);
         if (following >= 0 && showOf(following) === showOf(index)) index = following;
@@ -1113,6 +1128,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (advancing) { queue.splice(at, 1); try { writeFileSync(path, JSON.stringify(queue)); } catch {} }
     const index = bySrc.get(entry.src);
     if (index === undefined || !allowed(entry.src, options.viewers, options.rating)) return undefined;
+    if (isMusicVideoItem(videos[index]) && musicHeardMap().has(videos[index].src)) return undefined;
     return index;
   }
 
@@ -1122,6 +1138,12 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const queued = takeQueued(channelId, options);
     if (queued !== undefined) { remember(channelId, queued); return finish(queued, channelId, ids, rating); }
     const key = stageKey(channelId, ids, rating);
+    if (isMusicVideoChannel(channelId)) {
+      const heard = musicHeardMap();
+      for (const stage of [key, key + '\nnext']) {
+        if (staged.has(stage) && heard.has(videos[staged.get(stage)].src)) staged.delete(stage);
+      }
+    }
     // Tuning in (not moving on from an episode): the episode left on this channel comes back first.
     if (!options.current) {
       const left = leftOn(channelId, ids, rating);
@@ -1195,18 +1217,19 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const key = channelTasteKey(channelId, ids) || channelId;
     const weights = weightsFor(key);
     const musicChannel = isMusicVideoChannel(channelId);
-    const musicHeard = musicChannel ? musicHeardMap() : null;
+    const musicHeard = musicHeardMap();
     const anchorIndex = fromIndex;
-    const weight = index => player.weightFor(weights, videos[index].src);
+    const weight = index => player.weightFor(weights, videos[index].src) * youtubeTasteBoost(videos[index], youtubeTaste);
     const score = index => musicChannel
-      ? musicScore(index, weight(index), anchorIndex, musicHeard)
+      ? musicScore(index, player.weightFor(weights, videos[index].src), anchorIndex, musicHeard)
       : weight(index);
     const { places, finished } = watchMaps();
     const begun = index => finished.has(videos[index].src) || !!places[videos[index].src];
     const musicUnheard = index => !musicHeard?.has(videos[index].src);
     const held = likes();
     const used = new Set(current === undefined ? [] : [current]);
-    const usable = index => !used.has(index) && !isAdSrc(videos[index].src);
+    const usable = index => !used.has(index) && !isAdSrc(videos[index].src)
+      && !(isMusicVideoItem(videos[index]) && musicHeard.has(videos[index].src));
     const pickTop = (list, score) => {
       const ranked = list.filter(usable).map(index => [score(index), index]).filter(([value]) => value > -Infinity).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
       if (!ranked.length) return undefined;
@@ -1262,8 +1285,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       if (!other.length) continue;
       const otherKey = channelTasteKey(channel.id, ids) || channel.id;
       const otherWeights = otherKey === key ? weights : weightsFor(otherKey);
-      const best = other.reduce((top, index) => (player.weightFor(otherWeights, videos[index].src) > player.weightFor(otherWeights, videos[top].src) ? index : top), other[0]);
-      const score = player.weightFor(otherWeights, videos[best].src);
+      const otherWeight = index => player.weightFor(otherWeights, videos[index].src) * youtubeTasteBoost(videos[index], youtubeTaste);
+      const best = other.reduce((top, index) => otherWeight(index) > otherWeight(top) ? index : top, other[0]);
+      const score = otherWeight(best);
       if (!away || score > away.score) away = { score, index: best, channel };
     }
     if (away) { used.add(away.index); plan('elsewhere', away.channel.name, away.index, away.channel); }
@@ -1279,7 +1303,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       const otherPool = poolFor(channel.id, ids, rating);
       const otherKey = channelTasteKey(channel.id, ids) || channel.id;
       const otherWeights = otherKey === key ? weights : weightsFor(otherKey);
-      const otherWeight = index => player.weightFor(otherWeights, videos[index].src);
+      const otherWeight = index => player.weightFor(otherWeights, videos[index].src) * youtubeTasteBoost(videos[index], youtubeTaste);
       for (const index of rankCandidates(fromIndex, otherPool, otherWeight)) {
         if (used.has(index)) continue;
         used.add(index);

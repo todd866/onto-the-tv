@@ -989,10 +989,13 @@ test('a measured score leans Dance without deciding who is on it', async () => {
   assert.equal(inTvGenre(plain[0], 'dance', scores), true, 'an unmeasured act stays on');
   let seed = 7;
   const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  const library = createTvLibrary({ videos: [...videos, ...acts, radiohead], history, storage, channelScores: scores, random, now: () => localHour(15) });
+  let nowMs = localHour(15);
+  const library = createTvLibrary({ videos: [...videos, ...acts, radiohead], history, storage, channelScores: scores, random, now: () => nowMs });
   const picks = new Map();
   let current;
   for (let i = 0; i < 600; i++) {
+    // Independent draws: prior plays must age out of the three-day exclusion.
+    nowMs += 4 * 24 * 60 * 60 * 1000;
     // Surfing teaches nothing on a skip before half a minute; music's early-skip rule uses the clock position, not watched seconds.
     const item = library.next('dance', { viewers: 'sam', current, reason: 'skip', time: 35, duration: 240, watched: 1 });
     picks.set(item.src, (picks.get(item.src) || 0) + 1); current = item.src;

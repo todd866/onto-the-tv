@@ -285,21 +285,30 @@ export function musicSimilarity(embed, fromItem, toItem) {
   return dot(a, b);
 }
 
-export function musicCandidateWeight({ index, videos, tasteWeight, embed, anchorItem, heard }) {
+/** Saved videos and shared-account searches are independent, bounded signals. */
+export function youtubeTasteBoost(item, youtubeTaste) {
+  if (!youtubeTaste || !isMusicVideoItem(item)) return 1;
+  const id = /\[([A-Za-z0-9_-]{11})\](?=\.[^/]+$|$)/.exec(item.src || '')?.[1];
+  const saved = id && youtubeTaste.savedVideoIds.has(id) ? 2 : 1;
+  const affinity = youtubeTaste.artistAffinity(artistFromVideo(item));
+  return saved * (1 + 0.5 * Math.max(0, Math.min(1, Number(affinity) || 0)));
+}
+
+export function musicCandidateWeight({ index, videos, tasteWeight, embed, anchorItem, heard, youtubeTaste }) {
   const item = videos[index];
   const sim = anchorItem ? musicSimilarity(embed, anchorItem, item) : MUSIC_NEUTRAL_SIMILARITY;
   const flow = musicFlowFactor(sim);
-  return Math.max(0, tasteWeight) * flow * (heard.has(item.src) ? 0.02 : 1);
+  return heard.has(item.src) ? 0 : Math.max(0, tasteWeight) * flow * youtubeTasteBoost(item, youtubeTaste);
 }
 
-export function musicRankScore({ index, videos, tasteWeight, embed, anchorItem, heard }) {
-  const unheardBoost = musicHeardRecently(videos[index].src, heard) ? 0 : 1e12;
-  return unheardBoost + musicCandidateWeight({ index, videos, tasteWeight, embed, anchorItem, heard });
+export function musicRankScore({ index, videos, tasteWeight, embed, anchorItem, heard, youtubeTaste }) {
+  if (musicHeardRecently(videos[index].src, heard)) return -Infinity;
+  return musicCandidateWeight({ index, videos, tasteWeight, embed, anchorItem, heard, youtubeTaste });
 }
 
 export function pickMusicVideoIndex({
   videos, pool, weights, currentIndex, played, random, embed, heard, anchorItem = null,
-  preferLong = false, longFormSeconds = 20 * 60,
+  youtubeTaste = null, preferLong = false, longFormSeconds = 20 * 60,
 }) {
   let available = pool.filter(index => index !== currentIndex);
   if (!available.length) return -1;
@@ -310,12 +319,13 @@ export function pickMusicVideoIndex({
     available = varied;
   }
   const unheard = available.filter(index => !heard.has(videos[index].src));
-  const candidates = unheard.length ? unheard : available;
+  const candidates = unheard;
+  if (!candidates.length) return -1;
   const recentShows = played.slice(-2).map(index => artistKeyForVideo(videos[index]));
   const lastArtist = recentShows[recentShows.length - 1] || currentArtist;
   const maxWeight = candidates.reduce((max, index) => {
     const taste = weights[videos[index].src] ?? 1;
-    return Math.max(max, musicCandidateWeight({ index, videos, tasteWeight: taste, embed, anchorItem, heard: new Map() }));
+    return Math.max(max, musicCandidateWeight({ index, videos, tasteWeight: taste, embed, anchorItem, heard: new Map(), youtubeTaste }));
   }, 0);
   const pickWeight = index => {
     const taste = weights[videos[index].src] ?? 1;
@@ -324,7 +334,7 @@ export function pickMusicVideoIndex({
       const prior = played.slice().reverse().find(i => artistKeyForVideo(videos[i]) === lastArtist);
       if (prior !== undefined) anchor = videos[prior];
     }
-    let w = musicCandidateWeight({ index, videos, tasteWeight: taste, embed, anchorItem: anchor, heard });
+    let w = musicCandidateWeight({ index, videos, tasteWeight: taste, embed, anchorItem: anchor, heard, youtubeTaste });
     if (lastArtist && artistKeyForVideo(videos[index]) === lastArtist) w *= 0.35;
     if (preferLong && (videos[index].duration || 0) >= longFormSeconds) w *= 1.25;
     return embed?.ready ? exploreBlend(w, maxWeight) : w;
