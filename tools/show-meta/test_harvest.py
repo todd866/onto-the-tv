@@ -212,6 +212,93 @@ class HarvestTests(unittest.TestCase):
             self.assertEqual(len(planned_refresh), 1)
 
 class WikipediaBatchTests(unittest.TestCase):
+    def regression_resolver(self, *, instances=None):
+        fixture = json.loads((FIXTURES / "wikipedia_matching_regressions.json").read_text())
+
+        def fake_get(url, **kwargs):
+            params = kwargs.get("params") or {}
+            if params.get("titles"):
+                body = {"query": fixture["query"]}
+            elif params.get("action") == "wbgetentities":
+                body = {"entities": {
+                    qid: {"id": qid, "claims": {"P31": [
+                        {"mainsnak": {"datavalue": {"value": {"id": kind}}}}
+                        for kind in kinds
+                    ]}}
+                    for qid, kinds in (instances or fixture["instances"]).items()
+                }}
+            elif params.get("list") == "search":
+                body = {"query": {"search": []}}
+            elif url.startswith(harvest.WIKI_REST):
+                body = {"title": urllib.parse.unquote(url.rsplit("/", 1)[-1]).replace("_", " ")}
+            else:
+                self.fail(f"Unexpected offline request: {url} {params}")
+            response = mock.Mock(status_code=200, headers={})
+            response.json.return_value = body
+            return response
+
+        resolver = harvest.WikipediaRunResolver(session=paced_session_with(fake_get))
+        resolver.prepare([(name, "music artist") for name in ("2Pac", "A$AP Rocky", "Air")])
+        return resolver
+
+    def test_exact_redirect_accepts_without_wikidata_alias(self):
+        resolver = self.regression_resolver()
+        for name, expected in (("2Pac", "Tupac Shakur"), ("A$AP Rocky", "ASAP Rocky")):
+            with self.subTest(name=name):
+                result = resolver.resolve(name, "music artist")
+                self.assertEqual(result.wikipedia["title"], expected)
+
+    def test_exact_redirect_still_requires_matching_kind(self):
+        for instances in ({"Q1": [harvest.WD_SONG]}, {"Q1": []}):
+            with self.subTest(instances=instances):
+                resolver = self.regression_resolver(instances=instances)
+                self.assertIsNone(resolver.resolve("2Pac", "music artist").wikipedia)
+
+    def test_group_beats_human_in_exact_and_search_candidates(self):
+        resolver = self.regression_resolver()
+        self.assertEqual(resolver.resolve("Air", "music artist").wikipedia["title"], "Air (French band)")
+        # Put the human first, so equal scores cannot hide the regression.
+        for qualifier in ("band", "French band", "group"):
+            with self.subTest(qualifier=qualifier):
+                band = f"Air ({qualifier})"
+                title, *_ = harvest.pick_wikipedia_title(
+                    [{"title": "Air (singer)"}, {"title": band}], "Air", "music artist",
+                    wikidata_by_title={
+                        "Air (singer)": {"instanceOf": [harvest.WD_HUMAN]},
+                        band: {"instanceOf": [harvest.WD_MUSICAL_GROUP]},
+                    },
+                )
+                self.assertEqual(title, band)
+
+    def test_resume_cli_retries_fresh_throttled_fixture(self):
+        fixture = json.loads((FIXTURES / "wikipedia_matching_regressions.json").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            meta = state / "meta"
+            meta.mkdir()
+            for slug in ("films", "kexp", "south-park"):
+                (meta / f"{slug}.json").write_text(json.dumps(
+                    fixture["pending"] if slug == "south-park" else {"wikipedia": {"title": slug}}
+                ))
+            with mock.patch.object(harvest, "configure_logging"), \
+                 mock.patch.object(harvest, "ensure_imdb_datasets", return_value=(
+                     FIXTURES / "title.basics.tsv.gz", FIXTURES / "title.ratings.tsv.gz")), \
+                 mock.patch.object(harvest.WikipediaRunResolver, "prepare") as prepare, \
+                 mock.patch.object(harvest.WikipediaRunResolver, "resolve", return_value=
+                     harvest.WikipediaResolveResult(wikipedia={"title": "South Park"}, looked_up=True)
+                 ) as resolve, \
+                 mock.patch.object(harvest, "yt_dlp_descriptions", return_value=([], False)), \
+                 mock.patch.object(harvest.requests.Session, "request", side_effect=AssertionError("Network forbidden")):
+                self.assertEqual(harvest.main([
+                    "--catalogue", str(FIXTURES / "catalogue.html"),
+                    "--state-dir", str(state), "--meta-dir", str(meta), "--resume",
+                ]), 0)
+            prepare.assert_called_once_with([("South Park", "series")])
+            resolve.assert_called_once()
+            record = json.loads((meta / "south-park.json").read_text())
+            self.assertNotIn("wikipedia_status", record)
+            self.assertEqual(record["wikipedia"]["title"], "South Park")
+
     def test_user_agent_identifies_project(self):
         self.assertIn("onto-the-tv-metadata/0.2", harvest.USER_AGENT)
 

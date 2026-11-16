@@ -337,7 +337,7 @@ def wikipedia_title_matches_show(
 def wikipedia_kind_title_variants(show_name: str, kind: str) -> list[str]:
     base = show_name.strip()
     if kind == "music artist":
-        suffixes = ("", " (band)", " (musician)", " (rapper)", " (singer)")
+        suffixes = ("", " (band)", " (French band)", " (group)", " (musician)", " (rapper)", " (singer)")
     elif kind == "record label":
         suffixes = ("", " (record label)")
     elif kind in {"series", "live series"}:
@@ -379,13 +379,18 @@ def reject_wikipedia_candidate(
     show_name: str,
     *,
     wikidata: Mapping[str, Any] | None = None,
+    exact_redirect: bool = False,
 ) -> str | None:
     lower = title.lower()
     if lower.startswith("list of"):
         return "list page"
     if lower.endswith("(disambiguation)") or "(disambiguation)" in lower:
         return "disambiguation"
-    if not wikipedia_title_matches_show(title, show_name, wikidata=wikidata):
+    redirect_matches = (
+        exact_redirect and wikidata
+        and score_wikidata_instance(wikidata.get("instanceOf") or [], kind) > 0
+    )
+    if not redirect_matches and not wikipedia_title_matches_show(title, show_name, wikidata=wikidata):
         return "title mismatch"
     if wikidata:
         instances = set(wikidata.get("instanceOf") or [])
@@ -431,6 +436,7 @@ def wikipedia_pick_score(
     show_name: str,
     *,
     wikidata: Mapping[str, Any] | None = None,
+    exact_redirect: bool = False,
     description: str | None = None,
     youtube_text: str = "",
     imdb_year: str | None = None,
@@ -439,7 +445,9 @@ def wikipedia_pick_score(
     score = 0.0
     reasons: list[str] = []
 
-    reject = reject_wikipedia_candidate(title, kind, show_name, wikidata=wikidata)
+    reject = reject_wikipedia_candidate(
+        title, kind, show_name, wikidata=wikidata, exact_redirect=exact_redirect
+    )
     if reject:
         return -10.0, f"rejected: {reject}"
 
@@ -450,7 +458,7 @@ def wikipedia_pick_score(
 
     series_markers = ("television series", "tv series", "animated series", "sitcom", "anthology", "british television")
     film_markers = ("film", "movie", "motion picture")
-    music_markers = ("band", "musician", "singer", "rapper", "musical group", "record producer", "songwriter")
+    music_markers = ("band", "musician", "singer", "rapper", "musical group", "(group)", "record producer", "songwriter")
     label_markers = ("record label", "independent record", "music label")
     if kind in {"series", "live series"}:
         for word in series_markers:
@@ -482,6 +490,9 @@ def wikipedia_pick_score(
         score += wd_score
         if wd_score > 0:
             reasons.append("wikidata kind")
+            if kind == "music artist" and WD_MUSICAL_GROUP in (wikidata.get("instanceOf") or []):
+                score += 1
+                reasons.append("musical group")
         elif wd_score < 0:
             reasons.append("wikidata mismatch")
 
@@ -895,27 +906,30 @@ class WikipediaRunResolver:
         return self._wikidata_by_title.get(title)
 
     def _pick_exact(self, show_name: str, kind: str, *, youtube_text: str, imdb_year: str | None) -> tuple[str | None, float, str, str]:
+        ranked: list[tuple[str, float, str, str]] = []
         for candidate in wikipedia_kind_title_variants(show_name, kind):
             ref = self._title_pages.get(candidate)
             if not ref or ref.missing or ref.disambiguation:
                 continue
             title = ref.title
             wd = self._page_wikidata(title)
-            reject = reject_wikipedia_candidate(title, kind, show_name, wikidata=wd)
-            if reject:
-                continue
+            # Only the unqualified show-name request supplies exact redirect evidence.
+            exact_redirect = candidate == show_name.strip() and title != candidate
             score, confidence = wikipedia_pick_score(
                 title,
                 "",
                 kind,
                 show_name,
                 wikidata=wd,
+                exact_redirect=exact_redirect,
                 youtube_text=youtube_text,
                 imdb_year=imdb_year,
             )
             if score >= WIKIPEDIA_MIN_ACCEPT_SCORE:
                 conf_word = confidence.split(" ", 1)[0]
-                return title, score, conf_word, confidence
+                ranked.append((title, score, conf_word, confidence))
+        if ranked:
+            return max(ranked, key=lambda row: row[1])
         return None, 0.0, "low", "no exact-title match"
 
     def _fetch_summary(self, title: str) -> dict[str, Any]:
