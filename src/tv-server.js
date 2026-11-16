@@ -1016,6 +1016,10 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (!last || index === undefined) return undefined;
     const place = watchMaps().places[videos[index].src];
     if (!place || place.time < LEFT_SECONDS || now() - place.updated > LEFT_HOURS * 3600000) return undefined;
+    // Nearly over is over (16 Nov 2026: a set that ended 1 s short was resumed at its last second, ended, and
+    // was resumed again, so the channel stuck on it).
+    const duration = videos[index].duration || 0;
+    if (place.completed || (duration && (place.time >= duration - 30 || player.nearlyFinished(place.time, duration)))) return undefined;
     if (!poolFor(channelId, ids, rating).includes(index)) return undefined;
     return index;
   }
