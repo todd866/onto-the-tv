@@ -349,7 +349,7 @@ export function isHomeAddress(address) {
 // Broadcaster and channel tags YouTube uploads carry; the card already says where it is from.
 const BROADCASTER_TAGS = /^(?:abc kids|abc iview|abc kids listen|abc tv|cbeebies|cbbc|bbc|bbc earth|bbc kids|netflix(?: jr\.?| kids)?|disney(?: junior| jr\.?)?|nick jr\.?|nickelodeon|pbs kids|milkshake!?|sesame street|official|full episodes?|compilation|kids cartoons?|cartoons? for kids|for kids|hd|4k)$/i;
 // Upload padding that says nothing about the episode: "30+ MINS", "TRIPLE", "CBeebies Bedtime Story for Toddlers".
-const MARKETING_TAGS = /^(?:(?:\d+\s*\+?\s*(?:mins?|minutes?|hours?|hrs?)(?:\s+of\s+.*)?)|(?:double|triple|quadruple|mega|super)(?:\s+episodes?)?|(?:full\s+)?(?:story\s+|bonus\s+season\s+|season\s+|episode\s+)?compilation|all\s+episodes|(?:abc kids|cbeebies|cbbc|nick jr\.?|pbs kids)\b.*\b(?:story|stories|for (?:toddlers|kids|children)|full episodes?|compilation|songs?)\b.*|(?:learn|songs?|nursery rhymes?)\s+for\s+(?:toddlers|kids|children|babies)|for\s+(?:toddlers|kids|children|babies))$/i;
+const MARKETING_TAGS = /^(?:(?:\d+\s*\+?\s*(?:mins?|minutes?|hours?|hrs?)(?:\s+of\s+.*)?)|(?:double|triple|quadruple|mega|super)(?:\s+episodes?)?|(?:full\s+)?(?:story\s+|bonus\s+season\s+|season\s+|episode\s+)?compilation|all\s+episodes|(?:abc kids|cbeebies|cbbc|nick jr\.?|pbs kids)\b.*\b(?:story|stories|for (?:toddlers|kids|children)|full episodes?|compilation|songs?)\b.*|(?:learn|songs?|nursery rhymes?)\s+for\s+(?:toddlers|kids|children|babies)|for\s+(?:toddlers|kids|children|babies)|kids\s+(?:songs?|compilation|cartoons?|videos?|tv)|camp youtube|learn to (?:count|read)(?:\s+.*)?|(?:movie\s+)?clips?\s+compilation|baby videos for kids.*|nursery rhymes.*)$/i;
 const PICTOGRAPH = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu;
 const showKey = text => String(text).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -357,7 +357,7 @@ const showKey = text => String(text).toLowerCase().replace(/&/g, 'and').replace(
 export function tidyTitle(raw, show = '') {
   let text = String(raw || '').normalize('NFKC').replace(PICTOGRAPH, '').replace(/\s*\[[^\]]*\]\s*/g, ' ')
     .replace(/[｜|]/g, ' · ').replace(/\s+[-–—]\s+/g, ' · ').replace(/(?:^|\s)[@#][\w.]+/g, ' ')
-    .replace(/\(\s*(?:official[^)]*|full episodes?|hd|4k)\s*\)/gi, '').replace(/\bfull episodes?\b\s*/gi, '')
+    .replace(/\(\s*(?:official[^)]*|full episodes?|hd|4k|(?:movie\s+)?clips?(?:\s+compilation)?|compilation)\s*\)/gi, '').replace(/\bfull episodes?\b\s*/gi, '')
     .replace(/\s+([?!.,:;])/g, '$1').replace(/([?!])\s+(?=[?!])/g, '$1').replace(/\s+/g, ' ').trim();
   const key = showKey(show);
   const parts = text.split(/\s*·\s*/).map(part => part.replace(/^[\s.:,\-–—]+|[\s,:\-–—]+$/g, '').trim()).filter(part => {
