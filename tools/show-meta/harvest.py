@@ -25,7 +25,9 @@ try:
 except ImportError:  # pragma: no cover
     requests = None  # type: ignore
 
-USER_AGENT = "onto-the-tv-metadata/0.1"
+USER_AGENT = "onto-the-tv-metadata/0.2 (https://github.com/todd866/onto-the-tv)"
+WIKI_BATCH_SIZE = 50
+WIKI_MAX_RETRIES = 5
 TIERS = frozenset(
     {
         "preschool",
@@ -120,6 +122,7 @@ WD_FILM = "Q11424"
 WD_LIST_ARTICLE = "Q1340646"
 WD_ALBUM = "Q482994"
 WD_SINGLE = "Q134556"
+WD_SONG = "Q7366"
 WD_TELEVISION_PROGRAM = "Q15416"
 
 KIND_EXPECTED_INSTANCE_OF: dict[str, frozenset[str]] = {
@@ -130,6 +133,18 @@ KIND_EXPECTED_INSTANCE_OF: dict[str, frozenset[str]] = {
     "live series": frozenset({WD_TV_SERIES, WD_TELEVISION_PROGRAM}),
     "youtube channel": frozenset(),
 }
+
+KIND_CONTRADICTING_INSTANCE: dict[str, frozenset[str]] = {
+    "series": frozenset({WD_FILM, WD_ALBUM, WD_SINGLE, WD_SONG, WD_LIST_ARTICLE}),
+    "live series": frozenset({WD_FILM, WD_ALBUM, WD_SINGLE, WD_SONG, WD_LIST_ARTICLE}),
+    "music artist": frozenset({WD_TV_SERIES, WD_TELEVISION_PROGRAM, WD_ALBUM, WD_SINGLE, WD_SONG, WD_FILM}),
+    "record label": frozenset({WD_TV_SERIES, WD_ALBUM, WD_SINGLE, WD_SONG, WD_HUMAN, WD_MUSICAL_GROUP}),
+    "film": frozenset({WD_TV_SERIES, WD_TELEVISION_PROGRAM, WD_ALBUM, WD_SINGLE, WD_SONG}),
+}
+
+
+class WikiThrottledError(RuntimeError):
+    """Wikipedia/Wikidata API remained at 429/503 after retries."""
 
 
 def default_state_dir() -> Path:
@@ -373,6 +388,10 @@ def reject_wikipedia_candidate(
     if not wikipedia_title_matches_show(title, show_name, wikidata=wikidata):
         return "title mismatch"
     if wikidata:
+        instances = set(wikidata.get("instanceOf") or [])
+        contradicts = KIND_CONTRADICTING_INSTANCE.get(kind, frozenset())
+        if instances & contradicts:
+            return "wikidata kind mismatch"
         wd_kind = score_wikidata_instance(wikidata.get("instanceOf") or [], kind)
         if wd_kind < 0:
             return "wikidata kind mismatch"
@@ -399,7 +418,7 @@ def score_wikidata_instance(instance_of: Sequence[str], kind: str) -> float:
     hits = set(instance_of) & expected
     if hits:
         return 4.0
-    bad = {WD_LIST_ARTICLE, WD_ALBUM, WD_SINGLE}
+    bad = {WD_LIST_ARTICLE, WD_ALBUM, WD_SINGLE, WD_SONG, WD_FILM}
     if set(instance_of) & bad:
         return -4.0
     return -1.0
@@ -624,6 +643,7 @@ class RateLimitedSession:
         sleeper: Callable[[float], None] = time.sleep,
         backoff_initial: float = BACKOFF_INITIAL_SECONDS,
         backoff_max: float = BACKOFF_MAX_SECONDS,
+        max_retries: int = WIKI_MAX_RETRIES,
     ) -> None:
         self._session = session
         self._pace = pace_seconds
@@ -631,6 +651,7 @@ class RateLimitedSession:
         self._last_request = 0.0
         self._backoff_initial = backoff_initial
         self._backoff_max = backoff_max
+        self._max_retries = max_retries
 
     def _wait_pace(self) -> None:
         now = time.monotonic()
@@ -663,6 +684,10 @@ class RateLimitedSession:
                 delay,
                 attempt + 1,
             )
+            if attempt + 1 >= self._max_retries:
+                raise WikiThrottledError(
+                    f"HTTP {response.status_code} from {url} after {attempt + 1} attempt(s)"
+                )
             self._sleeper(delay)
             attempt += 1
 
@@ -670,45 +695,378 @@ class RateLimitedSession:
         return self.request("GET", url, **kwargs)
 
 
+def chunk_sequence(items: Sequence[str], size: int) -> Iterable[list[str]]:
+    batch: list[str] = []
+    for item in items:
+        batch.append(item)
+        if len(batch) >= size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
+def _claim_values(claims: Mapping[str, Any], prop: str) -> list[Any]:
+    out: list[Any] = []
+    for claim in claims.get(prop, []):
+        try:
+            value = claim["mainsnak"]["datavalue"]["value"]
+        except (KeyError, TypeError):
+            continue
+        if isinstance(value, dict) and "id" in value:
+            out.append(value["id"])
+        elif isinstance(value, dict) and "time" in value:
+            out.append(value["time"].lstrip("+").split("T", 1)[0][:4])
+        elif isinstance(value, str):
+            out.append(value)
+    return out
+
+
+def parse_wikidata_entity(entity: Mapping[str, Any]) -> dict[str, Any]:
+    qid = str(entity.get("id") or "")
+    claims = entity.get("claims") or {}
+    labels = entity.get("labels") or {}
+    aliases = entity.get("aliases") or {}
+    label_en = labels.get("en", {}).get("value") if isinstance(labels.get("en"), Mapping) else None
+    alias_en = [
+        str(row.get("value"))
+        for row in aliases.get("en", [])
+        if isinstance(row, Mapping) and row.get("value")
+    ]
+    return {
+        "id": qid,
+        "label": label_en,
+        "aliases": alias_en,
+        "instanceOf": _claim_values(claims, "P31"),
+        "genres": _claim_values(claims, "P136"),
+        "startYear": (_claim_values(claims, "P577") or _claim_values(claims, "P580") or [None])[0],
+        "country": _claim_values(claims, "P495") or _claim_values(claims, "P27"),
+    }
+
+
+def wikidata_entities_batch(
+    session: RateLimitedSession, qids: Sequence[str]
+) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    unique = [qid for qid in dict.fromkeys(qid for qid in qids if qid)]
+    for batch in chunk_sequence(unique, WIKI_BATCH_SIZE):
+        params = {
+            "action": "wbgetentities",
+            "ids": "|".join(batch),
+            "props": "claims|labels|aliases",
+            "format": "json",
+        }
+        response = session.get(WIKI_API, params=params, timeout=60)
+        response.raise_for_status()
+        for qid, entity in (response.json().get("entities") or {}).items():
+            if not entity or entity.get("missing"):
+                continue
+            out[qid] = parse_wikidata_entity(entity)
+    return out
+
+
 def wikidata_entities(
     session: RateLimitedSession | requests.Session, qid: str
 ) -> dict[str, Any] | None:
     if not qid:
         return None
+    if isinstance(session, RateLimitedSession):
+        batch = wikidata_entities_batch(session, [qid])
+        return batch.get(qid)
     params = {
         "action": "wbgetentities",
         "ids": qid,
-        "props": "claims",
+        "props": "claims|labels|aliases",
         "format": "json",
     }
-    base = session.get if isinstance(session, RateLimitedSession) else session.get
-    response = base(WIKI_API, params=params, timeout=60)
+    response = session.get(WIKI_API, params=params, timeout=60)
     response.raise_for_status()
     entity = response.json().get("entities", {}).get(qid, {})
-    claims = entity.get("claims") or {}
+    if not entity or entity.get("missing"):
+        return None
+    return parse_wikidata_entity(entity)
 
-    def claim_values(prop: str) -> list[Any]:
-        out = []
-        for claim in claims.get(prop, []):
-            try:
-                value = claim["mainsnak"]["datavalue"]["value"]
-            except (KeyError, TypeError):
+
+@dataclass
+class WikipediaPageRef:
+    title: str
+    qid: str | None = None
+    disambiguation: bool = False
+    missing: bool = False
+
+
+def batch_query_titles(
+    session: RateLimitedSession, titles: Sequence[str]
+) -> dict[str, WikipediaPageRef]:
+    """Map each requested title (after redirects) to page metadata."""
+    ordered = list(dict.fromkeys(t for t in titles if t))
+    resolved: dict[str, WikipediaPageRef] = {}
+    pages_by_title: dict[str, Mapping[str, Any]] = {}
+    for batch in chunk_sequence(ordered, WIKI_BATCH_SIZE):
+        params = {
+            "action": "query",
+            "titles": "|".join(batch),
+            "redirects": 1,
+            "prop": "pageprops|info",
+            "ppprop": "wikibase_item|disambiguation",
+            "format": "json",
+            "formatversion": 2,
+        }
+        response = session.get(WIKI_API, params=params, timeout=60)
+        response.raise_for_status()
+        query = response.json().get("query") or {}
+        payload = query if isinstance(query, Mapping) else {}
+        redirects_raw = payload.get("redirects")
+        redirect_rows = redirects_raw if isinstance(redirects_raw, list) else []
+        direct = {
+            str(row.get("from") or ""): str(row.get("to") or "")
+            for row in redirect_rows
+            if isinstance(row, Mapping) and row.get("from") and row.get("to")
+        }
+
+        def canonical_title(title: str) -> str:
+            seen: set[str] = set()
+            current = title
+            while current in direct and current not in seen:
+                seen.add(current)
+                current = direct[current]
+            return current
+
+        pages_raw = payload.get("pages")
+        for page in pages_raw if isinstance(pages_raw, list) else []:
+            title = str(page.get("title") or "")
+            if title:
+                pages_by_title[title] = page
+        for requested in batch:
+            canonical = canonical_title(requested)
+            page = pages_by_title.get(canonical)
+            if not page or page.get("missing"):
+                resolved[requested] = WikipediaPageRef(title=canonical, missing=True)
                 continue
-            if isinstance(value, dict) and "id" in value:
-                out.append(value["id"])
-            elif isinstance(value, dict) and "time" in value:
-                out.append(value["time"].lstrip("+").split("T", 1)[0][:4])
-            elif isinstance(value, str):
-                out.append(value)
-        return out
+            props = page.get("pageprops") or {}
+            resolved[requested] = WikipediaPageRef(
+                title=str(page.get("title") or canonical),
+                qid=str(props.get("wikibase_item") or "") or None,
+                disambiguation="disambiguation" in props,
+                missing=False,
+            )
+    return resolved
 
-    return {
-        "id": qid,
-        "instanceOf": claim_values("P31"),
-        "genres": claim_values("P136"),
-        "startYear": (claim_values("P577") or claim_values("P580") or [None])[0],
-        "country": claim_values("P495") or claim_values("P27"),
-    }
+
+@dataclass
+class WikipediaResolveResult:
+    wikipedia: dict[str, Any] | None = None
+    wikipedia_status: str | None = None
+    looked_up: bool = False
+
+
+@dataclass
+class WikipediaRunResolver:
+    """Batch exact-title Wikipedia resolution for a harvest run."""
+
+    session: RateLimitedSession
+    _title_pages: dict[str, WikipediaPageRef] = field(default_factory=dict)
+    _wikidata_by_title: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _wikidata_by_qid: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _api_exhausted: bool = False
+
+    def prepare(self, shows: Sequence[tuple[str, str]]) -> None:
+        candidates: list[str] = []
+        for name, kind in shows:
+            candidates.extend(wikipedia_kind_title_variants(name, kind))
+        unique = list(dict.fromkeys(candidates))
+        try:
+            for batch in chunk_sequence(unique, WIKI_BATCH_SIZE):
+                self._title_pages.update(batch_query_titles(self.session, batch))
+        except WikiThrottledError:
+            self._api_exhausted = True
+            return
+        qids = [ref.qid for ref in self._title_pages.values() if ref.qid]
+        try:
+            self._wikidata_by_qid = wikidata_entities_batch(self.session, qids)
+        except WikiThrottledError:
+            self._api_exhausted = True
+            return
+        for ref in self._title_pages.values():
+            if ref.qid and ref.qid in self._wikidata_by_qid:
+                self._wikidata_by_title[ref.title] = self._wikidata_by_qid[ref.qid]
+
+    def _page_wikidata(self, title: str) -> dict[str, Any] | None:
+        return self._wikidata_by_title.get(title)
+
+    def _pick_exact(self, show_name: str, kind: str, *, youtube_text: str, imdb_year: str | None) -> tuple[str | None, float, str, str]:
+        for candidate in wikipedia_kind_title_variants(show_name, kind):
+            ref = self._title_pages.get(candidate)
+            if not ref or ref.missing or ref.disambiguation:
+                continue
+            title = ref.title
+            wd = self._page_wikidata(title)
+            reject = reject_wikipedia_candidate(title, kind, show_name, wikidata=wd)
+            if reject:
+                continue
+            score, confidence = wikipedia_pick_score(
+                title,
+                "",
+                kind,
+                show_name,
+                wikidata=wd,
+                youtube_text=youtube_text,
+                imdb_year=imdb_year,
+            )
+            if score >= WIKIPEDIA_MIN_ACCEPT_SCORE:
+                conf_word = confidence.split(" ", 1)[0]
+                return title, score, conf_word, confidence
+        return None, 0.0, "low", "no exact-title match"
+
+    def _fetch_summary(self, title: str) -> dict[str, Any]:
+        summary_url = WIKI_REST + urllib.parse.quote(title.replace(" ", "_"), safe="/()")
+        summary = self.session.get(summary_url, timeout=60)
+        if summary.status_code == 404:
+            return {
+                "title": title,
+                "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
+            }
+        summary.raise_for_status()
+        return summary.json()
+
+    def _search_fallback(
+        self,
+        show_name: str,
+        kind: str,
+        *,
+        youtube_text: str,
+        imdb_year: str | None,
+        seed_wikidata: dict[str, Mapping[str, Any]],
+    ) -> tuple[str | None, float, str, str, dict[str, Mapping[str, Any]]]:
+        search_payloads: list[Mapping[str, Any]] = []
+        try:
+            for query in wikipedia_search_queries(show_name, kind):
+                search_params = {
+                    "action": "query",
+                    "list": "search",
+                    "srsearch": query,
+                    "srlimit": 8,
+                    "format": "json",
+                }
+                search = self.session.get(WIKI_API, params=search_params, timeout=60)
+                search.raise_for_status()
+                search_payloads.append(search.json())
+        except WikiThrottledError:
+            raise
+
+        hits = merge_search_hits(search_payloads)
+        wikidata_by_title = dict(seed_wikidata)
+        pre_ranked: list[tuple[float, dict[str, Any]]] = []
+        for hit in hits:
+            title = str(hit.get("title") or "")
+            snippet = str(hit.get("snippet") or "")
+            score, _ = wikipedia_pick_score(title, snippet, kind, show_name, youtube_text=youtube_text)
+            if score > -5:
+                pre_ranked.append((score, hit))
+        pre_ranked.sort(key=lambda row: row[0], reverse=True)
+        top_hits = [hit for _, hit in pre_ranked[:6]]
+
+        qids_needed: list[str] = []
+        title_refs: dict[str, WikipediaPageRef] = {}
+        for hit in top_hits:
+            title = str(hit.get("title") or "")
+            if title in wikidata_by_title or not title:
+                continue
+            if title not in title_refs:
+                try:
+                    title_refs.update(batch_query_titles(self.session, [title]))
+                except WikiThrottledError:
+                    raise
+            ref = title_refs.get(title)
+            if ref and ref.qid and ref.qid not in self._wikidata_by_qid:
+                qids_needed.append(ref.qid)
+        if qids_needed:
+            try:
+                fetched = wikidata_entities_batch(self.session, qids_needed)
+            except WikiThrottledError:
+                raise
+            self._wikidata_by_qid.update(fetched)
+        for hit in top_hits:
+            title = str(hit.get("title") or "")
+            ref = title_refs.get(title) or self._title_pages.get(title)
+            if not title:
+                continue
+            if ref and ref.qid and ref.qid in self._wikidata_by_qid:
+                wd = self._wikidata_by_qid[ref.qid]
+                wikidata_by_title[title] = wd
+                self._wikidata_by_title[title] = wd
+
+        return pick_wikipedia_title(
+            hits,
+            show_name,
+            kind,
+            wikidata_by_title=wikidata_by_title,
+            youtube_text=youtube_text,
+            imdb_year=imdb_year,
+        ) + (wikidata_by_title,)
+
+    def resolve(
+        self,
+        show_name: str,
+        kind: str,
+        *,
+        youtube_text: str = "",
+        imdb_year: str | None = None,
+    ) -> WikipediaResolveResult:
+        if self._api_exhausted:
+            return WikipediaResolveResult(wikipedia=None, wikipedia_status="throttled", looked_up=False)
+        title, score, confidence, pick_reason = self._pick_exact(
+            show_name, kind, youtube_text=youtube_text, imdb_year=imdb_year
+        )
+        wikidata_by_title = dict(self._wikidata_by_title)
+        if not title:
+            try:
+                title, score, confidence, pick_reason, wikidata_by_title = self._search_fallback(
+                    show_name,
+                    kind,
+                    youtube_text=youtube_text,
+                    imdb_year=imdb_year,
+                    seed_wikidata=wikidata_by_title,
+                )
+            except WikiThrottledError:
+                return WikipediaResolveResult(wikipedia=None, wikipedia_status="throttled", looked_up=False)
+        if not title:
+            logging.info("Wikipedia: no match for %r (%s): %s", show_name, kind, pick_reason)
+            return WikipediaResolveResult(wikipedia=None, wikipedia_status=None, looked_up=True)
+
+        try:
+            body = self._fetch_summary(title)
+        except WikiThrottledError:
+            return WikipediaResolveResult(wikipedia=None, wikipedia_status="throttled", looked_up=False)
+        wikidata = wikidata_by_title.get(title)
+        if not wikidata:
+            qid = body.get("wikibase_item")
+            if qid:
+                if qid in self._wikidata_by_qid:
+                    wikidata = self._wikidata_by_qid[qid]
+                else:
+                    try:
+                        batch = wikidata_entities_batch(self.session, [qid])
+                    except WikiThrottledError:
+                        return WikipediaResolveResult(wikipedia=None, wikipedia_status="throttled", looked_up=False)
+                    wikidata = batch.get(qid)
+        wiki_url = body.get("content_urls", {}).get("desktop", {}).get("page") or (
+            f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}"
+        )
+        return WikipediaResolveResult(
+            wikipedia={
+                "title": body.get("title") or title,
+                "extract": body.get("extract"),
+                "description": body.get("description"),
+                "url": wiki_url,
+                "wikidata": wikidata,
+                "confidence": confidence,
+                "searchScore": score,
+                "pickReason": pick_reason,
+            },
+            wikipedia_status=None,
+            looked_up=True,
+        )
 
 
 def wikipedia_resolve_title(session: RateLimitedSession, title: str) -> str | None:
@@ -796,108 +1154,14 @@ def fetch_wikipedia(
     imdb_year: str | None = None,
     max_candidates: int = 6,
 ) -> dict[str, Any] | None:
-    title, score, confidence, pick_reason, wikidata_by_title = wikipedia_pick_from_exact_titles(
-        session,
-        show_name,
-        kind,
-        youtube_text=youtube_text,
-        imdb_year=imdb_year,
-    )
-    if title:
-        summary_url = WIKI_REST + urllib.parse.quote(title.replace(" ", "_"), safe="/()")
-        summary = session.get(summary_url, timeout=60)
-        if summary.status_code == 404:
-            return {
-                "title": title,
-                "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
-                "confidence": confidence,
-                "searchScore": score,
-                "pickReason": pick_reason,
-            }
-        summary.raise_for_status()
-        body = summary.json()
-        wikidata_id = body.get("wikibase_item")
-        wikidata = wikidata_by_title.get(title) or (wikidata_entities(session, wikidata_id) if wikidata_id else None)
-        return {
-            "title": body.get("title") or title,
-            "extract": body.get("extract"),
-            "description": body.get("description"),
-            "url": body.get("content_urls", {}).get("desktop", {}).get("page")
-            or f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
-            "wikidata": wikidata,
-            "confidence": confidence,
-            "searchScore": score,
-            "pickReason": pick_reason,
-        }
-
-    search_payloads: list[Mapping[str, Any]] = []
-    for query in wikipedia_search_queries(show_name, kind):
-        search_params = {
-            "action": "query",
-            "list": "search",
-            "srsearch": query,
-            "srlimit": 8,
-            "format": "json",
-        }
-        search = session.get(WIKI_API, params=search_params, timeout=60)
-        search.raise_for_status()
-        search_payloads.append(search.json())
-
-    hits = merge_search_hits(search_payloads)
-    pre_ranked: list[tuple[float, dict[str, Any]]] = []
-    for hit in hits:
-        title = str(hit.get("title") or "")
-        snippet = str(hit.get("snippet") or "")
-        score, _ = wikipedia_pick_score(title, snippet, kind, show_name, youtube_text=youtube_text)
-        if score > -5:
-            pre_ranked.append((score, hit))
-    pre_ranked.sort(key=lambda row: row[0], reverse=True)
-    top_hits = [hit for _, hit in pre_ranked[:max_candidates]]
-
-    wikidata_by_title = dict(wikidata_by_title)
-    for hit in top_hits:
-        title = str(hit.get("title") or "")
-        wd = wikipedia_page_wikidata(session, title)
-        if wd:
-            wikidata_by_title[title] = wd
-
-    title, score, confidence, pick_reason = pick_wikipedia_title(
-        hits,
-        show_name,
-        kind,
-        wikidata_by_title=wikidata_by_title,
-        youtube_text=youtube_text,
-        imdb_year=imdb_year,
-    )
-    if not title:
-        logging.info("Wikipedia: no match for %r (%s): %s", show_name, kind, pick_reason)
-        return None
-
-    summary_url = WIKI_REST + urllib.parse.quote(title.replace(" ", "_"), safe="/()")
-    summary = session.get(summary_url, timeout=60)
-    if summary.status_code == 404:
-        return {
-            "title": title,
-            "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
-            "confidence": confidence,
-            "searchScore": score,
-            "pickReason": pick_reason,
-        }
-    summary.raise_for_status()
-    body = summary.json()
-    wikidata_id = body.get("wikibase_item")
-    wikidata = wikidata_by_title.get(title) or (wikidata_entities(session, wikidata_id) if wikidata_id else None)
-    return {
-        "title": body.get("title") or title,
-        "extract": body.get("extract"),
-        "description": body.get("description"),
-        "url": body.get("content_urls", {}).get("desktop", {}).get("page")
-        or f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
-        "wikidata": wikidata,
-        "confidence": confidence,
-        "searchScore": score,
-        "pickReason": pick_reason,
-    }
+    """Single-show helper (tests); production runs use WikipediaRunResolver batches."""
+    del max_candidates
+    resolver = WikipediaRunResolver(session=session)
+    resolver.prepare([(show_name, kind)])
+    result = resolver.resolve(show_name, kind, youtube_text=youtube_text, imdb_year=imdb_year)
+    if result.wikipedia_status == "throttled":
+        raise WikiThrottledError(f"Wikipedia throttled for {show_name!r}")
+    return result.wikipedia
 
 
 def ensure_imdb_datasets(state_dir: Path, session: requests.Session, dry_run: bool = False) -> tuple[Path, Path]:
@@ -984,6 +1248,7 @@ def build_record(
     youtube: list[dict[str, Any]] | None,
     harvested_at: str,
     error: str | None = None,
+    wikipedia_status: str | None = None,
 ) -> dict[str, Any]:
     kind = guess_kind(group.name, group.items, raw_channels=group.raw_channels)
     record: dict[str, Any] = {
@@ -997,11 +1262,23 @@ def build_record(
         "wikipedia": wikipedia,
         "imdb": imdb,
     }
+    if wikipedia_status:
+        record["wikipedia_status"] = wikipedia_status
     if youtube is not None:
         record["youtube"] = {"descriptions": youtube}
     if error:
         record["error"] = error
     return record
+
+
+def read_meta_record(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def plan_harvest(
@@ -1011,10 +1288,17 @@ def plan_harvest(
     now: datetime,
     refresh: bool,
     limit: int | None,
+    resume: bool = False,
 ) -> list[ShowGroup]:
     planned: list[ShowGroup] = []
     for group in shows:
         path = meta_dir / f"{group.slug}.json"
+        existing = read_meta_record(path)
+        if resume and existing and existing.get("wikipedia_status") == "throttled":
+            planned.append(group)
+            if limit is not None and len(planned) >= limit:
+                break
+            continue
         if not refresh and meta_is_fresh(path, now):
             continue
         planned.append(group)
@@ -1048,6 +1332,7 @@ def harvest_show(
     runner: Callable[..., subprocess.CompletedProcess[str]],
     sleeper: Callable[[float], None],
     youtube_enabled: bool,
+    wiki_resolver: WikipediaRunResolver | None = None,
 ) -> tuple[dict[str, Any], bool]:
     kind = guess_kind(group.name, group.items, raw_channels=group.raw_channels)
     hints = catalogue_hints_for_group(group.items)
@@ -1058,13 +1343,21 @@ def harvest_show(
     if youtube_enabled and group.youtube_video_ids():
         youtube, stopped = yt_dlp_descriptions(group.youtube_video_ids(), runner=runner, sleeper=sleeper)
     yt_text = youtube_description_text(youtube)
-    wikipedia = fetch_wikipedia(session, group.name, kind, youtube_text=yt_text, imdb_year=imdb_year)
+    wikipedia_status: str | None = None
+    wikipedia: dict[str, Any] | None = None
+    if wiki_resolver is not None:
+        wiki_result = wiki_resolver.resolve(group.name, kind, youtube_text=yt_text, imdb_year=imdb_year)
+        wikipedia = wiki_result.wikipedia
+        wikipedia_status = wiki_result.wikipedia_status
+    else:
+        wikipedia = fetch_wikipedia(session, group.name, kind, youtube_text=yt_text, imdb_year=imdb_year)
     record = build_record(
         group,
         wikipedia=wikipedia,
         imdb=imdb,
         youtube=youtube,
         harvested_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        wikipedia_status=wikipedia_status,
     )
     return record, stopped
 
@@ -1081,6 +1374,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--refresh", action="store_true", help="Re-harvest even when JSON is newer than 30 days.")
     parser.add_argument("--limit", type=int, default=None, help="Harvest at most N shows this run.")
     parser.add_argument("--dry-run", action="store_true", help="Print the plan without writing or calling out.")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Re-harvest shows whose saved JSON has wikipedia_status throttled.",
+    )
     return parser.parse_args(argv)
 
 
@@ -1104,7 +1402,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     videos = read_catalogue(html, catalogue_path, catalogue_path)
     shows = list_shows(videos)
     now = datetime.now(timezone.utc)
-    planned = plan_harvest(shows, meta_dir=meta_dir, now=now, refresh=args.refresh, limit=args.limit)
+    planned = plan_harvest(
+        shows,
+        meta_dir=meta_dir,
+        now=now,
+        refresh=args.refresh,
+        limit=args.limit,
+        resume=args.resume,
+    )
     if args.dry_run:
         for group in planned:
             yt = group.youtube_video_ids()
@@ -1120,6 +1425,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     imdb_index = ImdbIndex.build(basics, ratings) if basics.exists() and ratings.exists() else None
     meta_dir.mkdir(parents=True, exist_ok=True)
     paced = RateLimitedSession(session)
+    wiki_resolver = WikipediaRunResolver(session=paced)
+    prepared = [(group.name, guess_kind(group.name, group.items, raw_channels=group.raw_channels)) for group in planned]
+    wiki_resolver.prepare(prepared)
     harvested = 0
     for group in planned:
         out_path = meta_dir / f"{group.slug}.json"
@@ -1132,6 +1440,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 runner=subprocess.run,
                 sleeper=time.sleep,
                 youtube_enabled=True,
+                wiki_resolver=wiki_resolver,
             )
         except Exception as exc:
             logging.exception("Harvest failed for %s: %s", group.name, exc)

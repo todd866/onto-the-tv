@@ -106,5 +106,21 @@
   "The Way (Put Your Hand in My Hand)": {
     "id": "Q12000104",
     "instanceOf": ["Q134556"]
+  },
+  "50 Cent": {
+    "id": "Q6066",
+    "instanceOf": ["Q5"]
+  },
+  "Al Green": {
+    "id": "Q313591",
+    "instanceOf": ["Q5"]
+  },
+  "alt-J": {
+    "id": "Q2838177",
+    "instanceOf": ["Q215380"]
+  },
+  "A Place in the Sun (Stevie Wonder song)": {
+    "id": "Q2912345",
+    "instanceOf": ["Q7366"]
   }
 }

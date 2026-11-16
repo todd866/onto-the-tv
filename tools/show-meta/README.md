@@ -40,6 +40,12 @@ Force refresh and write into a custom output dir:
 python3 harvest.py --refresh --meta-dir ~/.local/state/onto-tv-embed/meta-test --limit 3
 ```
 
+Retry shows whose Wikipedia lookup was rate-limited (`wikipedia_status: throttled`):
+
+```bash
+python3 harvest.py --resume --limit 20
+```
+
 Point at a specific catalogue export:
 
 ```bash
@@ -63,5 +69,7 @@ Fixtures under `fixtures/` stand in for Wikipedia, IMDb, and catalogue data; tes
 ## Output shape (per show)
 
 Each `<slug>.json` includes `name`, `kind` (series / film / music artist / youtube channel),
-`wikipedia` (summary, URL, match confidence), `imdb` (when matched), optional `youtube.descriptions`,
+`wikipedia` (summary, URL, match confidence; `null` when no match after lookup),
+optional `wikipedia_status` (`throttled` when Wikipedia returned 429/503 — rerun with `--resume`),
+`imdb` (when matched), optional `youtube.descriptions`,
 and `harvestedAt` (UTC ISO timestamp).

@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -18,6 +19,16 @@ spec.loader.exec_module(harvest)
 
 def load_wikidata_fixtures() -> dict:
     return json.loads((FIXTURES / "wikidata_by_title.json").read_text(encoding="utf-8"))
+
+
+def paced_session_with(handler: object) -> harvest.RateLimitedSession:
+    """RateLimitedSession calls Session.request(), not get()."""
+
+    class Inner:
+        def request(self, method: str, url: str, **kwargs):
+            return handler(url, **kwargs)
+
+    return harvest.RateLimitedSession(Inner(), pace_seconds=0.0, max_retries=1)
 
 
 class HarvestTests(unittest.TestCase):
@@ -200,6 +211,269 @@ class HarvestTests(unittest.TestCase):
             planned_refresh = harvest.plan_harvest([group], meta_dir=meta, now=datetime.now(timezone.utc), refresh=True, limit=None)
             self.assertEqual(len(planned_refresh), 1)
 
+class WikipediaBatchTests(unittest.TestCase):
+    def test_user_agent_identifies_project(self):
+        self.assertIn("onto-the-tv-metadata/0.2", harvest.USER_AGENT)
+        self.assertIn("github.com/todd866/onto-the-tv", harvest.USER_AGENT)
+
+    def test_batch_query_splits_into_fifties_and_follows_redirects(self):
+        titles = [f"Title {index}" for index in range(105)]
+        titles[0] = "alt-J"
+        calls: list[int] = []
+
+        def fake_get(url, **kwargs):
+            calls.append(len((kwargs.get("params") or {}).get("titles", "").split("|")))
+            params = kwargs.get("params") or {}
+            if params.get("action") == "query":
+                batch_titles = (params.get("titles") or "").split("|")
+                pages = []
+                redirects = []
+                for title in batch_titles:
+                    if title == "alt-J":
+                        redirects.append({"from": "alt-J", "to": "Alt-J"})
+                        pages.append(
+                            {
+                                "title": "Alt-J",
+                                "pageprops": {"wikibase_item": "Q2838177"},
+                            }
+                        )
+                    else:
+                        pages.append({"title": title, "missing": True})
+                body = {"query": {"pages": pages, "redirects": redirects}}
+                response = mock.Mock(status_code=200, headers={})
+                response.json.return_value = body
+                return response
+            response = mock.Mock(status_code=200, headers={})
+            response.json.return_value = {"entities": {}}
+            return response
+
+        paced = paced_session_with(fake_get)
+        result = harvest.batch_query_titles(paced, titles)
+        self.assertEqual(calls, [50, 50, 5])
+        self.assertEqual(result["alt-J"].title, "Alt-J")
+        self.assertEqual(result["alt-J"].qid, "Q2838177")
+
+    def test_throttle_marks_pending_then_resume_clears(self):
+        def throttle_then_ok(self, show_name, kind, **kwargs):
+            if getattr(self, "_once", False):
+                return harvest.WikipediaResolveResult(
+                    wikipedia={"title": show_name, "confidence": "high", "pickReason": "ok"},
+                    looked_up=True,
+                )
+            self._once = True
+            return harvest.WikipediaResolveResult(wikipedia=None, wikipedia_status="throttled", looked_up=False)
+
+        group = harvest.ShowGroup(name="50 Cent", items=[{"channel": "50 Cent", "src": "music/x.mp4", "tier": "music"}])
+        with mock.patch.object(harvest.WikipediaRunResolver, "prepare", lambda self, shows: None):
+            with mock.patch.object(harvest.WikipediaRunResolver, "resolve", throttle_then_ok):
+                record, _ = harvest.harvest_show(
+                    group,
+                    session=mock.Mock(),
+                    imdb_index=None,
+                    runner=mock.Mock(),
+                    sleeper=lambda s: None,
+                    youtube_enabled=False,
+                    wiki_resolver=harvest.WikipediaRunResolver(session=mock.Mock()),
+                )
+        self.assertEqual(record.get("wikipedia_status"), "throttled")
+        self.assertIsNone(record.get("wikipedia"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            meta = Path(directory)
+            pending_path = meta / "50-cent.json"
+            pending_path.write_text(
+                json.dumps({"wikipedia_status": "throttled", "name": "50 Cent"}),
+                encoding="utf-8",
+            )
+            planned = harvest.plan_harvest(
+                [group],
+                meta_dir=meta,
+                now=datetime.now(timezone.utc),
+                refresh=False,
+                limit=None,
+                resume=True,
+            )
+            self.assertEqual(len(planned), 1)
+
+        with mock.patch.object(harvest.WikipediaRunResolver, "prepare", lambda self, shows: None):
+            with mock.patch.object(
+                harvest.WikipediaRunResolver,
+                "resolve",
+                lambda self, show_name, kind, **kwargs: harvest.WikipediaResolveResult(
+                    wikipedia={"title": "50 Cent", "confidence": "high", "pickReason": "exact"},
+                    looked_up=True,
+                ),
+            ):
+                record2, _ = harvest.harvest_show(
+                    group,
+                    session=mock.Mock(),
+                    imdb_index=None,
+                    runner=mock.Mock(),
+                    sleeper=lambda s: None,
+                    youtube_enabled=False,
+                    wiki_resolver=harvest.WikipediaRunResolver(session=mock.Mock()),
+                )
+        self.assertNotIn("wikipedia_status", record2)
+        self.assertEqual(record2["wikipedia"]["title"], "50 Cent")
+
+    def test_rejects_stevie_wonder_song_for_series(self):
+        song_wd = {"id": "Q2912345", "instanceOf": ["Q7366"]}
+        reject = harvest.reject_wikipedia_candidate(
+            "A Place in the Sun (Stevie Wonder song)",
+            "series",
+            "A Place in the Sun",
+            wikidata=song_wd,
+        )
+        self.assertEqual(reject, "wikidata kind mismatch")
+
+    def test_exact_title_batch_accepts_artists(self):
+        wikidata = load_wikidata_fixtures()
+
+        def api_pages(batch_titles):
+            pages = []
+            redirects = []
+            for title in batch_titles:
+                if title in {"50 Cent", "Al Green", "alt-J"}:
+                    pages.append({"title": title, "pageprops": {"wikibase_item": wikidata[title]["id"]}})
+                elif title == "alt-J (band)":
+                    redirects.append({"from": "alt-J (band)", "to": "alt-J"})
+                else:
+                    pages.append({"title": title, "missing": True})
+            return pages, redirects
+
+        def fake_get(url, **kwargs):
+            params = kwargs.get("params") or {}
+            if params.get("list") == "search":
+                response = mock.Mock(status_code=200, headers={})
+                response.json.return_value = {"query": {"search": []}}
+                return response
+            action = params.get("action")
+            if action == "query" and params.get("titles"):
+                batch = (params.get("titles") or "").split("|")
+                pages, redirects = api_pages(batch)
+                body = {"query": {"pages": pages, "redirects": redirects}}
+                response = mock.Mock(status_code=200, headers={})
+                response.json.return_value = body
+                return response
+            if action == "wbgetentities":
+                ids = (params.get("ids") or "").split("|")
+                entities = {}
+                for qid in ids:
+                    for title, row in wikidata.items():
+                        if row["id"] == qid:
+                            entities[qid] = {
+                                "id": qid,
+                                "claims": {
+                                    "P31": [
+                                        {
+                                            "mainsnak": {
+                                                "datavalue": {"value": {"id": inst}},
+                                            }
+                                        }
+                                        for inst in row.get("instanceOf", [])
+                                    ]
+                                },
+                                "labels": {"en": {"value": title}},
+                                "aliases": {"en": [{"value": alias} for alias in row.get("aliases", [])]},
+                            }
+                response = mock.Mock(status_code=200, headers={})
+                response.json.return_value = {"entities": entities}
+                return response
+            if url.startswith(harvest.WIKI_REST):
+                title = urllib.parse.unquote(url.rsplit("/", 1)[-1]).replace("_", " ")
+                response = mock.Mock(status_code=200, headers={})
+                response.json.return_value = {
+                    "title": title,
+                    "extract": f"About {title}",
+                    "wikibase_item": wikidata[title]["id"],
+                }
+                return response
+            response = mock.Mock(status_code=404, headers={})
+            response.json.return_value = {}
+            return response
+
+        paced = paced_session_with(fake_get)
+        resolver = harvest.WikipediaRunResolver(session=paced)
+        cases = [
+            ("50 Cent", "music artist", "50 Cent"),
+            ("Al Green", "music artist", "Al Green"),
+            ("alt-J", "music artist", "alt-J"),
+        ]
+        resolver.prepare([(show_name, kind) for show_name, kind, _ in cases])
+        for show_name, kind, expected in cases:
+            with self.subTest(show=show_name):
+                result = resolver.resolve(show_name, kind)
+                self.assertIsNone(result.wikipedia_status, msg=show_name)
+                self.assertIsNotNone(result.wikipedia)
+                assert result.wikipedia is not None
+                self.assertEqual(result.wikipedia["title"], expected)
+
+    def test_series_exact_title_skips_stevie_wonder_song_page(self):
+        wikidata = load_wikidata_fixtures()
+
+        def fake_get(url, **kwargs):
+            params = kwargs.get("params") or {}
+            if params.get("list") == "search":
+                response = mock.Mock(status_code=200, headers={})
+                response.json.return_value = {"query": {"search": []}}
+                return response
+            if params.get("action") == "query" and params.get("titles"):
+                batch = (params.get("titles") or "").split("|")
+                pages = []
+                for title in batch:
+                    if title == "A Place in the Sun":
+                        pages.append(
+                            {
+                                "title": "A Place in the Sun (Stevie Wonder song)",
+                                "pageprops": {"wikibase_item": "Q2912345"},
+                            }
+                        )
+                    elif title == "A Place in the Sun (British TV series)":
+                        pages.append(
+                            {
+                                "title": "A Place in the Sun (British TV series)",
+                                "pageprops": {"wikibase_item": wikidata[title]["id"]},
+                            }
+                        )
+                    else:
+                        pages.append({"title": title, "missing": True})
+                response = mock.Mock(status_code=200, headers={})
+                response.json.return_value = {"query": {"pages": pages, "redirects": []}}
+                return response
+            if params.get("action") == "wbgetentities":
+                entities = {
+                    "Q2912345": {
+                        "id": "Q2912345",
+                        "claims": {"P31": [{"mainsnak": {"datavalue": {"value": {"id": "Q7366"}}}}]},
+                        "labels": {"en": {"value": "A Place in the Sun (Stevie Wonder song)"}},
+                    },
+                    "Q4657580": {
+                        "id": "Q4657580",
+                        "claims": {"P31": [{"mainsnak": {"datavalue": {"value": {"id": "Q5398426"}}}}]},
+                        "labels": {"en": {"value": "A Place in the Sun (British TV series)"}},
+                    },
+                }
+                response = mock.Mock(status_code=200, headers={})
+                response.json.return_value = {"entities": entities}
+                return response
+            if url.startswith(harvest.WIKI_REST):
+                title = "A Place in the Sun (British TV series)"
+                response = mock.Mock(status_code=200, headers={})
+                response.json.return_value = {"title": title, "extract": "TV show", "wikibase_item": "Q4657580"}
+                return response
+            response = mock.Mock(status_code=404, headers={})
+            response.json.return_value = {}
+            return response
+
+        paced = paced_session_with(fake_get)
+        resolver = harvest.WikipediaRunResolver(session=paced)
+        resolver.prepare([("A Place in the Sun", "series")])
+        result = resolver.resolve("A Place in the Sun", "series")
+        self.assertIsNotNone(result.wikipedia)
+        assert result.wikipedia is not None
+        self.assertEqual(result.wikipedia["title"], "A Place in the Sun (British TV series)")
+
+
 class HarvestFailureIsolationTests(unittest.TestCase):
     def test_main_continues_after_show_error(self):
         catalogue = FIXTURES / "catalogue.html"
@@ -207,31 +481,35 @@ class HarvestFailureIsolationTests(unittest.TestCase):
             state = Path(directory)
             meta = state / "meta"
 
-            def flaky_fetch(session, show_name, kind, **kwargs):
+            def flaky_resolve(self, show_name, kind, **kwargs):
                 if show_name == "South Park":
                     raise RuntimeError("HTTP 429")
-                return {"title": show_name, "pickReason": "mock", "confidence": "high"}
+                return harvest.WikipediaResolveResult(
+                    wikipedia={"title": show_name, "pickReason": "mock", "confidence": "high"},
+                    looked_up=True,
+                )
 
-            with mock.patch.object(harvest, "fetch_wikipedia", side_effect=flaky_fetch):
-                with mock.patch.object(
-                    harvest,
-                    "ensure_imdb_datasets",
-                    return_value=(FIXTURES / "title.basics.tsv.gz", FIXTURES / "title.ratings.tsv.gz"),
-                ):
-                    with mock.patch.object(harvest, "yt_dlp_descriptions", return_value=([], False)):
-                        code = harvest.main(
-                            [
-                                "--catalogue",
-                                str(catalogue),
-                                "--state-dir",
-                                str(state),
-                                "--meta-dir",
-                                str(meta),
-                                "--refresh",
-                                "--limit",
-                                "3",
-                            ]
-                        )
+            with mock.patch.object(harvest.WikipediaRunResolver, "prepare", lambda self, shows: None):
+                with mock.patch.object(harvest.WikipediaRunResolver, "resolve", flaky_resolve):
+                    with mock.patch.object(
+                        harvest,
+                        "ensure_imdb_datasets",
+                        return_value=(FIXTURES / "title.basics.tsv.gz", FIXTURES / "title.ratings.tsv.gz"),
+                    ):
+                        with mock.patch.object(harvest, "yt_dlp_descriptions", return_value=([], False)):
+                            code = harvest.main(
+                                [
+                                    "--catalogue",
+                                    str(catalogue),
+                                    "--state-dir",
+                                    str(state),
+                                    "--meta-dir",
+                                    str(meta),
+                                    "--refresh",
+                                    "--limit",
+                                    "3",
+                                ]
+                            )
             self.assertEqual(code, 0)
             south = json.loads((meta / "south-park.json").read_text(encoding="utf-8"))
             self.assertIn("error", south)
