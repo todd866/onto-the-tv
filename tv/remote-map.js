@@ -23,6 +23,20 @@ window.ontoRemoteMap = (function () {
     TOOLS: 10135, GUIDE: 458, CH_LIST: 10073, PRE_CH: 10190, SUBT: 10221
   };
 
+  // Some Tizen remotes omit KeyboardEvent.repeat entirely.
+  function pressedKeys() {
+    var pressed = {};
+    return {
+      down: function (code, repeat) {
+        var held = !!repeat || pressed[code] === true;
+        pressed[code] = true;
+        return held;
+      },
+      up: function (code) { delete pressed[code]; },
+      clear: function () { pressed = {}; }
+    };
+  }
+
   function decide(state, keyCode) {
     var focus = state && state.focus ? state.focus : '';
     var repeat = !!(state && state.repeat);
@@ -75,5 +89,5 @@ window.ontoRemoteMap = (function () {
     return { type: 'none' };
   }
 
-  return { KEY: KEY, decide: decide };
+  return { KEY: KEY, decide: decide, pressedKeys: pressedKeys };
 }());

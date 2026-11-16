@@ -83,6 +83,23 @@ try {
   const playerSource = await readFile(path.join(root, 'player.js'), 'utf8');
   const playerStub = `window.ontoPlayer=function(){var h={},t=12,p=false;return {engine:'video',on:function(n,f){h[n]=f},time:function(){return t},duration:function(){return 420},paused:function(){return p},ended:function(){return false},load:function(u,start){t=start||0;p=false},play:function(){p=false},pause:function(){p=true},stop:function(){p=true},seek:function(v){t=v},tracks:function(){return {audio:[],text:[]}},selectAudio:function(){},selectText:function(){}};};`;
   await page.route('http://tv.test/player.js', route => route.fulfill({ contentType: 'text/javascript', body: playerSource + '\n' + playerStub }));
+  // Test-only access to lifecycle state; the shipped app has no test API.
+  const appSource = await readFile(path.join(root, 'app.js'), 'utf8');
+  await page.route('http://tv.test/app.js', route => route.fulfill({
+    contentType: 'text/javascript',
+    body: appSource.replace('  // ---------- keys ----------', `
+      window.overlayTest = {
+        load: function () { var item = JSON.parse(JSON.stringify(play.item)); item.resume = 0; load(item, true); },
+        arm: function () { upNextCard.reset(); showUpNext('Next episode'); },
+        time: function (t) { if (t != null) media.seek(t); return media.time(); },
+        tick: upNextTick,
+        close: closeOverlay,
+        state: function () { return { focus: overlayFocus, timer: osdTimer, upNext: upNextCard.active(),
+          hold: arrowHoldRepeats, delta: seekCtrl.delta(), seeking: !!scrub }; }
+      };
+      // ---------- keys ----------
+    `)
+  }));
   await page.setViewportSize({ width: 1920, height: 1080 });
   async function shot(name, scheme) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -329,7 +346,7 @@ try {
     function down(repeat) {
       const e = new Event('keydown', { bubbles: true, cancelable: true });
       Object.defineProperty(e, 'keyCode', { get: () => 417 });
-      Object.defineProperty(e, 'repeat', { get: () => !!repeat });
+      // Tizen may omit repeat even throughout a hold.
       document.dispatchEvent(e);
     }
     function up() {
@@ -349,6 +366,7 @@ try {
           start,
           end: document.getElementById('osd-elapsed').textContent.trim(),
           bubble: document.getElementById('osd-seek-time').textContent,
+          seeking: document.getElementById('player').classList.contains('is-seeking'),
         });
       }
     }, 35);
@@ -476,6 +494,7 @@ try {
   assert.ok(seekPressTiming.secondMs < 100, 'second forward step paints within 100 ms: ' + seekPressTiming.secondMs);
   assert.equal(seekPressTiming.secondDelta, '+0:40', 'two taps are 10 s + 30 s');
   assert.match(seeking.seekTime, /^\+0:40$/, 'two presses are 40 s: ' + seeking.seekTime);
+  assert.equal(holdGrowth.seeking, false, 'FF hold without event.repeat commits on release');
   assert.notEqual(holdGrowth.start, holdGrowth.end, 'holding grows the preview: ' + holdGrowth.start + ' -> ' + holdGrowth.end);
   assert.equal(seekArrow.seekTime, seeking.seekTime, 'arrows do nothing in seek mode');
   assert.equal(seekArrow.seeking, true);
@@ -531,6 +550,32 @@ try {
   assert.equal(directionCalls[0].shown.length, 5);
   assert.deepEqual(directionCalls[1].chosen, { kind: 'new', src: 'Kids/Hey Duggee.mp4' });
   assert.equal(afterChoice.strip, false);
+  // Exercise lifecycle regressions after the visual checks.
+  await page.evaluate(() => window.overlayTest.close());
+  await page.evaluate(() => window.overlayTest.time(100));
+  await fire(39);
+  await page.evaluate(() => window.overlayTest.load());
+  assert.equal(await page.evaluate(() => window.overlayTest.state().delta), 0, 'load clears burst anchor');
+  assert.equal(await page.evaluate(() => document.getElementById('player').classList.contains('is-tap-seeking')), false);
+  await fire(39);
+  assert.equal(await page.evaluate(() => window.overlayTest.time()), 10, 'new item starts with a fresh 10 second tap');
+  for (const key of [37, 39, 412, 417]) {
+    await page.evaluate(() => window.overlayTest.arm());
+    await fire(key);
+    const state = await page.evaluate(() => {
+      for (let i = 0; i < 11; i++) window.overlayTest.tick();
+      return window.overlayTest.state();
+    });
+    assert.equal(state.upNext, false, 'seek cancels up-next: ' + key);
+    if (state.seeking) await fire(13);
+  }
+  await fire(38);
+  await page.evaluate(() => window.ontoHome());
+  assert.deepEqual(await page.evaluate(() => window.overlayTest.state()),
+    { focus: '', timer: 0, upNext: false, hold: 0, delta: 0, seeking: false },
+    'direct Home clears timer, all focus and seek state');
+  await page.waitForTimeout(4200);
+  assert.equal(await page.evaluate(() => window.overlayTest.state().timer), 0, 'OSD timer stays stopped on home');
   assert.deepEqual(errors, []);
 } finally {
   await browser.close();

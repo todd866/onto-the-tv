@@ -53,6 +53,7 @@
   var channelArm = window.ontoChannelArm ? window.ontoChannelArm.create() : null;
   var armTimer = 0, armedRequest = 0, prefetchTimer = 0, continueOpen = false, continueIndex = 0;
   var overlayFocus = '', transportIndex = 1, scrub = null, directionsShown = null, arrowHoldRepeats = 0;
+  var pressedKeys = window.ontoRemoteMap.pressedKeys();
   var homeCache = {}, channelPrefetch = {};
   try {
     if (watchBack) {
@@ -1154,10 +1155,13 @@
     if (bubble) bubble.textContent = '';
   }
   function showOsd() {
+    if (!play || $('player').hidden) return;
     osd.classList.remove('hidden');
     paintBackChip();
     clearTimeout(osdTimer);
     osdTimer = setTimeout(function () {
+      osdTimer = 0;
+      if (!play || $('player').hidden) return;
       // The directions tray is read, not glanced at: it stays three times as long.
       if (directionsShown && Date.now() - directionsShown.touched < OSD_MS * 3 - 100) { directionsShown.touched -= 1; showOsd(); return; }
       // Transport, continue, and scrub focus keep the bar up until the user steps away.
@@ -1781,6 +1785,7 @@
   }
   function load(item, restoring) {
     var i;
+    resetTapSeek();
     if (!restoring) rememberShow();
     watchSession = 'tv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
     watchSequence = 0;
@@ -2136,6 +2141,17 @@
   }
 
   function stopPlayback() {
+    resetPressedKeys();
+    resetTapSeek();
+    clearTimeout(osdTimer);
+    osdTimer = 0;
+    overlayFocus = '';
+    transportIndex = 1;
+    continueIndex = 0;
+    clearTransportFocus();
+    clearContinueFocus();
+    clearScrubFocus();
+    osd.classList.add('hidden');
     tuneRequest++;
     dismissArm();
     closeContinue();
@@ -3040,6 +3056,7 @@
   function scrubStep(direction, held) {
     var duration, target, step;
     if (!play || !play.item || (play.resumePending) || play.errorOn) return;
+    if (upNextCard && upNextCard.active()) cancelUpNext();
     if (inAd()) { if (direction > 0 && !held) skipBreak(); showOsd(); return; }
     duration = durationNow();
     if (!scrub) {
@@ -3090,9 +3107,19 @@
     $('player').classList.remove('is-seeking');
     $('player').classList.add('is-tap-seeking');
   }
+  function resetTapSeek() {
+    if (seekCtrl) seekCtrl.clear();
+    arrowHoldRepeats = 0;
+    clearTapSeekChrome();
+  }
+  function resetPressedKeys() {
+    pressedKeys.clear();
+    arrowHoldRepeats = 0;
+  }
   function tapSeekStep(direction, held) {
     var duration, target, step;
     if (!play || !play.item || play.resumePending || play.errorOn) return;
+    if (upNextCard && upNextCard.active()) cancelUpNext();
     if (inAd()) { if (direction > 0 && !held) skipBreak(); showOsd(); return; }
     if (scrub) cancelScrub();
     duration = durationNow();
@@ -3255,12 +3282,13 @@
   // ---------- keys ----------
   document.addEventListener('keydown', function (event) {
     var key = event.keyCode;
+    var repeat = pressedKeys.down(key, event.repeat);
     var pressedAt = window.performance && performance.now ? performance.now() : 0;
     if (window.ontoUke && window.ontoUke.isOpen()) { if (window.ontoUke.key(key)) event.preventDefault(); return; }
     if (window.ontoLibrary && window.ontoLibrary.isOpen()) { window.ontoLibrary.key(key); event.preventDefault(); return; }
     if (window.ontoGames && window.ontoGames.isOpen()) {
       event.preventDefault();
-      if (!event.repeat && window.ontoGames.handleKey(key, 1)) {
+      if (!repeat && window.ontoGames.handleKey(key, 1)) {
         diag('game_input', { page: 'games', input: key >= 48 && key <= 57 ? 'number' : key >= 37 && key <= 40 ? 'arrows' : key === 13 ? 'ok' : 'back' });
       }
       return;
@@ -3270,8 +3298,8 @@
     if (!$('setup').hidden) return;
     if (window.ontoRemoteGuide) {
       if (key === window.ontoRemoteMap.KEY.INFO) {
-        if (!event.repeat) window.ontoRemoteGuide.toggle(guidePage());
-        logRemote(guidePage(), key, 'guide', overlayFocus, !!event.repeat, pressedAt);
+        if (!repeat) window.ontoRemoteGuide.toggle(guidePage());
+        logRemote(guidePage(), key, 'guide', overlayFocus, !!repeat, pressedAt);
         event.preventDefault();
         return;
       }
@@ -3284,9 +3312,9 @@
     }
     var started = Date.now();
     var input = (key >= 48 && key <= 57) ? 'number' : (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) ? 'back' : (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) ? 'ok' : 'arrows';
-    if (!event.repeat) answer(started, input);
+    if (!repeat) answer(started, input);
     if (key >= 48 && key <= 57) {
-      if (event.repeat) { event.preventDefault(); return; }
+      if (repeat) { event.preventDefault(); return; }
       // Digits tune like a TV: wait briefly for a second digit when one could follow.
       clearTimeout(digitTimer);
       digitBuffer += String(key - 48);
@@ -3322,7 +3350,7 @@
         return;
       }
       if (upNextCard && upNextCard.active() && navKey(key) === 'ok') { acceptUpNext(); event.preventDefault(); return; }
-      if (!optionOpen && !event.repeat && (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) && channelArm) {
+      if (!optionOpen && !repeat && (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) && channelArm) {
         armed = channelArm.ok();
         if (armed.type === 'commit') { commitChannel(armed.target); event.preventDefault(); return; }
       }
@@ -3333,16 +3361,16 @@
       action = window.ontoRemoteMap.decide({
         overlay: osd.classList.contains('hidden') ? 'hidden' : 'open',
         focus: overlayFocus,
-        repeat: !!event.repeat
+        repeat: !!repeat
       }, key);
-      logRemote('player', key, action && action.type, overlayFocus, !!event.repeat, pressedAt);
+      logRemote('player', key, action && action.type, overlayFocus, !!repeat, pressedAt);
       applyRemote(action);
       if (!action || action.type === 'none') return;
       event.preventDefault();
       return;
     } else {
       logRemote('home', key, key === KEY.ENTER ? 'home-select' : (key === KEY.LEFT || key === KEY.RIGHT || key === KEY.UP || key === KEY.DOWN) ? 'home-move' :
-        (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) ? 'home-back' : 'none', 'home', !!event.repeat, pressedAt);
+        (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) ? 'home-back' : 'none', 'home', !!repeat, pressedAt);
       if (key === KEY.LEFT) moveFocus(0, -1);
       else if (key === KEY.RIGHT) moveFocus(0, 1);
       else if (key === KEY.UP) moveFocus(-1, 0);
@@ -3355,6 +3383,7 @@
   });
   document.addEventListener('keyup', function (event) {
     var key = event.keyCode;
+    pressedKeys.up(key);
     if ($('player').hidden) return;
     if (window.ontoUke && window.ontoUke.isOpen()) return;
     if (window.ontoGames && window.ontoGames.isOpen()) return;
@@ -3399,9 +3428,10 @@
   // Leaving the app (Home button) saves the place.
   // Back after a long time away, the page starts afresh from the server (boot.js): on 16 Nov 2026 a page left
   // hidden for 23 hours woke with no pictures on the cards and every title failing, though the server served both.
+  window.addEventListener('blur', resetPressedKeys);
   var hiddenAt = 0, STALE_AFTER_MS = 30 * 60 * 1000;
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { hiddenAt = Date.now(); flushRemote(); }
+    if (document.hidden) { resetPressedKeys(); hiddenAt = Date.now(); flushRemote(); }
     if (document.hidden && play) { saveProgress(false); media.pause(); }
     if (!document.hidden && hiddenAt && Date.now() - hiddenAt > STALE_AFTER_MS && !GUEST && window.tizen) {
       hiddenAt = 0;

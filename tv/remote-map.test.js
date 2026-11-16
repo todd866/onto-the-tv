@@ -87,3 +87,17 @@ test('every other key does what is printed on it, once per press', () => {
   }
   assert.equal(map.decide(watching, map.KEY.YELLOW).type, 'none');
 });
+
+test('missing repeat is inferred until keyup or lifecycle reset', () => {
+  const map = remote(), keys = map.pressedKeys();
+  for (const code of [map.KEY.LEFT, map.KEY.RIGHT, map.KEY.FF, map.KEY.RW]) {
+    assert.equal(map.decide({ repeat: keys.down(code) }, code).held, false);
+    for (let i = 0; i < 5; i++)
+      assert.equal(map.decide({ repeat: keys.down(code) }, code).held, true);
+    keys.up(code);
+    assert.equal(keys.down(code), false);
+    keys.clear();
+    assert.equal(keys.down(code), false);
+    keys.clear();
+  }
+});
