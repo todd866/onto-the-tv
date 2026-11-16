@@ -1147,14 +1147,17 @@
   function playerOverlay() {
     return !!(play && (play.resumePending || play.errorOn)) || (upNextCard && upNextCard.active());
   }
+  function osdOpen() { return osd && !osd.classList.contains('hidden'); }
   function showOsd() {
     osd.classList.remove('hidden');
+    paintBackChip();
     clearTimeout(osdTimer);
     osdTimer = setTimeout(function () {
       // The directions tray is read, not glanced at: it stays three times as long.
       if (directionsShown && Date.now() - directionsShown.touched < OSD_MS * 3 - 100) { directionsShown.touched -= 1; showOsd(); return; }
       if (!media.paused() && !playerOverlay()) {
         osd.classList.add('hidden');
+        paintBackChip();
         overlayFocus = '';
         closeContinue();
         clearTransportFocus();
@@ -1162,15 +1165,19 @@
       }
     }, OSD_MS);
   }
+  function paintOsdLabels(item) {
+    if (!item) return;
+    var shown0 = item.display || {};
+    $('osd-show').textContent = shown0.show || item.show || '';
+    $('osd-episode').textContent = shown0.episode || '';
+    $('osd-show').title = item.title || item.show || '';
+  }
   function updateOsd() {
     if (!play || !play.item) return;
     var duration = media.duration() || play.item.duration || 0;
     var channel = play.channel;
     paintChannel(channel);
-    var shown0 = play.item.display || {};
-    $('osd-show').textContent = shown0.show || play.item.show || '';
-    $('osd-episode').textContent = shown0.episode || '';
-    $('osd-show').title = play.item.title || play.item.show || '';
+    paintOsdLabels(play.item);
     $('osd-play').setAttribute('aria-label', media.paused() ? 'Play' : 'Pause');
     var shown = seekPreview != null ? seekPreview : media.time();
     $('osd-elapsed').textContent = clock(shown);
@@ -2015,15 +2022,27 @@
     if (!previousId || previousId !== channel.id) showTuning(channel);
     play = play && play.channel === channel ? play : { mode: 'channel', channel: channel, nextQueue: keptQueue() };
     paintChannel(channel);
+    if (item && item.src) { paintOsdLabels(item); showOsd(); }
     load(item);
   }
-  function showSkipping() {
+  function peekNextForChannel(channel) {
+    var queued = play && play.nextQueue && play.nextQueue[0];
+    if (queued) {
+      return { src: queued.src, show: queued.show || queued.title, title: queued.title, display: queued.display };
+    }
+    if (!channel) return null;
+    var known = channelPrefetch[channel.id];
+    if (known && known.item && known.item.src && Date.now() - known.at < 20000) return known.item;
+    return null;
+  }
+  function showSkipping(preview) {
     if (play) play.switching = true;
     try { media.stop(); } catch (e) {}
     if (osd) osd.classList.add('is-skipping');
-    $('osd-show').textContent = '';
     $('osd-fill').style.width = '0';
     $('osd-elapsed').textContent = clock(0);
+    if (preview) paintOsdLabels(preview);
+    else { $('osd-show').textContent = ''; $('osd-episode').textContent = ''; }
     showOsd();
   }
   function startChannel(channel, fromItem, reason) {
@@ -2037,9 +2056,13 @@
     paintChannel(channel);
     // A skip must be felt at once: the old item stops (sound cuts) and the bar resets in the same frame as the
     // press, before the server is asked what is next.
-    if (reason === 'skip' && previousId === channel.id) showSkipping();
+    if ((reason === 'skip' || reason === 'error') && previousId === channel.id) showSkipping(peekNextForChannel(channel));
     var body = nextBody(channel, fromItem, reason);
-    return post('/api/next', body).then(function (item) { if (request === tuneRequest) load(item); }).catch(function (error) { if (request !== tuneRequest) return; if (play) { if (!play.item) { tellDesktop('onto:desktop-error', error && error.status); showTuneTrouble(); } showStreamError('tune'); return; } stopPlayback(); fail(error); });
+    return post('/api/next', body).then(function (item) {
+      if (request !== tuneRequest) return;
+      if (item && item.src) paintOsdLabels(item);
+      load(item);
+    }).catch(function (error) { if (request !== tuneRequest) return; if (play) { if (!play.item) { tellDesktop('onto:desktop-error', error && error.status); showTuneTrouble(); } showStreamError('tune'); return; } stopPlayback(); fail(error); });
   }
 
   // What is queued to play next carries over to another channel, except the rest of a show found by name
@@ -2087,6 +2110,7 @@
     watchEvent(reason === 'ended' ? 'ended' : 'skip');
     saveProgress(reason === 'ended');
     if (queued) {
+      showSkipping({ src: queued.src, show: queued.show || queued.title, title: queued.title || basename(queued.src) });
       playResume({
         src: queued.src, title: queued.title || basename(queued.src), show: queued.title || basename(queued.src),
         art: '/art?src=' + q(queued.src), positionSeconds: 0, queued: true,
@@ -2440,6 +2464,7 @@
     clearTimeout(prefetchTimer);
     prefetchTimer = setTimeout(function () {
       if ($('player').hidden || !play || !play.channel) return;
+      warmChannel(play.channel);
       warmChannel(channelByStep(1));
       warmChannel(channelByStep(-1));
     }, 500);
@@ -2817,7 +2842,7 @@
     var chip = $('back-chip');
     if (!chip) return;
     var entry = watchBack && $('player') && !$('player').hidden ? watchBack.chip(profileId, Date.now()) : null;
-    if (!entry) { chip.hidden = true; return; }
+    if (!entry || !osdOpen()) { chip.hidden = true; return; }
     chip.hidden = false;
     var title = entry.show || entry.title || '';
     var label = $('back-chip-title');
@@ -2936,6 +2961,7 @@
     clearTransportFocus();
     clearTimeout(osdTimer);
     if (osd) osd.classList.add('hidden');
+    paintBackChip();
   }
   function seekBy(seconds) {
     var duration, at;

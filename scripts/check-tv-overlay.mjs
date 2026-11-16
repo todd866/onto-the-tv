@@ -12,7 +12,7 @@ await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 try {
   const page = await browser.newPage();
-  let nextCalls = 0;
+  let nextCalls = 0, prefetchCalls = 0;
   const likeCalls = [];
   const directionCalls = [];
   const errors = [];
@@ -34,7 +34,13 @@ try {
     if (url.pathname === '/config.js') return route.fulfill({ contentType: 'text/javascript', body: 'window.ONTO_CONFIG={token:"fixture",build:"overlay"};' });
     if (url.pathname === '/api/diagnostics') return route.fulfill({ json: { ok: true } });
     if (url.pathname === '/api/now-playing' || url.pathname === '/api/play-next' || url.pathname === '/api/watch' || url.pathname === '/api/progress') return route.fulfill({ json: { ok: true, items: [] } });
-    if (url.pathname === '/api/next') { let peek = false; try { peek = !!(route.request().postDataJSON() || {}).prefetch; } catch {} if (!peek) nextCalls++; return route.fulfill({ json: { src: 'Kids/Bluey.mp4', show: 'Bluey', title: 'The Sign', resume: 0, duration: 420 } }); }
+    if (url.pathname === '/api/next') {
+      let peek = false;
+      try { peek = !!(route.request().postDataJSON() || {}).prefetch; } catch {}
+      if (!peek) nextCalls++;
+      if (peek) { prefetchCalls++; return route.fulfill({ json: { src: 'Kids/PrefetchNext.mp4', show: 'PrefetchFld', display: { show: 'Up Next Show', episode: 'Warm part' }, title: 'Prefetch title', resume: 0, duration: 420 } }); }
+      return route.fulfill({ json: { src: 'Kids/Bluey.mp4', show: 'Bluey', title: 'The Sign', resume: 0, duration: 420 } });
+    }
     if (url.pathname === '/api/directions') {
       const tile = (kind, label, src, title, n, channel) => ({ kind, label, src, title, show: label, duration: 600, resume: 0, art: '/art?src=show' + n, channel: channel || { id: 'cartoons', number: 1, name: 'Cartoons' } });
       return route.fulfill({ json: { channel: 'cartoons', from: 'Kids/Bluey.mp4', tiles: [
@@ -97,10 +103,33 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('http://tv.test/');
   await page.locator('.viewer.focused').waitFor();
-  // Home: what was liked sits in the row after what is half-watched.
-  const homeRow = await page.evaluate(() => [...document.querySelectorAll('#resume-row .resume')].map(tile => ({ liked: tile.classList.contains('liked'), label: tile.getAttribute('aria-label'), line: tile.querySelector('.resume-at').textContent, right: tile.getBoundingClientRect().right })));
+  await page.locator('#channels .channel').first().waitFor({ timeout: 10000 });
+  const homeResumeTile = page.locator('#resume-row .resume, #channels .channel[aria-label^="Continue"], #channels .channel[aria-label^="Liked"]');
+  await homeResumeTile.first().waitFor({ timeout: 10000 });
+  await page.locator('#channels .channel[aria-label^="Liked"], #resume-row .resume.liked').first().waitFor({ timeout: 10000 });
+  // Home: what was liked sits in the row after what is half-watched (resume row, or the now-layout page).
+  const homeRow = await page.evaluate(() => {
+    const read = tile => {
+      const label = tile.getAttribute('aria-label') || '';
+      const liked = tile.classList.contains('liked') || /^Liked:/.test(label);
+      const at = tile.querySelector('.resume-at');
+      const line1 = tile.querySelector('.now-card-line1');
+      return { liked, label, line: at ? at.textContent : (line1 ? line1.textContent.trim() : ''), right: tile.getBoundingClientRect().right };
+    };
+    const home = document.getElementById('home');
+    const now = home && home.classList.contains('home-now');
+    const tiles = now
+      ? [...document.querySelectorAll('#channels .channel')].filter(b => /^(Continue|Liked):/.test(b.getAttribute('aria-label') || ''))
+      : [...document.querySelectorAll('#resume-row .resume')];
+    return tiles.map(read);
+  });
   await fire(40); await fire(39);   // down to the row, right to the liked tile
-  const likedHero = await page.evaluate(() => ({ focused: document.querySelector('#resume-row .resume.focused') ? document.querySelector('#resume-row .resume.focused').classList.contains('liked') : null, hero: document.getElementById('hero').textContent }));
+  const likedHero = await page.evaluate(() => {
+    const focused = document.querySelector('#resume-row .resume.focused') || document.querySelector('#channels .channel.focused');
+    const label = focused ? (focused.getAttribute('aria-label') || '') : '';
+    const liked = focused ? (focused.classList.contains('liked') || /^Liked:/.test(label)) : null;
+    return { focused: liked, hero: document.getElementById('hero').textContent };
+  });
   await shot('home-liked-dark.png', 'dark');
   await fire(37); await fire(38);
   // INFO on the home page: the remote, with the keys home uses.
@@ -108,11 +137,44 @@ try {
   const homeGuide = await page.evaluate(() => ({ open: !document.getElementById('remote-guide').hidden, calls: [...document.querySelectorAll('#remote-guide .rg-word')].map(node => node.textContent) }));
   await shot('guide-home-dark.png', 'dark');
   await fire(457);
+  const prefetchDone = page.waitForResponse(async r => {
+    if (!r.url().includes('/api/next')) return false;
+    try {
+      return !!(r.request().postDataJSON() || {}).prefetch;
+    } catch { return false; }
+  });
   await fire(49);
   await page.locator('#player:visible').waitFor();
   await page.locator('#osd-show').waitFor();
   const before = (await page.locator('#osd-show').textContent() || '').trim();
-  await page.evaluate(() => document.getElementById('osd').classList.add('hidden'));
+  // Prefetch: after a moment the next title is known; a skip must show it within 100 ms.
+  await prefetchDone;
+  await page.waitForTimeout(80);
+  const prefetchSkipTiming = await page.evaluate(() => {
+    const stamp = Date.now();
+    function dispatch(code) {
+      const down = new Event('keydown', { bubbles: true, cancelable: true });
+      Object.defineProperty(down, 'keyCode', { get: () => code });
+      Object.defineProperty(down, 'repeat', { get: () => false });
+      document.dispatchEvent(down);
+      const up = new Event('keyup', { bubbles: true, cancelable: true });
+      Object.defineProperty(up, 'keyCode', { get: () => code });
+      document.dispatchEvent(up);
+    }
+    dispatch(406);
+    return { ms: Date.now() - stamp, show: document.getElementById('osd-show').textContent.trim() };
+  });
+  // Back chip: only while the OSD is up.
+  await fire(39);
+  const backWithOsd = await page.evaluate(() => ({
+    osd: !document.getElementById('osd').classList.contains('hidden'),
+    chip: !document.getElementById('back-chip').hidden,
+  }));
+  await page.waitForTimeout(4500);
+  const backAfterOsd = await page.evaluate(() => ({
+    osd: !document.getElementById('osd').classList.contains('hidden'),
+    chip: !document.getElementById('back-chip').hidden,
+  }));
   const state = () => page.evaluate(() => ({
     hidden: document.getElementById('osd').classList.contains('hidden'),
     play: document.getElementById('osd-play').classList.contains('focused'),
@@ -285,7 +347,7 @@ try {
     await page.waitForTimeout(600);
     afterChoice = await page.evaluate(() => ({ show: document.getElementById('osd-show').textContent.trim(), strip: !document.getElementById('continue-strip').hidden }));
   }
-  console.log(JSON.stringify({ before, homeRow, likedHero, oneRight, directions, afterChoice, directionCalls, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seeking, seekArrow, sought, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
+  console.log(JSON.stringify({ before, homeRow, likedHero, prefetchSkipTiming, backWithOsd, backAfterOsd, oneRight, directions, afterChoice, directionCalls, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seeking, seekArrow, sought, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
   assert.equal(oneRight.calls, 0, 'an arrow while watching never skips');
   assert.equal(oneRight.show, before, 'an arrow while watching leaves the show on');
   assert.equal(oneRight.paused, false, 'an arrow while watching does not pause');
@@ -339,8 +401,14 @@ try {
   assert.equal(homeRow.length, 2, JSON.stringify(homeRow));
   assert.equal(homeRow[0].liked, false);
   assert.equal(homeRow[1].liked, true);
-  assert.equal(homeRow[1].label, 'Liked: Bonobo Solo live at Cercle Odyssey, Paris, France');
-  assert.equal(homeRow[1].line, '\u2665 Cercle');
+  assert.ok(homeRow[1].label.startsWith('Liked:'), homeRow[1].label);
+  assert.ok(homeRow[1].label.includes('Cercle') || homeRow[1].label.includes('Bonobo'), homeRow[1].label);
+  assert.ok(homeRow[1].line.includes('Cercle') || homeRow[1].line.includes('\u2665'), homeRow[1].line);
+  assert.ok(prefetchSkipTiming.ms <= 100, 'prefetched skip title: ' + JSON.stringify(prefetchSkipTiming));
+  assert.equal(prefetchSkipTiming.show, 'Up Next Show');
+  assert.equal(backWithOsd.osd, true);
+  assert.equal(backAfterOsd.osd, false);
+  assert.equal(backAfterOsd.chip, false, 'back chip stays off the picture');
   assert.equal(likedHero.focused, true, 'the liked tile takes focus');
   assert.ok(likedHero.hero.includes('Bonobo Solo live at Cercle Odyssey, Paris, France'), 'the focused tile is shown in full: ' + likedHero.hero);
   assert.ok(directions, 'something was playing for the directions check');
