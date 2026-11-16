@@ -1,0 +1,41 @@
+{
+  "2 Meter Sessions": {
+    "id": "Q1234567",
+    "instanceOf": ["Q5398426"],
+    "startYear": "1987"
+  },
+  "List of songs by Coldplay": {
+    "id": "Q9999001",
+    "instanceOf": ["Q1340646"]
+  },
+  "4AD (EP)": {
+    "id": "Q8888001",
+    "instanceOf": ["Q482994"]
+  },
+  "4AD": {
+    "id": "Q483940",
+    "instanceOf": ["Q18127"]
+  },
+  "A Place in the Sun (film)": {
+    "id": "Q47285",
+    "instanceOf": ["Q11424"],
+    "startYear": "1951"
+  },
+  "A Place in the Sun (British TV series)": {
+    "id": "Q4657580",
+    "instanceOf": ["Q5398426"],
+    "startYear": "2000"
+  },
+  "Triple J's Hottest 100 of 2023": {
+    "id": "Q12000001",
+    "instanceOf": ["Q1340646"]
+  },
+  "Adam Newling": {
+    "id": "Q13000001",
+    "instanceOf": ["Q5"]
+  },
+  "South Park": {
+    "id": "Q16538",
+    "instanceOf": ["Q5398426"]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "List of songs by Coldplay",
+        "snippet": "This is a list of songs recorded by Coldplay."
+      },
+      {
+        "title": "2 Meter Sessions",
+        "snippet": "2 Meter Sessions is a Dutch live music television program."
+      },
+      {
+        "title": "Coldplay",
+        "snippet": "Coldplay are a British rock band."
+      }
+    ]
+  }
+}
