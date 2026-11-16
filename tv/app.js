@@ -2032,7 +2032,9 @@
     }
     if (!channel) return null;
     var known = channelPrefetch[channel.id];
-    if (known && known.item && known.item.src && Date.now() - known.at < 20000) return known.item;
+    // The prefetch for the channel being watched names what is on it now, not what a skip brings.
+    if (known && known.item && known.item.src && Date.now() - known.at < 20000 &&
+      !(play && play.item && known.item.src === play.item.src)) return known.item;
     return null;
   }
   function showSkipping(preview) {
