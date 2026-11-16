@@ -1,0 +1,11 @@
+{
+  "title": "South Park",
+  "extract": "South Park is an American animated sitcom created by Trey Parker and Matt Stone.",
+  "description": "American animated sitcom",
+  "wikibase_item": "Q16538",
+  "content_urls": {
+    "desktop": {
+      "page": "https://en.wikipedia.org/wiki/South_Park"
+    }
+  }
+}
