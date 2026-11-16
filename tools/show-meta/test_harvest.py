@@ -214,7 +214,6 @@ class HarvestTests(unittest.TestCase):
 class WikipediaBatchTests(unittest.TestCase):
     def test_user_agent_identifies_project(self):
         self.assertIn("onto-the-tv-metadata/0.2", harvest.USER_AGENT)
-        self.assertIn("github.com/todd866/onto-the-tv", harvest.USER_AGENT)
 
     def test_batch_query_splits_into_fifties_and_follows_redirects(self):
         titles = [f"Title {index}" for index in range(105)]

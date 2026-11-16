@@ -25,7 +25,7 @@ try:
 except ImportError:  # pragma: no cover
     requests = None  # type: ignore
 
-USER_AGENT = "onto-the-tv-metadata/0.2 (https://github.com/todd866/onto-the-tv)"
+USER_AGENT = "onto-the-tv-metadata/0.2"  # no personal or project details in requests to outside services
 WIKI_BATCH_SIZE = 50
 WIKI_MAX_RETRIES = 5
 TIERS = frozenset(
