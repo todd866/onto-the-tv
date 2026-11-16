@@ -40,6 +40,13 @@ Song-map work that belongs to Glancebar is in `~/Projects/glancebar/docs/TODO.md
 - [ ] **Home layout per person.** The paged "now" layout is the default for everyone; narrow per profile once
   Ian has lived with it (Jake keeps `tube`).
 
+- [ ] **Fold unslop's audit into `instrument-ux`** (Ian, 16 Nov: "sure"). From github.com/heydamir/unslop
+  (CC BY 4.0, credit Damir Sokolovsky): its `references/signs.md` checklist (emoji labels, tracked uppercase,
+  uneven spacing, glows, mixed number formats) and its copy rules (no `!` in interface text, short labels, no
+  hype words, sentence case, tabular figures) become an audit step in `~/.claude/skills/instrument-ux/SKILL.md`,
+  plus its pass order (spacing, colour, icons, copy, type, layout, details). Not its landing-page hero rules or
+  its 400/500 weights (the TV uses heavy type for couch distance). Do not install the plugin.
+
 ## Faults to look into
 
 - [ ] **Stash drive stalls** (16 Nov, 15:07). The library drive (WD My Passport, USB) stopped answering: the
