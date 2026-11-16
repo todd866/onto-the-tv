@@ -2242,6 +2242,9 @@
     };
   }
   function noteCurrent() {
+    // A title that failed to play is no place to go back to: Back during the next tune would replay the failure
+    // (16 Nov 2026: two TNG episodes in turn, Back retuned the broken one instead of going home).
+    if (play && (play.errorOn || mediaState === 'error')) return;
     var snap = snapshotPlaying();
     if (!snap || !watchBack) return;
     watchBack.note(profileId, snap);
@@ -3035,9 +3038,18 @@
     });
   }
   // Leaving the app (Home button) saves the place.
+  // Back after a long time away, the page starts afresh from the server (boot.js): on 16 Nov 2026 a page left
+  // hidden for 23 hours woke with no pictures on the cards and every title failing, though the server served both.
+  var hiddenAt = 0, STALE_AFTER_MS = 30 * 60 * 1000;
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) flushRemote();
+    if (document.hidden) { hiddenAt = Date.now(); flushRemote(); }
     if (document.hidden && play) { saveProgress(false); media.pause(); }
+    if (!document.hidden && hiddenAt && Date.now() - hiddenAt > STALE_AFTER_MS && !GUEST && window.tizen) {
+      hiddenAt = 0;
+      diag('wake_reload', { page: play ? 'player' : 'home' });
+      if (play) stopPlayback();
+      setTimeout(function () { location.reload(); }, 50);
+    } else if (!document.hidden) hiddenAt = 0;
   });
 
   // The shell reports what it is doing to the TV (tuning, a TV that will not answer).
