@@ -349,7 +349,7 @@ export function isHomeAddress(address) {
 // Broadcaster and channel tags YouTube uploads carry; the card already says where it is from.
 const BROADCASTER_TAGS = /^(?:abc kids|abc iview|abc kids listen|abc tv|cbeebies|cbbc|bbc|bbc earth|bbc kids|netflix(?: jr\.?| kids)?|disney(?: junior| jr\.?)?|nick jr\.?|nickelodeon|pbs kids|milkshake!?|sesame street|official|full episodes?|compilation|kids cartoons?|cartoons? for kids|for kids|hd|4k)$/i;
 // Upload padding that says nothing about the episode: "30+ MINS", "TRIPLE", "CBeebies Bedtime Story for Toddlers".
-const MARKETING_TAGS = /^(?:(?:\d+\s*\+?\s*(?:mins?|minutes?|hours?|hrs?)(?:\s+of\s+.*)?)|(?:double|triple|quadruple|mega|super)(?:\s+episodes?)?|(?:full\s+)?(?:story\s+|bonus\s+season\s+|season\s+|episode\s+)?compilation|all\s+episodes|(?:abc kids|cbeebies|cbbc|nick jr\.?|pbs kids)\b.*\b(?:story|stories|for (?:toddlers|kids|children)|full episodes?|compilation|songs?)\b.*|(?:learn|songs?|nursery rhymes?)\s+for\s+(?:toddlers|kids|children|babies)|for\s+(?:toddlers|kids|children|babies)|kids\s+(?:songs?|compilation|cartoons?|videos?|tv)|camp youtube|learn to (?:count|read)(?:\s+.*)?|(?:movie\s+)?clips?\s+compilation|baby videos for kids.*|nursery rhymes.*)$/i;
+const MARKETING_TAGS = /^(?:(?:\d+\s*\+?\s*(?:mins?|minutes?|hours?|hrs?)(?:\s+of\s+.*)?)|(?:double|triple|quadruple|mega|super)(?:\s+episodes?)?|(?:full\s+)?(?:story\s+|bonus\s+season\s+|season\s+|episode\s+)?compilation|all\s+episodes|(?:abc kids|cbeebies|cbbc|nick jr\.?|pbs kids)\b.*\b(?:story|stories|for (?:toddlers|kids|children)|full episodes?|compilation|songs?)\b.*|(?:learn|songs?|nursery rhymes?)\s+for\s+(?:toddlers|kids|children|babies)|for\s+(?:toddlers|kids|children|babies)|kids\s+(?:songs?|compilation|cartoons?|videos?|tv)|camp youtube|learn to (?:count|read)(?:\s+.*)?|(?:movie\s+)?clips?\s+compilation|baby videos for kids.*|nursery rhymes.*|official animation|(?:music\s*&\s*dance|songs)\s+for\s+kids|.{1,40}\s+official)$/i;
 const PICTOGRAPH = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu;
 const showKey = text => String(text).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -653,7 +653,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const words = show.toLowerCase().split(/\s+/).filter(Boolean);
     let rest = text;
     if (series) rest = text.slice(series.index + series[0].length);
-    else if (words.length && text.toLowerCase().startsWith(words.join(' '))) rest = text.slice(words.join(' ').length);
+    // Only a show name standing alone at the front goes ("Bluey · Bedroom"), not one inside a longer credit
+    // ("Paul Woolford, Diplo & Kareen Lomax · Looking for Me", "UGK (Underground Kingz) · ...").
+    else if (words.length && text.toLowerCase().startsWith(words.join(' ')) && /^(?:\s*[·:\-–—]|\s+S\d|\s+(?:series|season|ep)\b|$)/i.test(text.slice(words.join(' ').length))) rest = text.slice(words.join(' ').length);
     rest = rest.replace(/^[\s.:·\-–—]+/, '').replace(/\b(?:720p|1080p|2160p|x26[45]|hevc|web-?rip|blu-?ray|brrip|aac|dvdrip)\b.*$/i, '')
       .replace(/^E\d{1,3}\s+/i, '').replace(/[\s.·\-]+$/, '').trim();
     const label = (series ? `S${Number(series[1])} E${Number(series[2])}` : '') + (series && rest ? ' · ' : '') + rest;
