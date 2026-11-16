@@ -543,7 +543,8 @@ body.avplay.playing, body.avplay.playing #player { background: transparent; }
 #home.home-now #channels { flex: 0 0 auto; }
 #channels.layout-now {
   display: flex; flex-wrap: nowrap; align-items: stretch;
-  overflow: hidden; padding: 40px 0 0;
+  /* Visible: the focused card's outline draws past the row's edges. Only one page of four is in the row. */
+  overflow: visible; padding: 40px 0 0;
 }
 #channels.layout-now .channel {
   width: calc((100% - 102px) / 4); height: 420px; margin: 0 34px 0 0;
@@ -731,15 +732,6 @@ body.profile-all .seg-layout.on { background: #ffd166; border-color: #ffd166; co
   position: fixed; z-index: 8; left: 48px; right: 48px; bottom: 340px;
 }
 @media (prefers-color-scheme: light) {
-  #channels.layout-now .channel { background: #e8ecf4; color: #14213d; }
-  #channels.layout-now .now-card-pic { background: #d4dbe8; }
-  #channels.layout-now .now-card-line2 { color: #52627c; }
-  #channels.layout-now .num { color: #9a6208; }
-  #channels.layout-now .app-glyph { color: #9a6208; }
-  #channels.layout-now .channel.focused, #channels.layout-now .channel:focus { outline-color: #ffb547; }
-  #now-pager { color: #8fa0bf; }
-  #now-pager b { color: #14213d; }
-  #hero.hero-full .hero-length, #hero.hero-full .hero-next { color: #52627c; }
   #osd { background: #fff; color: #14213d; }
   #osd-episode { color: #52627c; }
   #osd-track { background: rgba(20, 33, 61, 0.16); }

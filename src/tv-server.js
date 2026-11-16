@@ -349,7 +349,7 @@ export function isHomeAddress(address) {
 // Broadcaster and channel tags YouTube uploads carry; the card already says where it is from.
 const BROADCASTER_TAGS = /^(?:abc kids|abc iview|abc kids listen|abc tv|cbeebies|cbbc|bbc|bbc earth|bbc kids|netflix(?: jr\.?| kids)?|disney(?: junior| jr\.?)?|nick jr\.?|nickelodeon|pbs kids|milkshake!?|sesame street|official|full episodes?|compilation|kids cartoons?|cartoons? for kids|for kids|hd|4k)$/i;
 // Upload padding that says nothing about the episode: "30+ MINS", "TRIPLE", "CBeebies Bedtime Story for Toddlers".
-const MARKETING_TAGS = /^(?:(?:\d+\s*\+?\s*(?:mins?|minutes?|hours?|hrs?)(?:\s+of\s+.*)?)|(?:double|triple|quadruple|mega|super)(?:\s+episodes?)?|(?:full\s+)?(?:story\s+|bonus\s+season\s+|season\s+|episode\s+)?compilation|all\s+episodes|(?:abc kids|cbeebies|cbbc|nick jr\.?|pbs kids)\b.*\b(?:story|stories|for (?:toddlers|kids|children)|full episodes?|compilation|songs?)\b.*|(?:learn|songs?|nursery rhymes?)\s+for\s+(?:toddlers|kids|children|babies)|for\s+(?:toddlers|kids|children|babies)|kids\s+(?:songs?|compilation|cartoons?|videos?|tv)|camp youtube|learn to (?:count|read)(?:\s+.*)?|(?:movie\s+)?clips?\s+compilation|baby videos for kids.*|nursery rhymes.*|official animation|(?:music\s*&\s*dance|songs)\s+for\s+kids|.{1,40}\s+official)$/i;
+const MARKETING_TAGS = /^(?:(?:\d+\s*\+?\s*(?:mins?|minutes?|hours?|hrs?)(?:\s+of\s+.*)?)|(?:double|triple|quadruple|mega|super)(?:\s+episodes?)?|(?:full\s+)?(?:story\s+|bonus\s+season\s+|season\s+|episode\s+)?compilation|all\s+episodes|(?:abc kids|cbeebies|cbbc|nick jr\.?|pbs kids)\b.*\b(?:story|stories|for (?:toddlers|kids|children)|full episodes?|compilation|songs?)\b.*|(?:learn|songs?|nursery rhymes?)\s+for\s+(?:toddlers|kids|children|babies)|for\s+(?:toddlers|kids|children|babies)|kids\s+(?:songs?|compilation|cartoons?|videos?|tv)|camp youtube|learn to (?:count|read)(?:\s+.*)?|(?:movie\s+)?clips?\s+compilation|baby videos for kids.*|nursery rhymes.*|official animation|(?:music\s*&\s*dance|songs)\s+for\s+kids|.{1,40}\s+official|a colors show|colors)$/i;
 const PICTOGRAPH = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu;
 // Words that say nothing about which episode this is. A title part made only of these (and the show's own
 // name) is SEO filler ("Baby cartoon & learning videos for kids") and is dropped (Ian, 16 Nov 2026: "just get
@@ -361,25 +361,37 @@ const meaningful = (part, key) => {
 };
 const showKey = text => String(text).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
 
-/** A title as people would write it: no emoji, no full-width punctuation, no broadcaster tags, no repeat of the show. */
+/** A title as people would write it: no emoji, no full-width punctuation, no broadcaster tags, no repeat of the show.
+ *  "Artist - Song" keeps its dash as " — "; other pieces join with " · ". */
 export function tidyTitle(raw, show = '') {
-  let text = String(raw || '').normalize('NFKC').replace(PICTOGRAPH, '').replace(/\s*\[[^\]]*\]\s*/g, ' ')
-    .replace(/[｜|]/g, ' · ').replace(/\s+[-–—]\s+/g, ' · ').replace(/(?:^|\s)[@#][\w.]+/g, ' ')
-    .replace(/\(\s*(?:official[^)]*|full episodes?|hd|4k|(?:movie\s+)?clips?(?:\s+compilation)?|compilation)\s*\)/gi, '').replace(/\bfull episodes?\b\s*/gi, '')
-    .replace(/\s+([?!.,:;])/g, '$1').replace(/([?!])\s+(?=[?!])/g, '$1').replace(/\s+/g, ' ').trim();
   const key = showKey(show);
-  const parts = text.split(/\s*·\s*/).map(part => part.replace(/^[\s.:,\-–—]+|[\s,:\-–—]+$/g, '').trim()).filter(part => {
+  // The card already names the session, so "X performs Y for Mahogany Sessions" is "X — Y"
+  // (Ian, 16 Nov 2026: "I would just call this Chet Faker -- Far Side of the Moon").
+  const onShow = text => key && (showKey(text).includes(key) || key.includes(showKey(text)) || /\bsessions?\b/i.test(text));
+  let text = String(raw || '').normalize('NFKC').replace(PICTOGRAPH, '').replace(/[⧸∕]/g, '/').replace(/\s*\[[^\]]*\]\s*/g, ' ')
+    .replace(/[｜|]/g, ' · ').replace(/(?:^|\s)[@#][\w.]+/g, ' ')
+    .replace(/\(\s*(?:official[^)]*|full episodes?|hd|4k|(?:movie\s+)?clips?(?:\s+compilation)?|compilation)\s*\)/gi, '').replace(/\bfull episodes?\b\s*/gi, '')
+    .replace(/\(\s*live\s+(?:on|at|from|for)\s+([^)]*)\)/gi, (all, where) => onShow(where) ? '' : all)
+    .replace(/\s+([?!.,:;])/g, '$1').replace(/([?!])\s+(?=[?!])/g, '$1').replace(/\s+/g, ' ').trim();
+  const performs = /^(.+?)\s+(?:performs?|plays?|sings?)\s+(.+?)\s+(?:live\s+)?(?:for|at|on|in)\s+(.+)$/i.exec(text);
+  if (performs && onShow(performs[3])) text = performs[1] + ' - ' + performs[2];
+  // Pieces and the separator before each: " - " between artist and song, " · " otherwise.
+  const pieces = [];
+  text.split(/\s*·\s*/).forEach(chunk => chunk.split(/\s+[-–—]\s+/).forEach((part, i) => pieces.push({ sep: i ? ' — ' : ' · ', part })));
+  const kept = pieces.map(piece => ({ sep: piece.sep, part: piece.part.replace(/^[\s.:,\-–—]+|[\s,:\-–—]+$/g, '').replace(/^["“”'‘’]+(.+?)["“”'‘’]+$/, '$1').trim() })).filter(({ part }) => {
     if (!part || /^[^a-z0-9]+$/i.test(part) || BROADCASTER_TAGS.test(part) || MARKETING_TAGS.test(part)) return false;
     // Short titles that happen to be ordinary words ("Sing", "Full Clip", Bing's "Music") are real titles.
     if (part.split(/\s+/).length >= 3 && !meaningful(part, key)) return false;
     return !key || showKey(part) !== key;
+  }).map(piece => {
+    // "JoJo & Gran Gran: It's Time to Play" on JoJo and Gran Gran's card is "It's Time to Play";
+    // "Post Malone: Tiny Desk Concert" on Tiny Desk's card is "Post Malone".
+    const colon = /^([^:]{2,60}):\s*(.+)$/.exec(piece.part);
+    if (colon && key && showKey(colon[1]) === key) return { sep: piece.sep, part: colon[2] };
+    if (colon && key && onShow(colon[2]) && meaningful(colon[2], key) <= 1) return { sep: piece.sep, part: colon[1] };
+    return piece;
   });
-  // "JoJo & Gran Gran: It's Time to Play" on JoJo and Gran Gran's card is "It's Time to Play".
-  text = parts.map(part => {
-    if (!key) return part;
-    const colon = /^([^:]{2,60}):\s*(.+)$/.exec(part);
-    return colon && showKey(colon[1]) === key ? colon[2] : part;
-  }).join(' · ').trim();
+  text = kept.map((piece, i) => (i ? piece.sep : '') + piece.part).join('').trim();
   // Nothing but filler: no title at all, the card names the show. Nothing but tags: keep the plainest form.
   if (!text && String(raw || '').split(/\s+/).length >= 3 && !meaningful(String(raw || '').normalize('NFKC'), key)) return '';
   return text || String(raw || '').normalize('NFKC').replace(PICTOGRAPH, '').replace(/\s*\[[^\]]*\]\s*/g, ' ').replace(/[｜|]/g, ' · ').replace(/\s+/g, ' ').replace(/^[\s·]+|[\s·]+$/g, '').trim();

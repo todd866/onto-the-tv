@@ -1067,6 +1067,10 @@ test('titles read as people write them: no emoji, broadcaster tags, upload paddi
   assert.equal(tidyTitle('Boo', 'Bing'), 'Boo');
   assert.equal(tidyTitle('Baby cartoons & baby learning videos for kids - Hop Hop the owl & funny cartoons for kids', 'Hop Hop the Owl'), '');
   assert.equal(tidyTitle('Four Tet - Sing', 'Four Tet'), 'Sing');
+  assert.equal(tidyTitle('Chet Faker performs Far Side of the Moon for Mahogany Sessions', 'Mahogany'), 'Chet Faker — Far Side of the Moon');
+  assert.equal(tidyTitle('Post Malone: Tiny Desk Concert', 'Tiny Desk'), 'Post Malone');
+  assert.equal(tidyTitle('The Horrors - Something To Remember Me By (Live on KEXP)', 'KEXP'), 'The Horrors — Something To Remember Me By');
+  assert.equal(tidyTitle('Masego - Navajo ｜ A COLORS SHOW', 'COLORS'), 'Masego — Navajo');
   assert.equal(tidyTitle('Episode 5', 'Bluey'), 'Episode 5');
   assert.equal(tidyTitle('｜ CBeebies ｜', 'Bing'), 'CBeebies');
 });
