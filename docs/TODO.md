@@ -28,6 +28,9 @@ Song-map work that belongs to Glancebar is in `~/Projects/glancebar/docs/TODO.md
   - add Chill, Dance, Alt and Rap channels;
   - decide whether the TV also plays the lossless songs themselves (audio with cover art) from OTV Mirror
     (asked 16 Nov, no answer yet).
+- [ ] **Show metadata follow-ups** (full run started 16 Nov 20:20 on the M2, `~/.local/state/onto-tv-embed/run-full.log`):
+  accept a page reached by redirect from the exact name (2Pac → Tupac Shakur, A$AP Rocky → ASAP Rocky); prefer
+  "(band)"/"(French band)" over "(singer)" for groups (Air came out as "Air (singer)"); retry shows left `throttled`.
 - [ ] **Use the YouTube Takeout** (Ian, 16 Nov). Unpacked at `~/.local/state/youtube-takeout/2026-11-16/Takeout/`
   (M5 and M2): 8,901 searches 2012–2026 (647 on YouTube Music) and ~2,300 playlist video ids (Music,
   Watch later, YouTube Library Sync, Apple Music Delta). No watch history in this export. Searches are a shared
