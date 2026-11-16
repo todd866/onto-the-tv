@@ -28,6 +28,12 @@ Song-map work that belongs to Glancebar is in `~/Projects/glancebar/docs/TODO.md
   - add Chill, Dance, Alt and Rap channels;
   - decide whether the TV also plays the lossless songs themselves (audio with cover art) from OTV Mirror
     (asked 16 Nov, no answer yet).
+- [ ] **Use the YouTube Takeout** (Ian, 16 Nov). Unpacked at `~/.local/state/youtube-takeout/2026-11-16/Takeout/`
+  (M5 and M2): 8,901 searches 2012–2026 (647 on YouTube Music) and ~2,300 playlist video ids (Music,
+  Watch later, YouTube Library Sync, Apple Music Delta). No watch history in this export. Searches are a shared
+  account's (household members' too), so weight Ian's own playlists above searches. Done: music artists and
+  shows Ian searched or saved rank higher on the TV's music channels and the Down row; searched-for music not
+  in the library goes to the acquisition queue only after Ian's yes.
 - [ ] **Show embeddings** (Ian, 16 Nov: "embed the shows in vector space", not by feeding video to Gemini).
   Per show: Wikipedia/Wikidata summary and genres, IMDb's free datasets, YouTube channel and video
   descriptions (paced; YouTube bot-checks). Per episode: subtitles, 6-8 still frames through a small local
