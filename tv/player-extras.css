@@ -205,7 +205,8 @@
   padding: 6px 14px; border-radius: 12px; background: #ffb547; color: #14213d;
   font-size: 30px; font-weight: 800; white-space: pre; font-feature-settings: "tnum" 1;
 }
-#player:not(.is-seeking) #osd-seek-time { display: none; }
+#player:not(.is-seeking):not(.is-tap-seeking) #osd-seek-time { display: none; }
+#player.is-tap-seeking #osd-seek-legend { display: none; }
 #player.is-seeking #osd-keys { visibility: hidden; }
 #osd-seek-legend { display: none; margin-left: auto; align-items: center; }
 #player.is-seeking #osd-seek-legend { display: flex; }

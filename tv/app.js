@@ -52,7 +52,7 @@
   var watchBack = window.ontoWatchBack ? window.ontoWatchBack.create() : null;
   var channelArm = window.ontoChannelArm ? window.ontoChannelArm.create() : null;
   var armTimer = 0, armedRequest = 0, prefetchTimer = 0, continueOpen = false, continueIndex = 0;
-  var overlayFocus = '', transportIndex = 1, scrub = null, directionsShown = null;
+  var overlayFocus = '', transportIndex = 1, scrub = null, directionsShown = null, arrowHoldRepeats = 0;
   var homeCache = {}, channelPrefetch = {};
   try {
     if (watchBack) {
@@ -1659,9 +1659,9 @@
   }
   function inAd() { return !!(play && (play.airing === 'ad' || play.inRecorded)); }
   function durationNow() { return media.duration() || (play && play.item && play.item.duration) || 0; }
-  function applySeek(target) {
+  function applySeek(target, keepBurst) {
     seekPreview = null;
-    if (seekCtrl) seekCtrl.clear();
+    if (seekCtrl && !keepBurst) seekCtrl.clear();
     media.seek(target);
     if (play && play.airing === 'show') play.showTime = target;
     if (play) play.ignoreUntil = Date.now() + 1200;
@@ -1693,13 +1693,16 @@
     if (target == null) return;
     applySeek(target);
   }
+  var sweepRepeats = 0;
   function stepSweep() {
     if (!play || !seekCtrl || !sweepDir) return;
-    applySeek(seekCtrl.hold(media.time(), durationNow(), sweepDir));
+    applySeek(seekCtrl.hold(media.time(), durationNow(), sweepDir, sweepRepeats), true);
+    sweepRepeats += 1;
   }
   function holdSeek(key) {
     clearInterval(sweepTimer);
     sweepDir = key === 'left' ? -1 : 1;
+    sweepRepeats = 0;
     stepSweep();
     sweepTimer = setInterval(stepSweep, 350);
   }
@@ -2972,7 +2975,8 @@
     duration = durationNow();
     at = media.time() + seconds;
     if (at < 0) at = 0;
-    if (duration > 1 && at > duration - 1) at = duration - 1;
+    if (duration > 5 && at > duration - 5) at = duration - 5;
+    else if (duration > 1 && at > duration - 1) at = duration - 1;
     applySeek(at);
     reportNow();
   }
@@ -3050,9 +3054,42 @@
     }
     target = scrub.target + direction * step;
     if (target < 0) target = 0;
-    if (duration > 1 && target > duration - 1) target = duration - 1;
+    if (duration > 5 && target > duration - 5) target = duration - 5;
+    else if (duration > 1 && target > duration - 1) target = duration - 1;
     scrub.target = target;
     paintScrub();
+  }
+  function paintTapSeekBubble() {
+    var bubble = $('osd-seek-time'), delta, sign;
+    if (!seekCtrl || !bubble) return;
+    delta = seekCtrl.delta();
+    if (!delta) { $('player').classList.remove('is-tap-seeking'); bubble.textContent = ''; return; }
+    sign = delta < 0 ? '\u2212' : '+';
+    bubble.textContent = sign + clock(Math.abs(delta));
+    $('player').classList.remove('is-seeking');
+    $('player').classList.add('is-tap-seeking');
+  }
+  function tapSeekStep(direction, held) {
+    var duration, target, step;
+    if (!play || !play.item || play.resumePending || play.errorOn) return;
+    if (inAd()) { if (direction > 0 && !held) skipBreak(); showOsd(); return; }
+    if (scrub) cancelScrub();
+    duration = durationNow();
+    if (!seekCtrl) return;
+    if (held) {
+      step = scrubHoldStepSize(arrowHoldRepeats);
+      arrowHoldRepeats += 1;
+      target = media.time() + direction * step;
+    } else {
+      arrowHoldRepeats = 0;
+      target = seekCtrl.tap(media.time(), duration, direction, Date.now());
+    }
+    if (target < 0) target = 0;
+    if (duration > 5 && target > duration - 5) target = duration - 5;
+    else if (duration > 1 && target > duration - 1) target = duration - 1;
+    applySeek(target, !held);
+    paintTapSeekBubble();
+    reportNow();
   }
   function endScrub() {
     var was = scrub;
@@ -3093,6 +3130,7 @@
   function applyRemote(action) {
     var target, chosen;
     if (!action || action.type === 'none' || action.type === 'digit') return;
+    if (action.type === 'tap-seek') { tapSeekStep(action.direction, action.held); return; }
     if (action.type === 'scrub') { scrubStep(action.direction, action.held); return; }
     if (action.type === 'scrub-commit') { commitScrub(); return; }
     if (action.type === 'scrub-cancel') { cancelScrub(); return; }
@@ -3303,6 +3341,7 @@
     if (consoleState) return;
     clearInterval(sweepTimer);
     sweepDir = 0;
+    if (key === KEY.LEFT || key === KEY.RIGHT) arrowHoldRepeats = 0;
     if (scrub && scrub.holding && (key === KEY.FF || key === KEY.RW)) commitScrub();
   });
 

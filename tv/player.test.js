@@ -73,11 +73,17 @@ test('netflix tap steps 10/30/60/300 from an anchor, and a hold seeks 30', () =>
   assert.equal(seek.tap(100, 1000, 1), 140);
   assert.equal(seek.tap(100, 1000, 1), 200);
   assert.equal(seek.tap(100, 1000, -1), 190);
-  assert.equal(seek.hold(110, 1000, 1), 140);
+  assert.equal(seek.hold(110, 1000, 1), 120);
+  assert.equal(seek.hold(110, 1000, 1, 4), 140);
+  seek.clear();
   assert.equal(seek.tap(0, 1000, -1), 0);
-  assert.equal(seek.hold(990, 1000, 1), 999);
+  assert.equal(seek.hold(990, 1000, 1), 995);
   seek.clear();
   assert.equal(seek.tap(40, 1000, -1), 30);
+  seek.clear();
+  assert.equal(seek.tap(100, 1000, 1, 1000), 110);
+  assert.equal(seek.tap(100, 1000, 1, 1200), 140);
+  assert.equal(seek.tap(100, 1000, 1, 3000), 110, 'a 1.5 s pause restarts the burst');
 });
 
 test('a saved position offers Resume and Start over, with Resume first', () => {

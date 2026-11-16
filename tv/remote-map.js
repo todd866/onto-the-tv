@@ -1,9 +1,9 @@
 /* Playback remote: the map for the One For All Samsung remote in the lounge (owner, 14 Nov 2026). ES5.
-   The arrows only ever move focus; they never change what is on (one arrow press lost a live set).
    Every other action sits on the key printed for it:
-       arrows         watching: show the controls (focus on play / pause); Down shows tiles of where the
-                      channel could go next (choose with OK). In the controls: move.
-                      transport row: Up to the Continue strip, Down closes.
+       arrows         while the bar is plain (no transport / continue focus): Left and Right skip
+                      instantly (Netflix burst steps — docs/netflix-seek.md); hold scans faster.
+                      Up shows the controls; Down shows tiles of where the channel could go next.
+                      With focus on the transport or continue row: move between buttons.
        OK             watching: pause and open the controls. In the controls: press the focused button.
        RETURN         close the controls, else leave (or undo the last change of show)
        CH up / down   channel up / down          0-9   channel number          PRE-CH   back to what was on
@@ -64,9 +64,12 @@ window.ontoRemoteMap = (function () {
       return { type: 'none' };
     }
     if (key === KEY.LEFT || key === KEY.RIGHT) {
-      if (repeat) return { type: 'none' };
-      if (!focus) return { type: 'focus', row: 'transport', fresh: true };
-      if (focus === 'transport' || focus === 'continue') return { type: 'move', row: focus, delta: key === KEY.RIGHT ? 1 : -1 };
+      if (focus === 'transport' || focus === 'continue') {
+        return repeat ? { type: 'none' } : { type: 'move', row: focus, delta: key === KEY.RIGHT ? 1 : -1 };
+      }
+      if (!focus) {
+        return { type: 'tap-seek', direction: key === KEY.RIGHT ? 1 : -1, held: repeat };
+      }
       return { type: 'none' };
     }
     return { type: 'none' };

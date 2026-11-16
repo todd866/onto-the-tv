@@ -14,14 +14,14 @@ const open = focus => ({ overlay: 'open', focus, repeat: false });
 
 const watching = { overlay: 'hidden', focus: '', repeat: false };
 
-test('watching: an arrow only shows the controls; channels change on the CH keys alone', () => {
+test('watching: Up shows the controls; Left/Right tap-seek; channels change on the CH keys alone', () => {
   const map = remote();
   for (const state of [watching, open('')]) {
-    // The owner lost a live set to one arrow press (14 Nov 2026): no arrow may tune, skip, go back or seek.
-    for (const key of [map.KEY.UP, map.KEY.LEFT, map.KEY.RIGHT]) {
-      assert.deepEqual(plain(map.decide(state, key)), { type: 'focus', row: 'transport', fresh: true });
-      assert.equal(map.decide({ ...state, repeat: true }, key).type, 'none');
-    }
+    assert.deepEqual(plain(map.decide(state, map.KEY.UP)), { type: 'focus', row: 'transport', fresh: true });
+    assert.equal(map.decide({ ...state, repeat: true }, map.KEY.UP).type, 'none');
+    assert.deepEqual(plain(map.decide(state, map.KEY.RIGHT)), { type: 'tap-seek', direction: 1, held: false });
+    assert.deepEqual(plain(map.decide({ ...state, repeat: true }, map.KEY.RIGHT)), { type: 'tap-seek', direction: 1, held: true });
+    assert.deepEqual(plain(map.decide(state, map.KEY.LEFT)), { type: 'tap-seek', direction: -1, held: false });
     // Down opens the tray of directions: tiles to choose from, nothing changed until OK.
     assert.deepEqual(plain(map.decide(state, map.KEY.DOWN)), { type: 'directions' });
     assert.equal(map.decide({ ...state, repeat: true }, map.KEY.DOWN).type, 'none');
@@ -33,7 +33,7 @@ test('watching: an arrow only shows the controls; channels change on the CH keys
 
 test('no arrow press in any focus state does anything but move focus', () => {
   const map = remote();
-  const allowed = ['focus', 'move', 'close', 'none', 'directions'];
+  const allowed = ['focus', 'move', 'close', 'none', 'directions', 'tap-seek'];
   for (const focus of ['', 'transport', 'continue', 'seek'])
     for (const repeat of [false, true])
       for (const key of [map.KEY.UP, map.KEY.DOWN, map.KEY.LEFT, map.KEY.RIGHT])

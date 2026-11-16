@@ -189,10 +189,55 @@ try {
     liked: document.getElementById('osd-like').classList.contains('is-liked'),
     paused: document.getElementById('osd-play').classList.contains('is-paused'),
   }));
-  // Watching: an arrow only shows the controls (focus on play/pause). Nothing changes, the picture keeps playing.
+  // Watching: Right tap-seeks with Netflix burst steps; the picture keeps playing.
+  await page.evaluate(() => document.getElementById('osd').classList.add('hidden'));
   let calls = nextCalls;
-  await fire(39);
-  await page.waitForTimeout(700);
+  const arrowBurst = await page.evaluate(() => new Promise(resolve => {
+    function pulse(code) {
+      const down = new Event('keydown', { bubbles: true, cancelable: true });
+      Object.defineProperty(down, 'keyCode', { get: () => code });
+      Object.defineProperty(down, 'repeat', { get: () => false });
+      document.dispatchEvent(down);
+      const up = new Event('keyup', { bubbles: true, cancelable: true });
+      Object.defineProperty(up, 'keyCode', { get: () => code });
+      document.dispatchEvent(up);
+    }
+    let t0 = performance.now();
+    pulse(39);
+    const one = {
+      ms: performance.now() - t0,
+      bubble: document.getElementById('osd-seek-time').textContent,
+      paused: document.getElementById('osd-play').classList.contains('is-paused'),
+      elapsed: document.getElementById('osd-elapsed').textContent.trim(),
+    };
+    const t1 = performance.now();
+    pulse(39);
+    const two = {
+      ms: performance.now() - t1,
+      bubble: document.getElementById('osd-seek-time').textContent,
+      elapsed: document.getElementById('osd-elapsed').textContent.trim(),
+    };
+    pulse(39);
+    const three = {
+      bubble: document.getElementById('osd-seek-time').textContent,
+      elapsed: document.getElementById('osd-elapsed').textContent.trim(),
+    };
+    setTimeout(function () {
+      pulse(39);
+      const afterGap = {
+        bubble: document.getElementById('osd-seek-time').textContent,
+        elapsed: document.getElementById('osd-elapsed').textContent.trim(),
+      };
+      pulse(37);
+      resolve({
+        one, two, three, afterGap,
+        left: {
+          bubble: document.getElementById('osd-seek-time').textContent,
+          elapsed: document.getElementById('osd-elapsed').textContent.trim(),
+        },
+      });
+    }, 2000);
+  }));
   const oneRight = { ...(await state()), calls: nextCalls - calls };
   // OK pauses and opens the controls on play/pause.
   await fire(13);
@@ -406,12 +451,16 @@ try {
     await page.waitForTimeout(600);
     afterChoice = await page.evaluate(() => ({ show: document.getElementById('osd-show').textContent.trim(), strip: !document.getElementById('continue-strip').hidden }));
   }
-  console.log(JSON.stringify({ before, homeRow, likedHero, prefetchSkipTiming, backWithOsd, backAfterOsd, oneRight, directions, afterChoice, directionCalls, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seekPressTiming, seeking, seekArrow, sought, holdGrowth, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
-  assert.equal(oneRight.calls, 0, 'an arrow while watching never skips');
-  assert.equal(oneRight.show, before, 'an arrow while watching leaves the show on');
-  assert.equal(oneRight.paused, false, 'an arrow while watching does not pause');
-  assert.equal(oneRight.hidden, false, 'an arrow while watching shows the controls');
-  assert.equal(oneRight.play, true, 'an arrow while watching puts focus on play/pause');
+  console.log(JSON.stringify({ before, homeRow, likedHero, prefetchSkipTiming, backWithOsd, backAfterOsd, arrowBurst, oneRight, directions, afterChoice, directionCalls, shown, skipped, homeGuide, onLike, likedNow, unliked, reliked, likeCalls, beforeSeek, seekPressTiming, seeking, seekArrow, sought, holdGrowth, seekingBack, cancelled, guide, transport, row, preview, errors }, null, 2));
+  assert.equal(oneRight.calls, 0, 'Right while watching does not skip to the next show');
+  assert.ok(arrowBurst.one.ms < 100, 'first Right step paints within 100 ms: ' + arrowBurst.one.ms);
+  assert.equal(arrowBurst.one.bubble, '+0:10', 'first Right tap is 10 s');
+  assert.equal(arrowBurst.one.paused, false, 'Right tap does not pause');
+  assert.ok(arrowBurst.two.ms < 100, 'second Right step paints within 100 ms: ' + arrowBurst.two.ms);
+  assert.equal(arrowBurst.two.bubble, '+0:40', 'two Right taps are 10 s + 30 s');
+  assert.equal(arrowBurst.three.bubble, '+1:40', 'three Right taps are 10 s + 30 s + 60 s');
+  assert.equal(arrowBurst.afterGap.bubble, '+0:10', 'Right after 2 s restarts the burst');
+  assert.equal(arrowBurst.left.bubble, '\u22120:10', 'Left tap mirrors forward steps');
   assert.equal(onLike.like, true, 'Like is one step right of Next');
   assert.equal(onLike.liked, false);
   assert.equal(likedNow.liked, true, 'OK on Like fills the heart');

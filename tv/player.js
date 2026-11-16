@@ -236,7 +236,8 @@ window.ontoPlayerExtras = (function () {
 
   function clampTime(time, duration) {
     if (time < 0) time = 0;
-    if (duration > 1 && time > duration - 1) time = duration - 1;
+    if (duration > 5 && time > duration - 5) time = duration - 5;
+    else if (duration > 1 && time > duration - 1) time = duration - 1;
     return time;
   }
 
@@ -249,30 +250,29 @@ window.ontoPlayerExtras = (function () {
   }
 
   function seek() {
-    var origin = null, offset = 0, taps = 0, sign = 0;
+    var origin = null, offset = 0, taps = 0, sign = 0, lastAt = 0;
+    var BURST_MS = 1500;
     return {
-      tap: function (time, duration, direction) {
-        var dir = direction < 0 ? -1 : 1, size;
-        if (origin === null) { origin = time; offset = 0; taps = 0; sign = dir; }
-        else if (sign !== dir) {
+      tap: function (time, duration, direction, now) {
+        var dir = direction < 0 ? -1 : 1, size, stamp = now || 0;
+        if (origin === null || (stamp && lastAt && stamp - lastAt > BURST_MS)) {
+          origin = time; offset = 0; taps = 0; sign = dir;
+        } else if (sign !== dir) {
           origin = clampTime(origin + offset, duration);
-          offset = 0;
-          taps = 0;
-          sign = dir;
+          offset = 0; taps = 0; sign = dir;
         }
         size = seekTapStepSize(taps);
         taps += 1;
         offset += dir * size;
+        if (stamp) lastAt = stamp;
         return clampTime(origin + offset, duration);
       },
-      hold: function (time, duration, direction) {
-        origin = null;
-        offset = 0;
-        taps = 0;
-        sign = 0;
-        return clampTime(time + (direction < 0 ? -30 : 30), duration);
+      hold: function (time, duration, direction, holdIndex) {
+        var step = seekHoldStepSize(holdIndex == null ? 0 : holdIndex);
+        return clampTime(time + (direction < 0 ? -step : step), duration);
       },
-      clear: function () { origin = null; offset = 0; taps = 0; sign = 0; }
+      delta: function () { return offset; },
+      clear: function () { origin = null; offset = 0; taps = 0; sign = 0; lastAt = 0; }
     };
   }
 
