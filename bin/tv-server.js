@@ -21,6 +21,7 @@ import { showsView } from '../src/tv-library-api.js';
 import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
 import { createMusicEmbedLoader } from '../src/music-pick.js';
+import { createDiskPriority, volumeRoots } from '../src/disk-priority.js';
 import { createGuestInvites } from '../src/guest-invites.js';
 import { createGuestServer } from '../src/guest-server.js';
 
@@ -188,8 +189,12 @@ async function keepDiskAwake() {
   finally { await handle?.close().catch(() => {}); diskTouching = false; }
 }
 setInterval(() => { const h = new Date().getHours(); if (h >= 6 && h < 23) void keepDiskAwake(); }, 3 * 60_000).unref();
-const current = { home: (viewers, rating) => { const lineup = library.home(viewers, rating); warmSoon(); keepDiskAwake(); return lineup; }, billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => { const item = library.next(id, input); warmSoon(); keepDiskAwake(); return item; },
-  progress: input => library.progress(input), like: input => library.like(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => library.file(src), video: src => library.video(src),
+// While the TV is in use, batch jobs on the library drives give way (src/disk-priority.js; fleet disk-slot).
+const diskPriority = createDiskPriority({ file: join(homedir(), '.local/state/disk-slot/priority/onto-the-tv'),
+  roots: () => volumeRoots(catalogueHolder.videos.map(video => video.file), fastRoot ? [fastRoot] : []), log });
+const inUse = () => { void diskPriority.touch(); };
+const current = { home: (viewers, rating) => { const lineup = library.home(viewers, rating); warmSoon(); keepDiskAwake(); inUse(); return lineup; }, billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => { const item = library.next(id, input); warmSoon(); keepDiskAwake(); inUse(); return item; },
+  progress: input => { inUse(); return library.progress(input); }, like: input => library.like(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => { inUse(); return library.file(src); }, video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
 let mediaCache = null;
