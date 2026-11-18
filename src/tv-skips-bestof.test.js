@@ -79,3 +79,22 @@ test('without ratings a new show still starts at the beginning', async () => {
   const { library } = await make(videos);
   assert.equal(library.next('seinfeld', { viewers: 'dad' }).title, 'Seinfeld (1989) S01E01');
 });
+
+test('an early stop counts only when the episode was not resumed', async () => {
+  const videos = [1, 2].map(e => episode('Friends (1994)', 1, e));
+  const { library, history } = await make(videos);
+  history.set(videos[0].file, { title: 'x', positionSeconds: 1150, durationSeconds: 1300 });
+  assert.equal(library.skipped({ src: videos[0].src, channel: 'friends', early: true }), false);
+  history.set(videos[1].file, { title: 'y', positionSeconds: 40, durationSeconds: 1300 });
+  assert.equal(library.skipped({ src: videos[1].src, channel: 'friends', early: true }), true);
+});
+
+test('a best-of pick replaces a file whose name the episode pattern misses', async () => {
+  const videos = [...[1, 2, 3].map(e => episode('Seinfeld (1989)', 1, e)),
+    { src: 'Seinfeld (1989)/S09E23E24 The Finale.mp4', file: '/m/Seinfeld (1989)/S09E23E24 The Finale.mp4', title: 'S09E23E24 The Finale', channel: 'Seinfeld (1989)', tier: 'grownup', duration: 2600 }];
+  const best = { 'Seinfeld (1989)': { top: [{ season: 1, episode: 2, rating: 9.6 }] } };
+  for (let seed = 0; seed < 10; seed++) {
+    const { library } = await make(videos, { bestEpisodes: () => best, random: () => seed / 10 });
+    assert.equal(library.next('seinfeld', { viewers: 'dad' }).title, 'Seinfeld (1989) S01E02');
+  }
+});

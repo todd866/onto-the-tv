@@ -866,9 +866,12 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     } catch { return {}; }
   }
   // Record a skip of src on a channel (music channels have their own heard list and are left out).
-  function skipped({ src, channel } = {}) {
+  // early: an early stop, which counts only if the episode was not resumed (its place is still in the opening
+  // minutes); a stop a minute after resuming at 18:10 is a pause for the evening, not a rejection.
+  function skipped({ src, channel, early = false } = {}) {
     const index = bySrc.get(src);
     if (index === undefined || !channel || isMusicVideoChannel(channel) || isMusicVideoItem(videos[index])) return false;
+    if (early && (watchMaps().places[src]?.time || 0) >= EARLY_STOP_SECONDS) return false;
     const at = now();
     const all = storedObject(SKIP_COOLDOWN_KEY), mine = all[channel] && typeof all[channel] === 'object' ? all[channel] : {};
     for (const [key, when] of Object.entries(mine)) if (!(at - when < SKIP_COOLDOWN_MS)) delete mine[key];
@@ -1134,9 +1137,11 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         ? Object.fromEntries(pool.map(i => [videos[i].src, (weights[videos[i].src] ?? 1) * youtubeTasteBoost(videos[i], youtubeTaste)]))
         : weights;
       index = player.pickVideo(videos, pool, fallbackWeights, currentIndex, new Set(), played, random, !evening);
-      if ((serial || personal) && index >= 0 && player.episodeNumber(videos[index]) !== null) {
-        const best = introduce(showOf(index), pool, watched);
-        const following = best >= 0 ? best : story(showOf(index), pool, currentIndex, binge);
+      // A file whose name the episode pattern misses ("S09E23E24 The Finale") still gives way to a best-of pick.
+      const best = (serial || personal) && index >= 0 ? introduce(showOf(index), pool, watched) : -1;
+      if (best >= 0) index = best;
+      else if ((serial || personal) && index >= 0 && player.episodeNumber(videos[index]) !== null) {
+        const following = story(showOf(index), pool, currentIndex, binge);
         if (following >= 0 && showOf(following) === showOf(index)) index = following;
       }
     }
@@ -1634,7 +1639,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         const result = watchEvents.record(await readBody(request));
         // Stopping in the first two minutes is a skip (a stop before any picture is a failure, not a choice).
         const event = result.accepted ? result.event : null;
-        if (event?.reason === 'stop' && event.watchedSeconds >= 5 && event.watchedSeconds < EARLY_STOP_SECONDS) library.skipped?.({ src: event.src, channel: event.channel });
+        if (event?.reason === 'stop' && event.watchedSeconds >= 5 && event.watchedSeconds < EARLY_STOP_SECONDS) library.skipped?.({ src: event.src, channel: event.channel, early: true });
         dirty = true;
         await watchEvents.flush();
         return send(response, 200, result);

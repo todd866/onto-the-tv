@@ -206,6 +206,10 @@ setInterval(() => { const h = new Date().getHours(); if (h >= 6 && h < 23) void 
 const diskPriority = createDiskPriority({ file: join(homedir(), '.local/state/disk-slot/priority/onto-the-tv'),
   roots: () => volumeRoots(catalogueHolder.videos.map(video => video.file), fastRoot ? [fastRoot] : []), log });
 const inUse = () => { void diskPriority.touch(); };
+// The TV reports progress every 15 s while it plays (the player fetches media only as it starts), so those
+// reports keep the drives claimed through a long episode.
+const recordWatch = watchEvents.record.bind(watchEvents);
+watchEvents.record = input => { inUse(); return recordWatch(input); };
 const current = { home: (viewers, rating) => { const lineup = library.home(viewers, rating); warmSoon(); keepDiskAwake(); inUse(); return lineup; }, billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => { const item = library.next(id, input); warmSoon(); keepDiskAwake(); inUse(); return item; },
   progress: input => { inUse(); return library.progress(input); }, like: input => library.like(input), skipped: input => library.skipped(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => { inUse(); return library.file(src); }, video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
