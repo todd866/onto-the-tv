@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { readSettings } from '../src/settings.js';
 import { rebuildCatalogue } from '../src/library.js';
@@ -175,7 +175,20 @@ let channelScores = await loadChannelScores(settings);
 const musicEmbed = createMusicEmbedLoader({ dir: settings.musicVectorsDir, log });
 await musicEmbed.refresh(true).catch(() => {});
 setInterval(() => { void musicEmbed.refresh(); }, 60_000).unref();
-let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers, channelScores, musicEmbed });
+// Each show's best-rated episodes (scripts/best-episodes.mjs writes them): a show new to the household opens on one.
+const bestEpisodesFile = join(data, 'best-episodes.json');
+let bestEpisodesCache = null, bestEpisodesStamp = '', bestEpisodesCheckedAt = 0;
+function bestEpisodes() {
+  if (Date.now() - bestEpisodesCheckedAt > 60_000) {
+    bestEpisodesCheckedAt = Date.now();
+    try {
+      const info = statSync(bestEpisodesFile), stamp = `${info.mtimeMs}:${info.size}`;
+      if (stamp !== bestEpisodesStamp) { bestEpisodesCache = JSON.parse(readFileSync(bestEpisodesFile, 'utf8')).shows || null; bestEpisodesStamp = stamp; }
+    } catch (error) { if (error.code !== 'ENOENT') log('best episodes unread: ' + error.message); }
+  }
+  return bestEpisodesCache;
+}
+let library = createTvLibrary({ videos: libraryVideos, history, storage, scenes: sceneLookup, showTiers, channelScores, musicEmbed, bestEpisodes });
 // The library drive (a WD My Passport) spins itself down after a few idle minutes, whatever macOS's disk
 // sleep says, and the first title after that took 19 s to start (16 Nov 2026). A tiny synced write keeps it
 // spinning in the household's hours, and the TV opening its home or tuning wakes it before OK is pressed.
@@ -194,7 +207,7 @@ const diskPriority = createDiskPriority({ file: join(homedir(), '.local/state/di
   roots: () => volumeRoots(catalogueHolder.videos.map(video => video.file), fastRoot ? [fastRoot] : []), log });
 const inUse = () => { void diskPriority.touch(); };
 const current = { home: (viewers, rating) => { const lineup = library.home(viewers, rating); warmSoon(); keepDiskAwake(); inUse(); return lineup; }, billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => { const item = library.next(id, input); warmSoon(); keepDiskAwake(); inUse(); return item; },
-  progress: input => { inUse(); return library.progress(input); }, like: input => library.like(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => { inUse(); return library.file(src); }, video: src => library.video(src),
+  progress: input => { inUse(); return library.progress(input); }, like: input => library.like(input), skipped: input => library.skipped(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => { inUse(); return library.file(src); }, video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
 let mediaCache = null;
@@ -335,7 +348,7 @@ async function rescan() {
       catalogueHolder.videos = refreshedVideos;
       const freshSettings = await readSettings(join(appData, 'settings.json'));
       channelScores = await loadChannelScores(freshSettings);
-      library = createTvLibrary({ videos: refreshedVideos, history, storage, scenes: sceneLookup, showTiers, channelScores, musicEmbed });
+      library = createTvLibrary({ videos: refreshedVideos, history, storage, scenes: sceneLookup, showTiers, channelScores, musicEmbed, bestEpisodes });
       knownSources.clear();
       for (const video of refreshedVideos) knownSources.add(video.src);
       log(`catalogue reloaded: ${library.home().channels.length} channels`);

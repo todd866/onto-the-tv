@@ -336,6 +336,18 @@ const STATIC = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; c
   '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json',
   '.wasm': 'application/wasm', '.woff': 'font/woff' };
 const RECENT_LIMIT = 50;
+// A skipped episode rests (Ian, 18 Nov 2026: "if I skip an episode don't show it to me again for a while"): three
+// weeks off that channel's cards, Continue and auto-next. Stopping in the first two minutes counts as a skip. Two
+// skips of one show inside a week make the show rarer on that channel for three days.
+const SKIP_COOLDOWN_KEY = 'onto.tv.skipCooldown.v1', SHOW_SKIPS_KEY = 'onto.tv.showSkips.v1';
+const SKIP_COOLDOWN_MS = 21 * 86400000, SHOW_SKIP_WINDOW_MS = 7 * 86400000, SHOW_DOWN_MS = 3 * 86400000;
+const SHOW_DOWN_WEIGHT = 0.25;
+export const EARLY_STOP_SECONDS = 120;
+// A show new to the household opens on one of its best episodes, not S01E01 (Ian, 18 Nov 2026: "showing me S01E01
+// of Seinfeld and Friends as my top choice is kinda weird; try for 'best of' when you're introducing a new show").
+// Ratings come from best-episodes.json (scripts/best-episodes.mjs). Once a few episodes have been watched, the
+// show plays in order again.
+const BEST_OF_TOP = 10, INTRODUCED_AFTER = 3;
 
 /** True for loopback, private, link-local, CGNAT/Tailscale and unique-local addresses. */
 export function isHomeAddress(address) {
@@ -474,7 +486,7 @@ export function parseRange(header, size) {
  * The TV-facing model. `videos` comes from readCatalogue; `history` is a
  * loadPlaybackHistory store; `storage` a createFileStorage store.
  */
-export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, channelScores = null, musicEmbed = null, youtubeTaste = null, now = () => Date.now() }) {
+export function createTvLibrary({ videos, history, storage, random = Math.random, scenes = () => null, showTiers = null, channelScores = null, musicEmbed = null, youtubeTaste = null, now = () => Date.now(), bestEpisodes = () => null }) {
   const bySrc = new Map(videos.map((video, index) => [video.src, index]));
   const videoByFile = new Map(videos.map(item => [item.file, item]));
   // Per-channel memory of recently played indices, as the player keeps per tab.
@@ -795,6 +807,10 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const staging = channels.slice().sort((a, b) => variety.get(a.id) - variety.get(b.id));
     for (const channel of staging) {
       const stage = stageKey(channel.id, ids, rating);
+      const cooled = cooledOn(channel.id);
+      for (const key of [stage, stage + '\nnext']) {
+        if (staged.has(key) && cooled.has(videos[staged.get(key)].src)) staged.delete(key);
+      }
       // The card shows what OK will put on: the episode left on this channel, when there is one.
       const left = leftOn(channel.id, ids, rating);
       if (left !== undefined) staged.set(stage, left);
@@ -841,6 +857,66 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   function showOf(index) {
     return videos[index].channel || 'Other';
+  }
+
+  function storedObject(key) {
+    try {
+      const parsed = JSON.parse(storage.getItem(key));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch { return {}; }
+  }
+  // Record a skip of src on a channel (music channels have their own heard list and are left out).
+  function skipped({ src, channel } = {}) {
+    const index = bySrc.get(src);
+    if (index === undefined || !channel || isMusicVideoChannel(channel) || isMusicVideoItem(videos[index])) return false;
+    const at = now();
+    const all = storedObject(SKIP_COOLDOWN_KEY), mine = all[channel] && typeof all[channel] === 'object' ? all[channel] : {};
+    for (const [key, when] of Object.entries(mine)) if (!(at - when < SKIP_COOLDOWN_MS)) delete mine[key];
+    mine[src] = at;
+    all[channel] = mine;
+    storage.setItem(SKIP_COOLDOWN_KEY, JSON.stringify(all));
+    const shows = storedObject(SHOW_SKIPS_KEY), byShow = shows[channel] && typeof shows[channel] === 'object' ? shows[channel] : {};
+    for (const [name, list] of Object.entries(byShow)) {
+      const keep = (Array.isArray(list) ? list : []).filter(when => at - when < SHOW_SKIP_WINDOW_MS + SHOW_DOWN_MS);
+      if (keep.length) byShow[name] = keep; else delete byShow[name];
+    }
+    byShow[showOf(index)] = [...(byShow[showOf(index)] || []), at];
+    shows[channel] = byShow;
+    storage.setItem(SHOW_SKIPS_KEY, JSON.stringify(shows));
+    return true;
+  }
+  function cooledOn(channelId) {
+    const mine = storedObject(SKIP_COOLDOWN_KEY)[channelId] || {}, at = now(), out = new Set();
+    for (const [src, when] of Object.entries(mine)) if (at - when < SKIP_COOLDOWN_MS) out.add(src);
+    return out;
+  }
+  // Shows skipped twice inside a week, the second time within the last three days.
+  function shunnedOn(channelId) {
+    const byShow = storedObject(SHOW_SKIPS_KEY)[channelId] || {}, at = now(), out = new Set();
+    for (const [name, list] of Object.entries(byShow)) {
+      const times = (Array.isArray(list) ? list : []).filter(Number.isFinite).sort((a, b) => a - b);
+      for (let i = 1; i < times.length; i++) {
+        if (times[i] - times[i - 1] <= SHOW_SKIP_WINDOW_MS && at - times[i] < SHOW_DOWN_MS) { out.add(name); break; }
+      }
+    }
+    return out;
+  }
+  // A best-rated episode of a show the household has hardly watched, or -1 (no ratings, or already introduced).
+  function introduce(show, pool, watched) {
+    const list = bestEpisodes()?.[show]?.top;
+    if (!Array.isArray(list) || !list.length) return -1;
+    let seen = 0;
+    for (const item of videos) {
+      if ((item.channel || 'Other') !== show) continue;
+      const place = watched.places[item.src];
+      if (watched.finished.has(item.src) || (place && place.time >= 60)) seen++;
+      if (seen >= INTRODUCED_AFTER) return -1;
+    }
+    const wanted = new Set(list.slice(0, BEST_OF_TOP).map(entry => Number(entry.season) * 10000 + Number(entry.episode)));
+    const candidates = pool.filter(index => showOf(index) === show && wanted.has(player.episodeNumber(videos[index]))
+      && !watched.finished.has(videos[index].src));
+    if (!candidates.length) return -1;
+    return candidates[Math.min(candidates.length - 1, Math.floor(random() * candidates.length))];
   }
 
   // Places and finishes the TV (and the Mac app, via layered history) have reported.
@@ -943,6 +1019,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         player.appendLog(storage, { t: Date.now(), age: key, src: item.src, reason: options.reason, at: Math.round(Number(options.time) || 0),
           watched: Math.round(Number(options.watched) || 0), dur: Math.round(Number(options.duration) || item.duration || 0), via: 'tv' });
       }
+      if (options.reason === 'skip' && !options.peek) skipped({ src: item.src, channel: channelId });
     }
     if (isMusicVideoChannel(channelId)) {
       const heard = musicHeardMap();
@@ -967,6 +1044,13 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       const fresh = pool.filter(index => !options.avoid.has(videos[index].channel || 'Other'));
       if (fresh.length) pool = fresh;
     }
+    // Skipped episodes rest for three weeks: not billed, not continued, not the next episode.
+    const cooled = cooledOn(channelId);
+    if (cooled.size) {
+      const rested = pool.filter(index => !cooled.has(videos[index].src));
+      if (rested.length) pool = rested;
+    }
+    const shunned = shunnedOn(channelId);
     const watched = watchMaps();
     // Story still sees a just-finished episode so it can offer the next one. The card does not bill it.
     const storyPool = pool.slice();
@@ -989,6 +1073,14 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         weights[item.src] = weight;
       }
     }
+    if (shunned.size) {
+      const base = weights;
+      weights = Object.create(null);
+      for (const index of pool) {
+        const src = videos[index].src;
+        weights[src] = player.weightFor(base, src) * (shunned.has(showOf(index)) ? SHOW_DOWN_WEIGHT : 1);
+      }
+    }
     // Episodic films and sitcoms play in order; cartoons stay shuffled. Personal channels
     // resume a story too, then move on so the hour is not one show.
     const personal = !!CHANNEL_BY_ID.get(channelId)?.person;
@@ -997,7 +1089,11 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const ending = options.reason === 'ended' || options.peek === true;
     const binge = serial && !personal && ending && currentIndex >= 0 && player.episodeNumber(videos[currentIndex]) !== null;
     let index = -1;
-    if (binge) index = story(showOf(currentIndex), pool, currentIndex, true);
+    if (binge) {
+      const finishedNow = { places: watched.places, finished: new Map(watched.finished).set(videos[currentIndex].src, now()) };
+      index = introduce(showOf(currentIndex), pool.filter(candidate => candidate !== currentIndex), finishedNow);
+      if (index < 0) index = story(showOf(currentIndex), pool, currentIndex, true);
+    }
     const ban = binge ? new Set() : varietyBan(channelId, pool);
     if (!binge && currentIndex >= 0 && (options.peek || personal)) ban.add(showOf(currentIndex));
     if (!binge && ban.size) {
@@ -1011,8 +1107,11 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       if (fresh.length) pool = fresh;
     }
     if (index < 0 && (serial || personal) && !isMusicVideoChannel(channelId)) {
-      const cont = continuationIndex(storyPool, watched.places, watched.finished);
-      if (cont >= 0 && pool.includes(cont) && !ban.has(showOf(cont))) index = cont;
+      let cont = continuationIndex(storyPool, watched.places, watched.finished);
+      // Still being introduced: the next of its best episodes, unless one is part-watched.
+      const midway = cont >= 0 && (watched.places[videos[cont].src]?.time || 0) >= 60;
+      if (cont >= 0 && !midway) { const best = introduce(showOf(cont), storyPool, watched); if (best >= 0) cont = best; }
+      if (cont >= 0 && pool.includes(cont) && !ban.has(showOf(cont)) && !shunned.has(showOf(cont))) index = cont;
     }
     if (index < 0 && channelId === 'forjake') pool.sort((a, b) => jakeLeadRank(videos[a].channel) - jakeLeadRank(videos[b].channel));
     const evening = new Date(now()).getHours() >= 19 && grownOnly(ids, ratingOf(options.rating));
@@ -1036,7 +1135,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         : weights;
       index = player.pickVideo(videos, pool, fallbackWeights, currentIndex, new Set(), played, random, !evening);
       if ((serial || personal) && index >= 0 && player.episodeNumber(videos[index]) !== null) {
-        const following = story(showOf(index), pool, currentIndex, binge);
+        const best = introduce(showOf(index), pool, watched);
+        const following = best >= 0 ? best : story(showOf(index), pool, currentIndex, binge);
         if (following >= 0 && showOf(following) === showOf(index)) index = following;
       }
     }
@@ -1070,7 +1170,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (isMusicVideoChannel(channelId)) return undefined;
     const last = lastOn()[channelId];
     const index = last && bySrc.get(last.src);
-    if (!last || index === undefined) return undefined;
+    if (!last || index === undefined || cooledOn(channelId).has(last.src)) return undefined;
     const place = watchMaps().places[videos[index].src];
     if (!place || place.time < LEFT_SECONDS || now() - place.updated > LEFT_HOURS * 3600000) return undefined;
     // Nearly over is over (16 Nov 2026: a set that ended 1 s short was resumed at its last second, ended, and
@@ -1143,6 +1243,11 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       for (const stage of [key, key + '\nnext']) {
         if (staged.has(stage) && heard.has(videos[staged.get(stage)].src)) staged.delete(stage);
       }
+    }
+    // A pick staged before it was skipped somewhere else is not played.
+    const cooled = cooledOn(channelId);
+    for (const stage of [key, key + '\nnext']) {
+      if (staged.has(stage) && cooled.has(videos[staged.get(stage)].src)) staged.delete(stage);
     }
     // Tuning in (not moving on from an episode): the episode left on this channel comes back first.
     if (!options.current) {
@@ -1346,7 +1451,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return [...picks(''), ...picks('\nnext')];
   }
 
-  return { home, billing, show, next, progress, like, liked, directions, directionChosen, allowed, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
+  return { home, billing, show, next, progress, like, liked, directions, directionChosen, allowed, skipped, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
 }
 
 /**
@@ -1527,6 +1632,9 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         if (!watchEvents || !token || !sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
         if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' });
         const result = watchEvents.record(await readBody(request));
+        // Stopping in the first two minutes is a skip (a stop before any picture is a failure, not a choice).
+        const event = result.accepted ? result.event : null;
+        if (event?.reason === 'stop' && event.watchedSeconds >= 5 && event.watchedSeconds < EARLY_STOP_SECONDS) library.skipped?.({ src: event.src, channel: event.channel });
         dirty = true;
         await watchEvents.flush();
         return send(response, 200, result);
