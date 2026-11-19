@@ -11,6 +11,10 @@ export function defaults(home = homedir()) {
     playerPath: join(library, 'kids-shuffler.html'), tiersPath: '', sourcesPath: '', mediaFolders: [], playOn: '',
     youtubeTakeoutDir: join(home, '.local/state/youtube-takeout/2026-11-16/Takeout/YouTube and YouTube Music'),
     musicVectorsDir: join(home, '.local/state/glancebar-music-embed/vectors'),
+    // The shared music store (Glancebar tools/music-store): alias table copy, and the taste-log tool.
+    musicStoreDir: join(home, '.local/state/music-store'),
+    musicStoreTool: join(home, 'Projects/glancebar/tools/music-store/musicstore.py'),
+    musicTasteListeners: {},
     ambient: { ...DEFAULT_AMBIENT_OPTIONS } };
 }
 
@@ -41,11 +45,16 @@ export async function readSettings(path, home) {
     const data = JSON.parse(await readFile(path, 'utf8'));
     Object.assign(result, validateTvSettings({ tvHost: data.tvHost || '',
       avTransportUrl: data.avTransportUrl || '', bindHost: data.bindHost || '' }));
-    for (const key of ['library', 'playerPath', 'tiersPath', 'sourcesPath', 'musicVectorsDir', 'youtubeTakeoutDir']) {
+    for (const key of ['library', 'playerPath', 'tiersPath', 'sourcesPath', 'musicVectorsDir', 'youtubeTakeoutDir',
+      'musicStoreDir', 'musicStoreTool']) {
       if (typeof data[key] === 'string' && isAbsolute(data[key])) result[key] = data[key];
     }
     if (Array.isArray(data.mediaFolders)) result.mediaFolders = [...new Set(data.mediaFolders.filter(path =>
       typeof path === 'string' && path.length <= 4096 && !path.includes('\0') && isAbsolute(path)))].slice(0, 128);
+    if (data.musicTasteListeners && typeof data.musicTasteListeners === 'object') {
+      result.musicTasteListeners = Object.fromEntries(Object.entries(data.musicTasteListeners)
+        .filter(([k, v]) => /^[a-z0-9-]{1,32}$/.test(k) && typeof v === 'string' && /^[a-z0-9][a-z0-9._-]{0,47}$/.test(v)));
+    }
     if (data.playOn === 'mac' || data.playOn === 'tv') result.playOn = data.playOn;
     if (data.ambient) result.ambient = validateAmbientOptions(data.ambient);
   } catch (error) {

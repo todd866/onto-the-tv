@@ -11,6 +11,7 @@ export const MUSIC_WEIGHT_FLOOR = 0.15;
 export const MUSIC_MILD_DISLIKE = 0.85;
 export const DEFAULT_MUSIC_VECTORS_DIR = join(homedir(), '.local/state/glancebar-music-embed/vectors');
 export const MUSIC_EMBED_DIM = 3072;
+export const DEFAULT_MUSIC_STORE_DIR = join(homedir(), '.local/state/music-store');
 
 const FEAT_MARKERS = [',', '&', ' feat.', ' feat ', ' ft.', ' ft ', ' featuring '];
 const PUNCT_RE = /[^a-z0-9\s]+/g;
@@ -43,6 +44,43 @@ export function normalizeTitle(title) {
 
 export function songMatchKey(artist, title) {
   return `${normalizeArtist(artist)}\0${normalizeTitle(title)}`;
+}
+
+// The one song key: an exact mirror of Glancebar's embed.match_key ("artist|title"), the key of the
+// shared alias table music/ids.json. songMatchKey above is the TV's older, looser key and stays the
+// fallback. Both repositories test this against the same fixture (src/fixtures/match-key-fixture.json; a copy of glancebar tools/music-store/match-key-fixture.json).
+const PY_BRACKET_RE = /\[[^\]]*\]|\([^)]*\)/g;
+const PY_REMASTERED_RE = /\s*-\s*remastered.*$/i;
+function pyStrip(text) {
+  let t = String(text || '').toLowerCase();
+  t = t.replace(PY_REMASTERED_RE, '').replace(PY_BRACKET_RE, '');
+  t = t.replace(/[^\p{L}\p{N}_\s]/gu, ' ');
+  return t.replace(/\s+/g, ' ').trim();
+}
+export function embedMatchKey(artist, title) {
+  let a = String(artist || '').toLowerCase();
+  for (const needle of [',', '&', ' feat.', ' feat ', ' ft.', ' ft ']) {
+    const idx = a.indexOf(needle);
+    if (idx >= 0) a = a.slice(0, idx);
+  }
+  a = pyStrip(a);
+  const t = pyStrip(title);
+  return a && t ? `${a}|${t}` : null;
+}
+
+export function youtubeIdOf(item) {
+  return /\[([A-Za-z0-9_-]{11})\](?=\.[^/]+$|$)/.exec(item?.src || '')?.[1] || null;
+}
+
+/** sha of a music video's song through the alias table: YouTube id first, then the match key. */
+export function songShaFor(ids, item) {
+  if (!ids || !item) return { sha: null, how: null };
+  const yt = youtubeIdOf(item);
+  if (yt && ids.youtube?.[yt]) return { sha: ids.youtube[yt], how: 'youtube' };
+  const { artist, title } = parseArtistTitleFromVideo(item);
+  const key = title ? embedMatchKey(artist, title) : null;
+  if (key && ids.key?.[key]) return { sha: ids.key[key], how: 'key' };
+  return { sha: null, how: null };
 }
 
 function stripTitleForParse(text) {
@@ -190,6 +228,10 @@ export function createMusicEmbedState() {
     ready: false,
     centroids: new Map(),
     tracks: new Map(),
+    bySha: new Map(),
+    ids: null,
+    idsMtime: 0,
+    stats: { ids: 0, fallback: 0 },
     dim: 0,
     dir: '',
     indexMtime: 0,
@@ -200,6 +242,12 @@ export function createMusicEmbedState() {
 
 function embeddingVector(embed, item) {
   if (!embed?.ready || !item) return null;
+  if (embed.ids && embed.bySha?.size) {
+    const { sha } = songShaFor(embed.ids, item);
+    const exact = sha && embed.bySha.get(sha);
+    if (exact) { embed.stats.ids += 1; return exact; }
+    embed.stats.fallback += 1;  // fuzzy below; counted, and logged on each refresh
+  }
   const { artist, title } = parseArtistTitleFromVideo(item);
   if (title) {
     const track = embed.tracks?.get(songMatchKey(artist, title));
@@ -237,6 +285,7 @@ export async function loadMusicEmbeddings(state, dir, log = () => {}, options = 
   const sums = new Map();
   const counts = new Map();
   const tracks = new Map();
+  const bySha = new Map();
   for (let row = 0; row < lines.length; row++) {
     let rowMeta;
     try { rowMeta = JSON.parse(lines[row]); } catch { continue; }
@@ -245,6 +294,7 @@ export async function loadMusicEmbeddings(state, dir, log = () => {}, options = 
     for (let i = 0; i < dim; i++) rowVec[i] = view[offset + i];
     const unit = l2Normalize(rowVec, dim);
     if (unit && rowMeta.title) tracks.set(songMatchKey(rowMeta.artist, rowMeta.title), unit);
+    if (unit && rowMeta.id) bySha.set(String(rowMeta.id), unit);
     const key = normalizeArtist(rowMeta.artist);
     if (!key) continue;
     if (!sums.has(key)) {
@@ -270,6 +320,7 @@ export async function loadMusicEmbeddings(state, dir, log = () => {}, options = 
   state.ready = true;
   state.centroids = centroids;
   state.tracks = tracks;
+  state.bySha = bySha;
   state.dim = dim;
   state.dir = dir;
   state.indexMtime = indexInfo.mtimeMs;
@@ -342,9 +393,28 @@ export function pickMusicVideoIndex({
   return weightedChoice(candidates, pickWeight, random);
 }
 
+/** The shared alias table (music/ids.json, pulled to storeDir by Glancebar's musicstore.py). */
+export async function loadMusicIds(state, storeDir, log = () => {}) {
+  const path = join(storeDir, 'ids.json');
+  let info;
+  try { info = await stat(path); } catch { return false; }
+  if (state.ids && info.mtimeMs === state.idsMtime) return true;
+  try {
+    const doc = JSON.parse(await readFile(path, 'utf8'));
+    if (!doc || typeof doc.key !== 'object') throw new Error('no key map');
+    state.ids = { key: doc.key || {}, youtube: doc.youtube || {} };
+    state.idsMtime = info.mtimeMs;
+    log(`music ids: ${Object.keys(state.ids.key).length} songs, ${Object.keys(state.ids.youtube).length} YouTube ids`);
+    return true;
+  } catch (error) {
+    log(`music ids unreadable: ${error.message}`);
+    return false;
+  }
+}
+
 export function createMusicEmbedLoader({
-  dir = DEFAULT_MUSIC_VECTORS_DIR, log = () => {}, pollMs = 60_000, now = () => Date.now(),
-  expectedDim = MUSIC_EMBED_DIM,
+  dir = DEFAULT_MUSIC_VECTORS_DIR, storeDir = DEFAULT_MUSIC_STORE_DIR, log = () => {}, pollMs = 60_000,
+  now = () => Date.now(), expectedDim = MUSIC_EMBED_DIM,
 } = {}) {
   const state = createMusicEmbedState();
   let loading = null;
@@ -352,6 +422,9 @@ export function createMusicEmbedLoader({
     const t = now();
     if (!force && t - state.lastCheck < pollMs && state.dir === dir) return state.ready;
     state.lastCheck = t;
+    if (storeDir) await loadMusicIds(state, storeDir, log);
+    if (state.stats.fallback) log(`music vectors: ${state.stats.ids} by id, ${state.stats.fallback} by fuzzy name since last report`);
+    state.stats = { ids: 0, fallback: 0 };
     const indexPath = join(dir, 'tracks-index.jsonl');
     const f32Path = join(dir, 'tracks.f32');
     let indexInfo, f32Info;

@@ -21,6 +21,7 @@ import { showsView } from '../src/tv-library-api.js';
 import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
 import { createMusicEmbedLoader } from '../src/music-pick.js';
+import { createTasteAppender } from '../src/music-taste.js';
 import { createDiskPriority, volumeRoots } from '../src/disk-priority.js';
 import { createGuestInvites } from '../src/guest-invites.js';
 import { createGuestServer } from '../src/guest-server.js';
@@ -172,7 +173,8 @@ const sceneLookup = src => {
   return video ? sceneStore.load(video.file) : null;
 };
 let channelScores = await loadChannelScores(settings);
-const musicEmbed = createMusicEmbedLoader({ dir: settings.musicVectorsDir, log });
+const musicEmbed = createMusicEmbedLoader({ dir: settings.musicVectorsDir, storeDir: settings.musicStoreDir, log });
+const tasteLog = createTasteAppender({ tool: settings.musicStoreTool, listeners: settings.musicTasteListeners, log });
 await musicEmbed.refresh(true).catch(() => {});
 setInterval(() => { void musicEmbed.refresh(); }, 60_000).unref();
 // Each show's best-rated episodes (scripts/best-episodes.mjs writes them): a show new to the household opens on one.
@@ -211,7 +213,14 @@ const inUse = () => { void diskPriority.touch(); };
 const recordWatch = watchEvents.record.bind(watchEvents);
 watchEvents.record = input => { inUse(); return recordWatch(input); };
 const current = { home: (viewers, rating) => { const lineup = library.home(viewers, rating); warmSoon(); keepDiskAwake(); inUse(); return lineup; }, billing: (viewers, rating, cards) => library.billing(viewers, rating, cards), show: name => library.show(name), next: (id, input) => { const item = library.next(id, input); warmSoon(); keepDiskAwake(); inUse(); return item; },
-  progress: input => { inUse(); return library.progress(input); }, like: input => library.like(input), skipped: input => library.skipped(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => { inUse(); return library.file(src); }, video: src => library.video(src),
+  progress: input => { inUse(); return library.progress(input); }, like: input => {
+    const result = library.like(input);
+    try {  // the shared taste log (src/music-taste.js); never in the like's way
+      const item = catalogueHolder.videos.find(video => video.src === result?.src);
+      tasteLog({ item, liked: result?.liked, viewers: input?.viewers });
+    } catch (error) { log(`taste log: ${error.message}`); }
+    return result;
+  }, skipped: input => library.skipped(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => { inUse(); return library.file(src); }, video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
 let mediaCache = null;

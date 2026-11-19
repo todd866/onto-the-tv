@@ -297,3 +297,22 @@ test('musicHeardRecently honours history timestamps', () => {
   });
   assert.equal(musicHeardRecently(videos[0].src, old), false);
 });
+test('embedMatchKey mirrors Glancebar embed.match_key (shared fixture)', async () => {
+  const { embedMatchKey } = await import('./music-pick.js');
+  const rows = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('./fixtures/match-key-fixture.json', import.meta.url), 'utf8'));
+  for (const row of rows) assert.equal(embedMatchKey(row.artist, row.title), row.key, JSON.stringify(row));
+});
+
+test('music videos find their vector by sha through the alias table, fuzzy name as fallback', async () => {
+  const { songShaFor, loadMusicIds } = await import('./music-pick.js');
+  const dir = await mkdtemp(join(tmpdir(), 'music-ids-'));
+  const sha = 'a'.repeat(64);
+  await writeFile(join(dir, 'ids.json'), JSON.stringify({ key: { 'phantogram|fall in love': sha }, youtube: { RsQjC5zVnt8: 'b'.repeat(64) } }));
+  const state = createMusicEmbedState();
+  assert.equal(await loadMusicIds(state, dir), true);
+  assert.deepEqual(songShaFor(state.ids, tune('music/Phantogram/Phantogram - Fall In Love [RsQjC5zVnt8].mp4', 'Phantogram', 'Phantogram - Fall In Love')),
+    { sha: 'b'.repeat(64), how: 'youtube' });
+  assert.deepEqual(songShaFor(state.ids, tune('music/Phantogram/Phantogram - Fall In Love.mp4', 'Phantogram', 'Phantogram - Fall In Love')),
+    { sha, how: 'key' });
+  assert.deepEqual(songShaFor(state.ids, tune('music/X/Y.mp4', 'X', 'Y')), { sha: null, how: null });
+});
