@@ -50,12 +50,13 @@ else
     say "FAIL no GEMINI_API_KEY in $keyfile"
     failed+=("no key")
   else
+    max_tier="${ONTO_VIDEO_MAX_TIER:-2}"
     run_step gemini-init "$gemini_py" "$here/video_embed.py" spend --init
     run_step gemini-collect "$gemini_py" "$here/video_embed.py" collect
     if [ -d "/Volumes/Stash" ] && command -v disk-slot >/dev/null 2>&1; then
-      run_step gemini-prepare env HEAVY_SLOT_LOCAL=1 heavy-slot -- disk-slot --wait 1800 --label otv-video-embed /Volumes/Stash -- "$gemini_py" "$here/video_embed.py" prepare
+      run_step gemini-prepare env HEAVY_SLOT_LOCAL=1 heavy-slot -- disk-slot --wait 1800 --label otv-video-embed /Volumes/Stash -- "$gemini_py" "$here/video_embed.py" prepare --max-tier "$max_tier"
     else
-      run_step gemini-prepare env HEAVY_SLOT_LOCAL=1 heavy-slot -- "$gemini_py" "$here/video_embed.py" prepare
+      run_step gemini-prepare env HEAVY_SLOT_LOCAL=1 heavy-slot -- "$gemini_py" "$here/video_embed.py" prepare --max-tier "$max_tier"
     fi
     run_step gemini-submit "$gemini_py" "$here/video_embed.py" submit
     run_step gemini-wait "$gemini_py" "$here/video_embed.py" wait --timeout 3600 --interval 60
