@@ -45,6 +45,8 @@ Guy Ritchie-style crime films, Star Trek TNG, Futurama/South Park, Utopia, Hard 
 Blackadder; everything else grown-up is Fran's reality. "For Ian" picks by `IAN_SHOWS` in
 `src/tv-server.js` (folder names must start with the show's name). Get, in this order:
 
+- **Apt Pupil (1998)** — film requested by Ian on 8 Nov 2026; pending acquisition for Onto the TV.
+
 | Kind | Titles | Folder |
 |---|---|---|
 | War and military drama | Band of Brothers, The Pacific, Generation Kill, Das Boot (1981 + series), Chernobyl, Masters of the Air | `grown-ups/<Show>` |
@@ -55,6 +57,17 @@ Blackadder; everything else grown-up is Fran's reality. "For Ian" picks by `IAN_
 | Comedy panel | Taskmaster, Have You Been Paying Attention?, QI, Would I Lie to You? | `comedy/<Show>` |
 | Sci-fi | The Expanse, The Orville, Battlestar Galactica (2004) | `scifi/<Show>` |
 | YouTube long-form | Mark Rober, Johnny Harris, Air Safety Institute, EAA, restoration builds, Tiny Desk / Like A Version / Cercle (see below) | `grown-ups/<Creator>`, music → `music-videos` |
+
+## Christmas 2026 (in progress — 20 Nov)
+
+| Status | What |
+|---|---|
+| Published to the Christmas channel | Rankin/Bass specials: Rudolph 1964 (**uncut 52-min** archive.org print), Frosty 1969, Santa Claus Is Comin' to Town 1970, The Little Drummer Boy 1968, 'Twas the Night Before Christmas 1974 |
+| Published to grown-ups | Bad Santa 2003 (**unrated cut**, Ian's pick) |
+| Torrenting (YTS, unrated preferred) | Christmas Vacation, Die Hard 1/2, Gremlins, Scrooged, Love Actually, The Holiday, Last Christmas, Violent Night, Fatman, Krampus, Better Watch Out, Your Christmas or Mine?, Vacation series |
+| Family films next | Elf, Polar Express, Grinch 2018, Klaus, Santa Clause, A Christmas Story + sequel, Nightmare Before Christmas, Home Alone 2, Jingle All the Way, Christmas Chronicles, Muppet Christmas Carol, Nativity!, Kranks, It's a Wonderful Life, Miracle on 34th Street, White Christmas, Scrooge 1951 |
+| Knowledge map | 161 canon entries (films, specials, songs, books) embedded in show-space; suggestions derive from it |
+| Rejected on frame review | Fake "Year Without a Santa Claus" (Wikipedia screen-record) and two cel-animation "Nestor" uploads; still need genuine stop-motion copies of both |
 
 ## Wanted — YouTube, downloadable (next runs)
 

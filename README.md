@@ -270,6 +270,6 @@ The app prepares one rotation ahead, refreshes sources between segments, and rem
 
 ## Music ecosystem
 
-Music-video channels and likes share the unified song alias table (`music/ids.json`), audio embeddings, and append-only taste log maintained by [music-core](https://github.com/todd866/music-core), alongside [6IAN radio](https://github.com/todd866/6ian-radio) and [Glancebar](https://github.com/todd866/glancebar).
+Music-video channels and likes share the unified song alias table (`music/ids.json`), audio embeddings, and append-only taste log maintained by [music-core](https://github.com/todd866/music-core), alongside [6IAN radio](https://github.com/todd866/6ian-radio) and [Glancebar](https://github.com/todd866/glancebar). The acquisition-engine recipe is written up in [docs/music-acquisition.md](docs/music-acquisition.md); the seasonal-channel recipe (slate-driven acquisition, review-before-publish, canon embeddings) is in [docs/christmas-channel-recipe.md](docs/christmas-channel-recipe.md).
 
 [Omni](https://github.com/todd866/omnifeed) is the separate unified-content project.
