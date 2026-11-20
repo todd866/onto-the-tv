@@ -62,12 +62,13 @@ Blackadder; everything else grown-up is Fran's reality. "For Ian" picks by `IAN_
 
 | Status | What |
 |---|---|
-| Published to the Christmas channel | Rankin/Bass specials: Rudolph 1964 (**uncut 52-min** archive.org print), Frosty 1969, Santa Claus Is Comin' to Town 1970, The Little Drummer Boy 1968, 'Twas the Night Before Christmas 1974 |
+| Published to the Christmas channel | Rankin/Bass specials: Rudolph 1964 (**uncut 52-min** archive.org print), Frosty 1969, Santa Claus Is Comin' to Town 1970, The Little Drummer Boy 1968, 'Twas the Night Before Christmas 1974, The Year Without a Santa Claus 1974 (DVD rip), Nestor 1977 (DVD rip, stop-motion verified), Rudolph's Shiny New Year 1976 |
+| Published to family films | Arthur Christmas 2011 (x265→H.264 transcode) |
 | Published to grown-ups | Bad Santa 2003 (**unrated cut**, Ian's pick) |
 | Torrenting (YTS, unrated preferred) | Christmas Vacation, Die Hard 1/2, Gremlins, Scrooged, Love Actually, The Holiday, Last Christmas, Violent Night, Fatman, Krampus, Better Watch Out, Your Christmas or Mine?, Vacation series |
 | Family films next | Elf, Polar Express, Grinch 2018, Klaus, Santa Clause, A Christmas Story + sequel, Nightmare Before Christmas, Home Alone 2, Jingle All the Way, Christmas Chronicles, Muppet Christmas Carol, Nativity!, Kranks, It's a Wonderful Life, Miracle on 34th Street, White Christmas, Scrooge 1951 |
 | Knowledge map | 161 canon entries (films, specials, songs, books) embedded in show-space; suggestions derive from it |
-| Rejected on frame review | Fake "Year Without a Santa Claus" (Wikipedia screen-record) and two cel-animation "Nestor" uploads; still need genuine stop-motion copies of both |
+| Rejected on frame review | A "Year Without a Santa Claus" YouTube copy that was a Wikipedia screen-record; two cel-animation "Nestor" uploads; both titles re-sourced from an archive.org DVD rip and verified |
 
 ## Wanted — YouTube, downloadable (next runs)
 
