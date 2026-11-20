@@ -7,6 +7,7 @@ import { appendFile, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, normalize } from 'node:path';
 import { isIP } from 'node:net';
+import { homedir } from 'node:os';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { readCatalogue } from './shuffler.js';
 import { writeAtomically } from './atomic-write.js';
@@ -22,12 +23,22 @@ import {
   artistKeyForVideo, buildMusicHeardMap, isMusicVideoChannel, isMusicVideoItem, isMusicVideoPick,
   mildMusicSkipWeight, musicRankScore, pickMusicVideoIndex, youtubeTasteBoost,
 } from './music-pick.js';
+import { canonSlug, christmasAffinity, loadShowSpace } from './show-space.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
 // episode with the same picker and learning rules as the app's player, and streams
 // the files. It is meant for a home network; requests from public addresses are refused.
 
 const require = createRequire(import.meta.url);
+
+// The canon knowledge map (tools/show-embed export: every Christmas entry we know
+// about, embedded, with nearest neighbours). Loaded once, lazily; absent or broken
+// leaves every affinity neutral.
+const canonicalSpace = (() => {
+  let cached;
+  return () => cached ??= loadShowSpace(
+    process.env.ONTO_SHOW_SPACE || join(homedir(), '.local/state/onto-tv-embed/show-space.json'));
+})();
 const player = require('../shuffler/player.js');
 
 // One list, so a household can rename people without hunting through the UI.
@@ -1084,6 +1095,27 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       for (const index of pool) {
         const src = videos[index].src;
         weights[src] = player.weightFor(base, src) * (shunned.has(showOf(index)) ? SHOW_DOWN_WEIGHT : 1);
+      }
+    }
+    // The canon knowledge map leans the Christmas channel: what the household
+    // finished most recently lifts its canon neighbours (Rudolph → Frosty) on
+    // top of the learner's taste. Unknown titles stay neutral; the map steers,
+    // never excludes.
+    if (channelId === 'christmas') {
+      const space = canonicalSpace();
+      const recent = [...watched.finished.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([src]) => videos[bySrc.get(src)])
+        .filter(item => item && canonSlug(space, item.title))
+        .slice(0, 3)
+        .map(item => item.title);
+      if (recent.length) {
+        const base = weights;
+        weights = Object.create(null);
+        for (const index of pool) {
+          const item = videos[index];
+          weights[item.src] = player.weightFor(base, item.src) * christmasAffinity(space, item.title, recent);
+        }
       }
     }
     // Episodic films and sitcoms play in order; cartoons stay shuffled. Personal channels
