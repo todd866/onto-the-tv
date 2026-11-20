@@ -23,6 +23,11 @@
   // them in the show name (Elf, Klaus, The Polar Express). Tier and folder
   // checks above keep adult titles out of the family Christmas channel.
   const FESTIVE = /\b(christmas|xmas|santa|no[eë]l|grinch|scrooge|carols?|snowman|frosty|rudolph|krampus|nativity|advent)\b/i;
+  // Adult Christmas films reach the channel only by explicit reviewed title,
+  // never by a seasonal word alone; the server's rating ceiling keeps them
+  // behind an adults-only audience.
+  const ADULT_FESTIVE = /^(?:Bad Santa|National Lampoon'?s Christmas Vacation|Die Hard 2?|Gremlins|Scrooged|Love Actually|The Holiday|Last Christmas|Violent Night|Fatman|Krampus|Better Watch Out|Your Christmas or Mine\?)/;
+  const inChristmasAdult = video => video.tier === 'grownup' && video.channel === 'Films' && ADULT_FESTIVE.test(String(video.title || ''));
   const inStream = (video, age) => {
     const stream = String(age).split(".")[1] || String(age);
     // Themed collections retain the reviewed family tiers. A seasonal word in
@@ -31,7 +36,7 @@
       if (!['preschool', 'shared', 'big'].includes(video.tier)) return false;
       if (stream === 'movies') return ['Films', 'Family Films'].includes(video.channel);
       return FESTIVE.test(String(video.title || '') + ' ' + String(video.src || '').replace(/[._]/g, ' '))
-        || (video.channel === 'Family Films' && /^(?:Home Alone(?: 2)?|Elf|The Grinch|Klaus|The Polar Express|The Snowman|Rudolph|Frosty|Nativity!?|Christmas with the Kranks|The Muppet Christmas Carol|Miracle on 34th Street|It(?:'|’)s a Wonderful Life|White Christmas|Scrooge)/.test(video.title || ''));
+        || (video.channel === 'Family Films' && /^(?:Home Alone(?: 2)?|Elf|The Grinch|Klaus|The Polar Express|The Snowman|Rudolph|Frosty|Nativity!?|Christmas with the Kranks|The Muppet Christmas Carol|Miracle on 34th Street|It(?:'|’)s a Wonderful Life|White Christmas|Scrooge|Jingle All the Way)/.test(video.title || ''));
     }
     return (STREAMS[stream] || []).indexOf(video.tier) >= 0;
   };
@@ -1252,7 +1257,7 @@
     publishTaste();
     return { state, next, back, startStream, switchStream, showWeights, togglePause, setPreferShort, seekTo, later, showSaved, resumeSaved, chooseAudience, chooseChannel, toggleMusic, startCasting, stopCasting };
   }
-  const api = { togetherWeight, bookmarkKey, keyFor, weightFor, encodePath, durationWeight, inStream, STREAMS, STREAM_LABELS,
+  const api = { togetherWeight, bookmarkKey, keyFor, weightFor, encodePath, durationWeight, inStream, inChristmasAdult, STREAMS, STREAM_LABELS,
     readWeights, readStored, saveWeights, appendLog, learnedWeight, pickVideo, episodeNumber, nearlyFinished, seriesNext, createPlayer };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else createPlayer(document, window, VIDEOS);

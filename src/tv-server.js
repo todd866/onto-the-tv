@@ -270,7 +270,9 @@ export function channelScoresSignaturePart(path, info) {
 
 export function inTvGenre(item, channelId, scores = null) {
   if (!item || isAdSrc(item.src)) return false;
-  if (channelId === 'christmas') return player.inStream(item, 'christmas');
+  // Adult Christmas films (Bad Santa, Die Hard...) join the pool here; poolFor's
+  // rating ceiling hides them whenever a child's ceiling is in force.
+  if (channelId === 'christmas') return player.inStream(item, 'christmas') || player.inChristmasAdult(item);
   if (channelId === 'music') return item.tier === 'music';
   const defined = CHANNEL_BY_ID.get(channelId);
   if (defined?.scored) {
