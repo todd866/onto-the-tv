@@ -24,6 +24,7 @@ import {
   mildMusicSkipWeight, musicRankScore, pickMusicVideoIndex, youtubeTasteBoost,
 } from './music-pick.js';
 import { canonSlug, christmasAffinity, loadShowSpace } from './show-space.js';
+import { loadVideoSpace, videoAffinity } from './video-space.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
 // episode with the same picker and learning rules as the app's player, and streams
@@ -38,6 +39,13 @@ const canonicalSpace = (() => {
   let cached;
   return () => cached ??= loadShowSpace(
     process.env.ONTO_SHOW_SPACE || join(homedir(), '.local/state/onto-tv-embed/show-space.json'));
+})();
+// Multimodal video embedding map (tools/video-embed export: Gemini 3072d + local
+// EmbeddingGemma 2 768d). Absent or broken leaves every affinity neutral.
+const embeddedVideoSpace = (() => {
+  let cached;
+  return () => cached ??= loadVideoSpace(
+    process.env.ONTO_VIDEO_SPACE || join(homedir(), '.local/state/onto-tv-video-embed/video-space.json'));
 })();
 const player = require('../shuffler/player.js');
 
@@ -1115,6 +1123,23 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         for (const index of pool) {
           const item = videos[index];
           weights[item.src] = player.weightFor(base, item.src) * christmasAffinity(space, item.title, recent);
+        }
+      }
+    } else if (!isMusicVideoChannel(channelId)) {
+      const vspace = embeddedVideoSpace();
+      if (vspace) {
+        const recentSrcs = [...watched.finished.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([src]) => src)
+          .filter(src => vspace.bySrc.has(src))
+          .slice(0, 3);
+        if (recentSrcs.length) {
+          const base = weights;
+          weights = Object.create(null);
+          for (const index of pool) {
+            const item = videos[index];
+            weights[item.src] = player.weightFor(base, item.src) * videoAffinity(vspace, item.src, recentSrcs);
+          }
         }
       }
     }
