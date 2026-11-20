@@ -9,6 +9,10 @@ test('Christmas includes reviewed seasonal episodes and family films without wid
   assert.equal(inStream(film,'2'),false);
   assert.equal(inStream({...episode,tier:'grownup'},'christmas'),false);
   assert.equal(inStream({...episode,title:'Ordinary Day'},'christmas'),false);
+  // Festive titles whose name carries no seasonal word (2026 intake).
+  for(const title of ['Elf (2003)','The Grinch (2018)','Klaus (2019)','The Polar Express (2004)','Christmas with the Kranks (2005)'])
+    assert.equal(inStream({title,src:'Family Films/k.mp4',tier:'big',channel:'Family Films'},'christmas'),true);
+  assert.equal(inStream({title:'Klaus (2019)',src:'Family Films/k.mp4',tier:'grownup',channel:'Films'},'christmas'),false);
 });
 test('Movies includes reviewed film groups, not long compilations or adult films', () => {
   for(const tier of ['shared','big'])assert.equal(inStream({tier,channel:'Family Films'},'movies'),true);

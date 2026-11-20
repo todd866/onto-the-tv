@@ -19,6 +19,10 @@
   const togetherWeight = (mum, dad, both = 1) => clamp((2 * clamp(mum) * clamp(dad) / (clamp(mum) + clamp(dad))) * clamp(both));
   const bookmarkKey = stream => ADULT_KEY + (audienceFor(stream) === "grown" ? "" : "." + audienceFor(stream));
   const encodePath = path => path.split("/").map(encodeURIComponent).join("/");
+  // Seasonal words, kept broad enough for festive titles that carry none of
+  // them in the show name (Elf, Klaus, The Polar Express). Tier and folder
+  // checks above keep adult titles out of the family Christmas channel.
+  const FESTIVE = /\b(christmas|xmas|santa|no[eë]l|grinch|scrooge|carols?|snowman|frosty|rudolph|krampus|nativity|advent)\b/i;
   const inStream = (video, age) => {
     const stream = String(age).split(".")[1] || String(age);
     // Themed collections retain the reviewed family tiers. A seasonal word in
@@ -26,8 +30,8 @@
     if (stream === 'christmas' || stream === 'movies') {
       if (!['preschool', 'shared', 'big'].includes(video.tier)) return false;
       if (stream === 'movies') return ['Films', 'Family Films'].includes(video.channel);
-      return /\b(christmas|xmas|santa|no[eë]l)\b/i.test(String(video.title || '') + ' ' + String(video.src || '').replace(/[._]/g, ' '))
-        || (video.channel === 'Family Films' && /^Home Alone(?: 2)?(?: \(|$)/.test(video.title || ''));
+      return FESTIVE.test(String(video.title || '') + ' ' + String(video.src || '').replace(/[._]/g, ' '))
+        || (video.channel === 'Family Films' && /^(?:Home Alone(?: 2)?|Elf|The Grinch|Klaus|The Polar Express|The Snowman|Rudolph|Frosty|Nativity!?|Christmas with the Kranks|The Muppet Christmas Carol|Miracle on 34th Street|It(?:'|’)s a Wonderful Life|White Christmas|Scrooge)/.test(video.title || ''));
     }
     return (STREAMS[stream] || []).indexOf(video.tier) >= 0;
   };
