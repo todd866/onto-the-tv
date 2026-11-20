@@ -268,4 +268,8 @@ Weather reads Isobar’s published local forecast archive (`~/Data/isobar`); the
 
 The app prepares one rotation ahead, refreshes sources between segments, and removes temporary media after it leaves the queue. Keep the Mac and app running while the TV is playing. Photo scanning and news requests are bounded; missing sources are reported in the preview. World-weather coverage is a future programme segment.
 
+## Music ecosystem
+
+Music-video channels and likes share the unified song alias table (`music/ids.json`), audio embeddings, and append-only taste log maintained by [music-core](https://github.com/todd866/music-core), alongside [6IAN radio](https://github.com/todd866/6ian-radio) and [Glancebar](https://github.com/todd866/glancebar).
+
 [Omni](https://github.com/todd866/omnifeed) is the separate unified-content project.
