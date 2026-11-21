@@ -1,0 +1,22 @@
+{
+  "generatedAt": 1710000000000,
+  "staleAfterMs": 45000,
+  "sessions": [
+    {
+      "session": "fresh-session",
+      "event": "heartbeat",
+      "ageMs": 10,
+      "stale": false,
+      "receivedAt": 1710000000000
+    }
+  ],
+  "events": [
+    {
+      "session": "old-session",
+      "event": "playing",
+      "ageMs": 120000,
+      "stale": true,
+      "receivedAt": 1709999880000
+    }
+  ]
+}

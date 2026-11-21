@@ -1,0 +1,38 @@
+{
+  "generatedAt": 1710000000000,
+  "staleAfterMs": 45000,
+  "sessions": [
+    {
+      "session": "tv-live",
+      "event": "heartbeat",
+      "build": "dev-1",
+      "page": "player",
+      "engine": "video",
+      "position": 12,
+      "duration": 420,
+      "paused": false,
+      "hidden": false,
+      "state": "playing",
+      "receivedAt": 1710000000000,
+      "ageMs": 400,
+      "stale": false
+    }
+  ],
+  "events": [
+    {
+      "session": "tv-live",
+      "event": "playing",
+      "build": "dev-1",
+      "page": "player",
+      "engine": "video",
+      "position": 3,
+      "duration": 420,
+      "paused": false,
+      "hidden": false,
+      "state": "playing",
+      "receivedAt": 1709999990000,
+      "ageMs": 1200,
+      "stale": false
+    }
+  ]
+}

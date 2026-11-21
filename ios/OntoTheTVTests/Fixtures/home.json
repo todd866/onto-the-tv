@@ -1,0 +1,62 @@
+{
+  "ceiling": "PG",
+  "defaultCeiling": "PG",
+  "rating": "PG",
+  "viewers": [
+    {"id": "sam", "name": "Sam", "on": false},
+    {"id": "jake", "name": "Jake", "on": true},
+    {"id": "mum", "name": "Fran", "on": true},
+    {"id": "dad", "name": "Ian", "on": true}
+  ],
+  "channels": [
+    {
+      "id": "cartoons",
+      "number": 1,
+      "name": "Cartoons",
+      "count": 3,
+      "about": "Cartoons — Bluey",
+      "now": {
+        "show": "Bluey",
+        "title": "S1 E1 · Keepy Uppy",
+        "minutes": 7,
+        "art": "/art?src=Bluey%2Fa.mp4",
+        "next": {"show": "Bluey", "title": "Hospital"}
+      }
+    },
+    {
+      "id": "bluey",
+      "number": 2,
+      "name": "Bluey",
+      "count": 2,
+      "about": "Bluey",
+      "now": {
+        "show": "Bluey",
+        "title": "S1 E2 · Hospital",
+        "minutes": 7,
+        "art": "/art?src=Bluey%2Fb.mp4"
+      }
+    },
+    {
+      "id": "games",
+      "number": 6,
+      "name": "Games",
+      "count": 1,
+      "app": true,
+      "about": "Games"
+    }
+  ],
+  "liked": [
+    {
+      "src": "Bluey/a.mp4",
+      "title": "Bluey S01E01 Keepy Uppy",
+      "show": "Bluey",
+      "tier": "shared",
+      "display": {"show": "Bluey", "episode": "S1 E1 · Keepy Uppy"},
+      "channels": ["bluey", "cartoons"],
+      "duration": 420,
+      "resume": 0,
+      "liked": true,
+      "channel": {"id": "bluey", "number": 3, "name": "Bluey"}
+    }
+  ]
+}
