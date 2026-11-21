@@ -1110,3 +1110,15 @@ test('titles read as people write them: no emoji, broadcaster tags, upload paddi
   assert.equal(tidyTitle('Episode 5', 'Bluey'), 'Episode 5');
   assert.equal(tidyTitle('｜ CBeebies ｜', 'Bing'), 'CBeebies');
 });
+
+test('Fireplace channel takes only the Christmas Fireplace folder, for every audience', () => {
+  const fire = { src: 'Christmas Fireplace/Fireplace 4K [abc].mkv', channel: 'Christmas Fireplace', tier: 'shared', title: 'Fireplace 4K' };
+  const other = { src: 'Bluey/a.mp4', channel: 'Bluey', tier: 'shared', title: 'a' };
+  const film = { src: 'films/Elf (2003)/Elf (2003).mp4', channel: 'films', tier: 'family', title: 'Elf' };
+  assert.ok(inTvGenre(fire, 'fireplace'));
+  assert.ok(!inTvGenre(other, 'fireplace'));
+  assert.ok(!inTvGenre(film, 'fireplace'));
+  const def = TV_CHANNELS.find(channel => channel.id === 'fireplace');
+  assert.equal(def.audience, 'all');
+  assert.equal(new Set(TV_NUMBERS()).size, TV_NUMBERS().length);
+});

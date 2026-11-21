@@ -114,6 +114,9 @@ export const TV_CHANNELS = [
   { id: 'sitcoms', number: 3, name: 'Sitcoms', audience: 'adult' },
   { id: 'music', number: 4, name: 'Music', audience: 'all' },
   { id: 'christmas', number: 5, name: 'Christmas', audience: 'all' },
+  // A 4K Christmas fireplace on its own channel (Ian, 21 Nov 2026): the folder is in the shared kids tier, so
+  // every viewer gets it.
+  { id: 'fireplace', number: 47, name: 'Fireplace', audience: 'all', kids: true, shows: /^christmas fireplace\b/i },
   { id: 'comedy', number: 8, name: 'Comedy', audience: 'adult' },
   { id: 'docs', number: 9, name: 'Sport & Docs', audience: 'adult' },
   { id: 'scifi', number: 10, name: 'Sci-Fi', audience: 'adult' },
