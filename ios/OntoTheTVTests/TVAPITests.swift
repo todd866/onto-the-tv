@@ -219,3 +219,14 @@ private final class CaptureProtocol: URLProtocol {
     }
     override func stopLoading() {}
 }
+
+final class TokenScopeTests: XCTestCase {
+    func testTokenOnlyGoesToTheConfiguredServer() {
+        let base = "http://100.100.56.96:8686"
+        XCTAssertTrue(TVAPI.isServer(URL(string: "http://100.100.56.96:8686/art?x=1")!, base: base))
+        XCTAssertFalse(TVAPI.isServer(URL(string: "https://i.ytimg.com/vi/abc/hq.jpg")!, base: base))
+        XCTAssertFalse(TVAPI.isServer(URL(string: "http://100.100.56.96:9999/art")!, base: base))
+        XCTAssertFalse(TVAPI.isServer(URL(string: "https://100.100.56.96:8686/art")!, base: base))
+        XCTAssertTrue(TVAPI.isServer(URL(string: "https://tv.example/a")!, base: "https://tv.example"))
+    }
+}

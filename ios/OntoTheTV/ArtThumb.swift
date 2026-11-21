@@ -16,7 +16,7 @@ enum ArtLoader {
         if let cached = memory.object(forKey: url as NSURL) { return cached }
         var request = URLRequest(url: url)
         let token = KeychainToken.read()
-        if !token.isEmpty {
+        if !token.isEmpty, TVAPI.isServer(url, base: SettingsStore().base) {
             request.setValue(token, forHTTPHeaderField: "X-Onto-Token")
         }
         do {

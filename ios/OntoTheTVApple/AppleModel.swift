@@ -120,7 +120,7 @@ final class AppleModel {
     func artURL(_ path: String?) -> URL? {
         guard let url = TVAPI.artworkURL(base: settings.base, path: path) else { return nil }
         let token = KeychainToken.read()
-        guard !token.isEmpty else { return url }
+        guard !token.isEmpty, TVAPI.isServer(url, base: settings.base) else { return url }
         let join = url.absoluteString.contains("?") ? "&" : "?"
         return URL(string: url.absoluteString + join + "t=" + TVAPI.encodeURIComponent(token))
     }

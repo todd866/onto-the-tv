@@ -368,6 +368,16 @@ enum TVAPI {
         return NowPresentation(title: title, channel: channel, artPath: "/art?src=" + encodeURIComponent(src))
     }
 
+    /// The pairing token goes only to the configured server: same scheme, host and port. Artwork can be an
+    /// absolute URL on another host (a YouTube thumbnail), and the token must never reach it.
+    static func isServer(_ url: URL, base: String) -> Bool {
+        guard let b = URL(string: base.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let bs = b.scheme?.lowercased(), let us = url.scheme?.lowercased(), bs == us,
+              let bh = b.host?.lowercased(), let uh = url.host?.lowercased(), bh == uh else { return false }
+        func port(_ u: URL, _ scheme: String) -> Int { u.port ?? (scheme == "https" ? 443 : 80) }
+        return port(b, bs) == port(url, us)
+    }
+
     static func artworkURL(base: String, path: String?) -> URL? {
         guard let path, !path.isEmpty else { return nil }
         if path.hasPrefix("http://") || path.hasPrefix("https://") { return URL(string: path) }
