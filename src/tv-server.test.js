@@ -1201,6 +1201,7 @@ test('tube feed, related, search and creators stay inside the audience', async (
   const bluey = library.feed({ ...jake, chip: 'bluey' });
   assert.ok(bluey.cards.length > 0);
   assert.ok(bluey.cards.every(card => card.show === 'Bluey'));
+  assert.deepEqual(bluey.cards.map(card => card.src), ['Bluey/c.mp4', 'Bluey/b.mp4', 'Bluey/a.mp4'], 'a creator chip is newest-first');
   assert.equal(library.feed({ ...jake, chip: 'mobland' }).cards.length, 0);
 
   const sam = library.feed({ viewers: 'sam' });
@@ -1228,6 +1229,7 @@ test('tube feed, related, search and creators stay inside the audience', async (
   const creators = library.creators(jake);
   assert.equal(creators.creators.some(creator => creator.name === 'Mobland' || creator.name === 'Stunt RC'), false);
   const grian = creators.creators.find(creator => creator.id === 'grian');
+  assert.equal(grian.label, 'Grian');
   assert.equal(grian.count, 2);
   assert.equal(grian.art, '/art?src=' + encodeURIComponent('Grian/e2.mp4'));
   const episodes = library.creators({ ...jake, id: 'grian' });

@@ -263,15 +263,15 @@ window.ontoTube = (function () {
       btn.className = 'tube-avatar-btn' + (state.creators[i].id === state.creatorId ? ' on' : '');
       btn.tabIndex = -1;
       btn._creator = state.creators[i].id;
-      btn.setAttribute('aria-label', state.creators[i].name);
+      btn.setAttribute('aria-label', state.creators[i].label || state.creators[i].name);
       img = document.createElement('img');
       img.alt = '';
       img.className = 'tube-avatar';
       host.loadArt(img, host.artUrl(state.creators[i].art));
       name = document.createElement('span');
       name.className = 'tube-avatar-name';
-      name.textContent = state.creators[i].name;
-      name.title = state.creators[i].name;
+      name.textContent = state.creators[i].label || state.creators[i].name;
+      name.title = state.creators[i].label || state.creators[i].name;
       btn.appendChild(img);
       btn.appendChild(name);
       btn.addEventListener('click', (function (id) {

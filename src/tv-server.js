@@ -1785,19 +1785,25 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const favouriteIds = new Set(chips.filter(item => item.id !== 'all').map(item => item.id));
     let indices = pool;
     if (chip && chip !== 'all') indices = pool.filter(index => creatorSlug(creatorName(videos[index])) === chip);
-    const resume = [];
-    const favourites = [];
-    const rest = [];
-    for (const index of indices) {
-      const card = tubeCard(index, byFile);
-      if (card.resume > 5) resume.push(index);
-      else if (!card.watched && (favouriteShow(videos[index], ids) || favouriteIds.has(creatorSlug(creatorName(videos[index]))))) favourites.push(index);
-      else rest.push(index);
+    let ordered;
+    if (chip && chip !== 'all') {
+      // A creator or show chip is that catalogue, newest episode first.
+      ordered = newestFirst(indices);
+    } else {
+      const resume = [];
+      const favourites = [];
+      const rest = [];
+      for (const index of indices) {
+        const card = tubeCard(index, byFile);
+        if (card.resume > 5) resume.push(index);
+        else if (!card.watched && (favouriteShow(videos[index], ids) || favouriteIds.has(creatorSlug(creatorName(videos[index]))))) favourites.push(index);
+        else rest.push(index);
+      }
+      resume.sort((a, b) => (Date.parse(byFile.get(videos[b].file)?.updatedAt) || 0) - (Date.parse(byFile.get(videos[a].file)?.updatedAt) || 0));
+      favourites.sort(byLearned(weights));
+      rest.sort(byLearned(weights));
+      ordered = spreadShows([...resume, ...favourites, ...rest]);
     }
-    resume.sort((a, b) => (Date.parse(byFile.get(videos[b].file)?.updatedAt) || 0) - (Date.parse(byFile.get(videos[a].file)?.updatedAt) || 0));
-    favourites.sort(byLearned(weights));
-    rest.sort(byLearned(weights));
-    const ordered = spreadShows([...resume, ...favourites, ...rest]);
     const offset = Math.max(0, Number.parseInt(options.offset, 10) || 0);
     const limit = clampCount(options.limit, 24, 60);
     return {
@@ -1879,7 +1885,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     ranked = ranked.slice(0, 40);
     const list = ranked.map(group => {
       const lead = newestFirst(group.indices)[0];
-      return { id: group.id, name: group.label, art: tubeCard(lead, byFile).art, count: group.indices.length };
+      return { id: group.id, name: group.label, label: group.label, art: tubeCard(lead, byFile).art, count: group.indices.length };
     });
     const id = String(options.id || '').trim().toLowerCase();
     if (!id) return { creators: list };
