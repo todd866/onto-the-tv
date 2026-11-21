@@ -17,6 +17,8 @@ mkdir -p "$state"
 # Reuse M2's Gemini venv (google-genai + numpy); local MLX uses its own venv if present.
 gemini_py="${ONTO_VIDEO_GEMINI_PY:-$HOME/.local/state/glancebar-music-embed/venv/bin/python}"
 gemma_py="${ONTO_VIDEO_GEMMA_PY:-$state/gemma-venv/bin/python}"
+# The music map's EmbeddingGemma venv on the M2 has the same model and a working mlx-vlm; share it.
+[ -x "$gemma_py" ] || gemma_py="$HOME/.local/state/music-gemma/venv/bin/python"
 keyfile="$HOME/.config/glancebar/gemini.env"
 
 stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -59,7 +61,7 @@ else
     say "FAIL no GEMINI_API_KEY in $keyfile"
     failed+=("no key")
   else
-    max_tier="${ONTO_VIDEO_MAX_TIER:-2}"
+    max_tier="${ONTO_VIDEO_MAX_TIER:-1}"  # text metadata only (Ian, 21 Nov 2026: "embed non-video metadata and save money"); 2 adds keyframes
     run_step gemini-init "$gemini_py" "$here/video_embed.py" spend --init
     run_step gemini-collect "$gemini_py" "$here/video_embed.py" collect
     if [ -d "/Volumes/Stash" ] && command -v disk-slot >/dev/null 2>&1; then
