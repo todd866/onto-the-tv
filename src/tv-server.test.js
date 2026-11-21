@@ -1122,3 +1122,21 @@ test('Fireplace channel takes only the Christmas Fireplace folder, for every aud
   assert.equal(def.audience, 'all');
   assert.equal(new Set(TV_NUMBERS()).size, TV_NUMBERS().length);
 });
+
+test('channel picture pools: one per folder, credits carried, Christmas film stills first, paths kept inside', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { scanChannelArt, channelArtFile } = await import('./tv-server.js');
+  const dir = mkdtempSync(join(tmpdir(), 'hero-'));
+  mkdirSync(join(dir, 'channels', 'trains'), { recursive: true });
+  writeFileSync(join(dir, 'channels', 'trains', '01-f40.jpg'), 'x');
+  writeFileSync(join(dir, 'channels', 'trains', 'notes.txt'), 'x');
+  writeFileSync(join(dir, 'channels', 'trains', 'credits.json'), JSON.stringify({ '01-f40.jpg': { author: 'A. Photographer', licence: 'CC BY-SA 4.0' } }));
+  const pools = scanChannelArt(dir, { 'Family Films/Elf (2003).mp4': 'elf-2003.jpg' });
+  assert.deepEqual(pools.trains, [{ url: '/channel-art?c=trains&f=01-f40.jpg', credit: 'A. Photographer · CC BY-SA 4.0' }]);
+  assert.equal(pools.christmas[0].url, '/channel-art?c=_stills&f=elf-2003.jpg');
+  assert.equal(channelArtFile(dir, 'trains', '../x.jpg'), null);
+  assert.equal(channelArtFile(dir, '../etc', 'a.jpg'), null);
+  assert.equal(channelArtFile(dir, 'trains', '01-f40.jpg'), join(dir, 'channels', 'trains', '01-f40.jpg'));
+});

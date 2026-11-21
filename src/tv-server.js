@@ -2,7 +2,7 @@ import { createTvCommands } from './tv-commands.js';
 import { liveManifest } from './tv-live.js';
 import { createPlayNext } from './play-next.js';
 import { createServer } from 'node:http';
-import { createReadStream, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { appendFile, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, normalize } from 'node:path';
@@ -78,6 +78,51 @@ const heroStill = (() => {
     if (!name || name.includes('/') || name.includes('..')) return null;
     const file = join(dir, name);
     try { return statSync(file).isFile() ? file : null; } catch { return null; }
+  };
+})();
+// Picture pools per channel for the home billboard and the screensaver: <dir>/channels/<channel id>/*.jpg
+// with an optional credits.json ({file: {title, author, licence, url}}). The Christmas pool also takes the
+// hand-picked film stills. Server-side only, like the stills; rescanned at most every five minutes.
+export function scanChannelArt(dir, stills = {}) {
+  const pools = {};
+  const root = join(dir, 'channels');
+  let ids = [];
+  try { ids = readdirSync(root).filter(id => /^[a-z0-9_-]{1,40}$/.test(id)); } catch { /* none yet */ }
+  for (const id of ids) {
+    let files = [], credits = {};
+    try { files = readdirSync(join(root, id)).filter(f => /^[\w.-]{1,120}\.jpe?g$/i.test(f)).sort(); } catch { continue; }
+    try { credits = JSON.parse(readFileSync(join(root, id, 'credits.json'), 'utf8')) || {}; } catch { credits = {}; }
+    pools[id] = files.map(f => ({ url: `/channel-art?c=${encodeURIComponent(id)}&f=${encodeURIComponent(f)}`, credit: creditLine(credits[f]) }));
+  }
+  const filmStills = Object.values(stills || {}).filter(f => typeof f === 'string' && /^[\w.-]{1,120}\.jpe?g$/i.test(f));
+  if (filmStills.length) {
+    pools.christmas = filmStills.map(f => ({ url: `/channel-art?c=_stills&f=${encodeURIComponent(f)}`, credit: '' })).concat(pools.christmas || []);
+  }
+  return pools;
+}
+function creditLine(c) {
+  if (!c || typeof c !== 'object') return '';
+  return [c.author, c.licence].filter(x => typeof x === 'string' && x).join(' \u00b7 ').slice(0, 120);
+}
+export function channelArtFile(dir, channel, file) {
+  if (typeof channel !== 'string' || typeof file !== 'string') return null;
+  if (!/^[\w.-]{1,120}\.jpe?g$/i.test(file) || file.includes('..')) return null;
+  if (channel === '_stills') return join(dir, file);
+  if (!/^[a-z0-9_-]{1,40}$/.test(channel)) return null;
+  return join(dir, 'channels', channel, file);
+}
+const heroArtDir = process.env.ONTO_HERO_STILLS || join(homedir(), '.local/state/onto-tv-hero-art');
+const channelArt = (() => {
+  let pools = {}, checkedAt = 0;
+  return () => {
+    const now = Date.now();
+    if (now - checkedAt >= 300_000) {
+      checkedAt = now;
+      let stills = {};
+      try { stills = JSON.parse(readFileSync(join(heroArtDir, 'stills.json'), 'utf8')); } catch { stills = {}; }
+      pools = scanChannelArt(heroArtDir, stills);
+    }
+    return pools;
   };
 })();
 const player = require('../shuffler/player.js');
@@ -1910,6 +1955,21 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
       if (path === '/api/media-cache') {
         if (!sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
         return send(response, 200, mediaCache?.stats() || { enabled: false });
+      }
+      if (path === '/api/channel-art') {
+        response.setHeader('Cache-Control', 'no-store');
+        return send(response, 200, { pools: channelArt() });
+      }
+      if (path === '/channel-art') {
+        const file = channelArtFile(heroArtDir, url.searchParams.get('c'), url.searchParams.get('f'));
+        let ok = false;
+        try { ok = Boolean(file) && statSync(file).isFile(); } catch { ok = false; }
+        if (!ok) return send(response, 404, { error: 'No picture.' });
+        const image = createReadStream(file);
+        image.on('error', () => response.destroy());
+        response.on('close', () => image.destroy());
+        response.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=86400' });
+        return image.pipe(response);
       }
       if (path === '/api/health') {
         if (libraryRoots == null) return send(response, 200, { ok: true });

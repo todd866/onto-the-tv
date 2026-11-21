@@ -494,7 +494,13 @@
   }
   // Billboard backdrop: the focused channel's picture fills the screen (Now layout only). A curated still
   // (1280+ px wide) is shown sharp and drifts; the 640 px generated art is softened into ambience.
-  var backdropUrl = '';
+  var backdropUrl = '', heroChannelId = '';
+  // Cross-fades overlap when the focus moves quickly: each picture removes only those older than itself.
+  var pictureSeq = 0;
+  function dropOlder(box, img) {
+    var mine = +img.getAttribute('data-seq'), all = box.getElementsByTagName('img'), i;
+    for (i = all.length - 1; i >= 0; i--) if (+all[i].getAttribute('data-seq') < mine) box.removeChild(all[i]);
+  }
   function backdropScrim() {
     var scrim = $('backdrop-scrim'), bg = '', m;
     if (!scrim) return;
@@ -508,40 +514,74 @@
       'linear-gradient(to right, rgba(' + c + ',.94) 0, rgba(' + c + ',.78) 30%, rgba(' + c + ',.25) 58%, rgba(' + c + ',0) 75%),' +
       'linear-gradient(to bottom, rgba(' + c + ',.7) 0, rgba(' + c + ',0) 20%, rgba(' + c + ',0) 48%, rgba(' + c + ',.72) 70%, rgb(' + c + ') 90%)';
   }
-  function setBackdrop(url) {
+  // Picture pools per channel (server /api/channel-art): the billboard and the screensaver draw from them.
+  var channelPools = {}, poolTimer = 0, poolIndex = 0, backdropKey = '';
+  function loadPools() {
+    api('/api/channel-art').then(function (body) { channelPools = (body && body.pools) || {}; }, function () {});
+  }
+  function showBackdropImage(url, soft) {
     var box = $('backdrop');
-    if (!box) return;
-    document.body.classList.add('billboard');
-    backdropScrim();
-    if (!url || url === backdropUrl) return;
+    if (!box || !url) return;
     backdropUrl = url;
     var image = new Image();
     image.onload = function () {
       if (backdropUrl !== url) return;
       var img = document.createElement('img');
       img.alt = '';
-      if ((image.naturalWidth || 0) < 1280) img.className = 'soft';
+      if (soft) img.className = 'soft';
       img.src = url;
       box.insertBefore(img, $('backdrop-scrim'));
       // Next frame, so the opacity transition runs; older pictures leave once this one is in.
+      img.setAttribute('data-seq', String(++pictureSeq));
       setTimeout(function () {
         img.className += ' on';
-        setTimeout(function () {
-          var all = box.getElementsByTagName('img'), i;
-          for (i = all.length - 1; i >= 0; i--) if (all[i] !== img) box.removeChild(all[i]);
-        }, 800);
+        setTimeout(function () { dropOlder(box, img); }, 800);
       }, 30);
     };
     image.src = url;
   }
-  function clearBackdrop() { document.body.classList.remove('billboard'); }
+  // A hand-picked still (1280+ px) for the title wins; otherwise the channel's pool, one picture every 15 s;
+  // otherwise the 640 px generated art, softened into ambience.
+  function setBackdrop(url, channelId) {
+    document.body.classList.add('billboard');
+    backdropScrim();
+    var key = (channelId || '') + '|' + (url || '');
+    if (key === backdropKey) return;
+    backdropKey = key;
+    clearInterval(poolTimer); poolTimer = 0;
+    var pool = channelPools[channelId] || [];
+    var usePool = function () {
+      if (!pool.length || backdropKey !== key) return false;
+      poolIndex = Math.floor(Math.random() * pool.length);
+      showBackdropImage(artUrl(pool[poolIndex].url), false);
+      if (pool.length > 1) poolTimer = setInterval(function () {
+        if (backdropKey !== key) { clearInterval(poolTimer); return; }
+        if ($('home').hidden) return; // nothing decodes behind the player
+        poolIndex = (poolIndex + 1) % pool.length;
+        showBackdropImage(artUrl(pool[poolIndex].url), false);
+      }, 15000);
+      return true;
+    };
+    if (!url) { usePool(); return; }
+    var probe = new Image();
+    probe.onload = function () {
+      if (backdropKey !== key) return;
+      if ((probe.naturalWidth || 0) >= 1280) showBackdropImage(url, false);
+      else if (!usePool()) showBackdropImage(url, true);
+    };
+    probe.onerror = function () { if (backdropKey === key) usePool(); };
+    probe.src = url;
+  }
+  function clearBackdrop() { document.body.classList.remove('billboard'); clearInterval(poolTimer); poolTimer = 0; backdropKey = ''; }
   function paintHero(item) {
     var hero = $('hero'), mode = layoutMode();
     if (!item || item.app || mode === 'pictures') { hero.hidden = true; hero.textContent = ''; clearBackdrop(); return; }
     hero.hidden = false;
     hero.className = mode === 'guide' ? 'hero-compact' : 'hero-full';
     if (mode === 'guide') clearBackdrop();
-    else setBackdrop(item.now && item.now.art ? artUrl(item.now.art) : '');
+    else setBackdrop(item.now && item.now.art ? artUrl(item.now.art) : '', item.id);
+    heroChannelId = item.id || '';
+    document.body.classList.toggle('xmas-heavy', heroChannelId === 'christmas' || heroChannelId === 'fireplace');
     hero.textContent = '';
     var artWrap = document.createElement('div');
     artWrap.className = 'hero-art-wrap';
@@ -3553,6 +3593,77 @@
   paintBodyProfile();
   paintClock();
   setInterval(paintClock, 1000);
+  // Season: a light Christmas touch on the home screen from mid-November to Twelfth Night; the Christmas and
+  // Fireplace channels get the full treatment (styles.css body.season-xmas / body.xmas-heavy).
+  (function () {
+    var d = new Date(), m = d.getMonth(), day = d.getDate();
+    if ((m === 10 && day >= 15) || m === 11 || (m === 0 && day <= 6)) document.body.classList.add('season-xmas');
+  }());
+  loadPools();
+  setInterval(loadPools, 600000);
+  // Screensaver: five idle minutes on the home screen show the focused channel's pictures full screen (all
+  // pools when it has none) with the time. Any key wakes it and does nothing else.
+  var SAVER_MS = 300000, lastInput = Date.now(), saver = null, saverTimer = 0, saverIndex = 0;
+  function saverPool() {
+    var pool = channelPools[heroChannelId] || [], all = [], id, i;
+    if (pool.length) return pool;
+    for (id in channelPools) if (channelPools.hasOwnProperty(id)) for (i = 0; i < channelPools[id].length; i++) all.push(channelPools[id][i]);
+    return all;
+  }
+  function saverShow() {
+    var pool = saverPool();
+    if (!saver || !pool.length) return;
+    saverIndex = (saverIndex + 1) % pool.length;
+    var entry = pool[saverIndex], url = artUrl(entry.url), image = new Image();
+    image.onload = function () {
+      if (!saver) return;
+      var img = document.createElement('img');
+      img.alt = ''; img.src = url;
+      img.setAttribute('data-seq', String(++pictureSeq));
+      saver.insertBefore(img, saver.firstChild);
+      setTimeout(function () {
+        img.className = 'on';
+        var credit = saver && saver.querySelector('.saver-credit');
+        if (credit) credit.textContent = entry.credit || '';
+        setTimeout(function () { if (saver) dropOlder(saver, img); }, 1600);
+      }, 30);
+    };
+    image.src = url;
+  }
+  function startSaver() {
+    if (saver || !saverPool().length) return;
+    saver = document.createElement('div');
+    saver.id = 'saver';
+    saver.setAttribute('aria-hidden', 'true');
+    saver.innerHTML = '<div class="saver-shade"></div><time class="saver-clock"></time><span class="saver-credit"></span>';
+    document.body.appendChild(saver);
+    saverIndex = Math.floor(Math.random() * saverPool().length);
+    saverShow();
+    saverTimer = setInterval(saverShow, 12000);
+    paintSaverClock();
+  }
+  function paintSaverClock() {
+    var c = saver && saver.querySelector('.saver-clock'), clock = $('clock');
+    if (c && clock) c.textContent = clock.textContent;
+  }
+  function stopSaver() {
+    if (!saver) return false;
+    clearInterval(saverTimer); saverTimer = 0;
+    if (saver.parentNode) saver.parentNode.removeChild(saver);
+    saver = null;
+    return true;
+  }
+  document.addEventListener('keydown', function (event) {
+    lastInput = Date.now();
+    if (stopSaver()) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+  setInterval(function () {
+    paintSaverClock();
+    if (saver && (play || $('home').hidden)) { stopSaver(); return; }
+    if (saver || play || $('home').hidden || Date.now() - lastInput < SAVER_MS) return;
+    startSaver();
+  }, 5000);
+  window.ontoSaver = { start: startSaver, stop: stopSaver };
   setInterval(paintBackChip, 1000);
   setInterval(watchBand, 30000);
   loadHome();
