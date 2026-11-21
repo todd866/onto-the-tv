@@ -51,7 +51,7 @@ test('in the controls the arrows navigate and OK presses', () => {
   assert.deepEqual(plain(map.decide(open('continue'), map.KEY.DOWN)), { type: 'focus', row: 'transport' });
   assert.deepEqual(plain(map.decide(open('continue'), map.KEY.RIGHT)), { type: 'move', row: 'continue', delta: 1 });
   assert.deepEqual(plain(map.decide(open('continue'), map.KEY.ENTER)), { type: 'activate' });
-  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.BACK)), { type: 'close' });
+  assert.deepEqual(plain(map.decide(open('transport'), map.KEY.BACK)), { type: 'back' });
   assert.deepEqual(plain(map.decide(watching, map.KEY.BACK)), { type: 'back' });
 });
 

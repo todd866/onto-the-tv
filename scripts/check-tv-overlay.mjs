@@ -337,9 +337,9 @@ try {
   await shot('seek-light.png', 'light');
   await fire(13);   // OK goes there
   const sought = await state();
-  await fire(412);  // back 10 s, then RETURN: the picture is where it was
+  await fire(412);  // back 10 s, then OK commits it (Back now always goes to the main menu)
   const seekingBack = await state();
-  await fire(10009);
+  await fire(13);
   const cancelled = await state();
   const holdGrowth = await page.evaluate(() => new Promise(resolve => {
     let repeats = 0;
@@ -371,7 +371,7 @@ try {
       }
     }, 35);
   }));
-  await fire(10009);
+  await fire(13);   // commit the held seek (Back would leave for the main menu)
   // INFO: the drawing of the remote; the keys still work under it and INFO puts it away.
   await fire(457);
   const guideOpen = await state();
@@ -428,7 +428,14 @@ try {
   await shot('preview-light.png', 'light');
   // Down while watching: tiles of where the channel could go. Nothing changes until OK; closing it is recorded too.
   await page.waitForTimeout(900);
-  await fire(10009); // drop any open controls so the picture is plain
+  // A plain picture without Back (which now leaves for the main menu): let go of CH+, then Down past the strip and bar.
+  await page.evaluate(() => { const e = new Event('keyup', { bubbles: true, cancelable: true }); Object.defineProperty(e, 'keyCode', { get: () => 427 }); document.dispatchEvent(e); });
+  await page.waitForTimeout(900);
+  for (let i = 0; i < 4 && await page.evaluate(() => !document.getElementById('continue-strip').hidden || !document.getElementById('osd').classList.contains('hidden')); i++) {
+    await fire(40); await page.waitForTimeout(150);
+  }
+  await page.waitForTimeout(4500); // the controls time out on their own
+  if (await page.evaluate(() => !document.getElementById('continue-strip').hidden)) { await fire(40); await page.waitForTimeout(150); }
   await page.waitForTimeout(100);
   const playingBefore = await page.evaluate(() => document.getElementById('player').hidden ? '' : document.getElementById('osd-show').textContent.trim());
   let directions = null, afterChoice = null;
@@ -454,7 +461,7 @@ try {
     await page.waitForFunction(() => document.getElementById('tune-flash').hidden);
     await shot('directions-dark.png', 'dark');
     await shot('directions-light.png', 'light');
-    await fire(10009);  // closed without choosing
+    await fire(40); await fire(40); // Down to the bar, Down again: closed without choosing
     await page.waitForTimeout(100);
     await fire(40);
     await page.waitForFunction(() => document.querySelectorAll('#continue-strip .direction').length === 5, null, { timeout: 5000 });
@@ -502,8 +509,7 @@ try {
   assert.equal(sought.paused, beforeSeek.paused, 'OK resumes what was playing');
   assert.notEqual(sought.elapsed, beforeSeek.elapsed, 'OK goes to the marker');
   assert.equal(seekingBack.seeking, true);
-  assert.equal(cancelled.seeking, false, 'RETURN leaves seek mode');
-  assert.equal(cancelled.elapsed, sought.elapsed, 'RETURN puts the picture back where it was');
+  assert.equal(cancelled.seeking, false, 'OK leaves seek mode');
   assert.equal(guideOpen.guide, true, 'INFO opens the guide');
   assert.equal(guideShut.guide, false, 'INFO closes the guide');
   assert.equal(guide.fits, true);
@@ -570,6 +576,11 @@ try {
     if (state.seeking) await fire(13);
   }
   await fire(38);
+  // Back always goes to the main menu (Ian, 21 Nov 2026), even with the controls open.
+  await fire(10009);
+  await page.waitForTimeout(300);
+  assert.deepEqual(await page.evaluate(() => ({ player: !document.getElementById('player').hidden, home: !document.getElementById('home').hidden })),
+    { player: false, home: true }, 'Back with the controls open lands on the main menu');
   await page.evaluate(() => window.ontoHome());
   assert.deepEqual(await page.evaluate(() => window.overlayTest.state()),
     { focus: '', timer: 0, upNext: false, hold: 0, delta: 0, seeking: false },

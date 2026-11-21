@@ -2400,11 +2400,7 @@
       else commitChannel(channel);
       return null;
     }
-    if (action === 'back') {
-      if ((osd && !osd.classList.contains('hidden')) || continueOpen || overlayFocus) closeOverlay();
-      else undoOrHome();
-      return null;
-    }
+    if (action === 'back') { goHome(); return null; }
     if (action === 'uke-open' || action === 'uke-phone') {
       tuneRequest++;
       if (play) { watchEvent('stop'); saveProgress(false); play=null; media.stop(); }
@@ -2858,6 +2854,9 @@
     warmMedia(entry.src);
   }
   function restoreEntry(entry) { playResume(entry); }
+  // Remote Back: straight to the main menu from anywhere in the player. The on-screen 'Back to <show>' chip
+  // (undoOrHome) is the way to return to what was on before.
+  function goHome() { dismissArm(); closeContinue(); closeOverlay(); stopPlayback(); }
   function undoOrHome() {
     dismissArm();
     closeContinue();
@@ -3240,7 +3239,7 @@
     if (action.type === 'next') { skipForward(); return; }
     if (action.type === 'previous') { previousShow(); return; }
     if (action.type === 'close') { closeOverlay(); return; }
-    if (action.type === 'back') { dismissArm(); undoOrHome(); return; }
+    if (action.type === 'back') { goHome(); return; }
     if (action.type === 'tune') {
       target = channelByStep(action.direction);
       if (!target) { showOsd(); return; }

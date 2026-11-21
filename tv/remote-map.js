@@ -62,7 +62,8 @@ window.ontoRemoteMap = (function () {
     if (key === KEY.SUBT) return once({ type: 'subs' });
     if (key === KEY.GUIDE || key === KEY.CH_LIST) return once({ type: 'home' });
     if (key === KEY.PRE_CH) return once({ type: 'last' });
-    if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) return once({ type: focus ? 'close' : 'back' });
+    // Back always goes to the main menu, whatever is open (Ian, 21 Nov 2026). Previous video has its own keys.
+    if (key === KEY.BACK || key === KEY.ESC || key === KEY.BACKSPACE) return once({ type: 'back' });
     if (key === KEY.ENTER || key === KEY.PLAYPAUSE || key === KEY.SPACE) {
       if (focus === 'transport' || focus === 'continue') return once({ type: 'activate' });
       return once({ type: 'open' });
