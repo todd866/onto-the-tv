@@ -576,11 +576,16 @@ try {
     if (state.seeking) await fire(13);
   }
   await fire(38);
-  // Back always goes to the main menu (Ian, 21 Nov 2026), even with the controls open.
+  // Back peels one layer (Ian, 21 Nov 2026): with the controls up it closes them and the picture plays on;
+  // with only the picture, the next Back goes to the main menu.
+  await fire(10009);
+  await page.waitForTimeout(300);
+  assert.deepEqual(await page.evaluate(() => ({ player: !document.getElementById('player').hidden, osd: !document.getElementById('osd').classList.contains('hidden') })),
+    { player: true, osd: false }, 'first Back closes the controls and keeps the picture');
   await fire(10009);
   await page.waitForTimeout(300);
   assert.deepEqual(await page.evaluate(() => ({ player: !document.getElementById('player').hidden, home: !document.getElementById('home').hidden })),
-    { player: false, home: true }, 'Back with the controls open lands on the main menu');
+    { player: false, home: true }, 'second Back lands on the main menu');
   await page.evaluate(() => window.ontoHome());
   assert.deepEqual(await page.evaluate(() => window.overlayTest.state()),
     { focus: '', timer: 0, upNext: false, hold: 0, delta: 0, seeking: false },

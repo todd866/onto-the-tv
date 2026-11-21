@@ -1249,8 +1249,9 @@
       if (!play || $('player').hidden) return;
       // The directions tray is read, not glanced at: it stays three times as long.
       if (directionsShown && Date.now() - directionsShown.touched < OSD_MS * 3 - 100) { directionsShown.touched -= 1; showOsd(); return; }
-      // Transport, continue, and scrub focus keep the bar up until the user steps away.
-      if (overlayFocus) { showOsd(); return; }
+      // Transport, continue and scrub focus keep the bar up while keys are being pressed, but not for ever:
+      // eight quiet seconds and it goes (Ian, 21 Nov 2026: "the bottom bar never disappears").
+      if (overlayFocus && Date.now() - lastInput < OSD_MS * 2) { showOsd(); return; }
       if (!media.paused() && !playerOverlay()) {
         osd.classList.add('hidden');
         paintBackChip();
@@ -2485,7 +2486,7 @@
       else commitChannel(channel);
       return null;
     }
-    if (action === 'back') { goHome(); return null; }
+    if (action === 'back') { backOneStep(); return null; }
     if (action === 'uke-open' || action === 'uke-phone') {
       tuneRequest++;
       if (play) { watchEvent('stop'); saveProgress(false); play=null; media.stop(); }
@@ -2942,6 +2943,27 @@
   // Remote Back: straight to the main menu from anywhere in the player. The on-screen 'Back to <show>' chip
   // (undoOrHome) is the way to return to what was on before.
   function goHome() { dismissArm(); closeContinue(); closeOverlay(); stopPlayback(); }
+  // Back peels one layer (Ian, 21 Nov 2026: "back should remove the menu before it kicks you back to the main
+  // menu"): controls, a tray or a menu on screen close first and the picture keeps playing; with only the
+  // picture showing, Back goes to the main menu.
+  function backOneStep() {
+    // Only what the viewer opened is peeled (controls, the continue tray, up next): the bar that shows by
+    // itself after a tune, a resume prompt or an error line does not stand between Back and the main menu.
+    var errorUp = play && play.errorOn;
+    if (!errorUp && (overlayFocus || continueOpen || (upNextCard && upNextCard.active()))) {
+      dismissArm();
+      closeContinue();
+      closeOverlay();
+      overlayFocus = '';
+      clearTransportFocus();
+      clearScrubFocus();
+      clearTapSeekChrome();
+      clearTimeout(osdTimer); osdTimer = 0;
+      osd.classList.add('hidden');
+      return;
+    }
+    goHome();
+  }
   function undoOrHome() {
     dismissArm();
     closeContinue();
@@ -3328,7 +3350,7 @@
     if (action.type === 'next') { skipForward(); return; }
     if (action.type === 'previous') { previousShow(); return; }
     if (action.type === 'close') { closeOverlay(); return; }
-    if (action.type === 'back') { goHome(); return; }
+    if (action.type === 'back') { backOneStep(); return; }
     if (action.type === 'tune') {
       target = channelByStep(action.direction);
       if (!target) { showOsd(); return; }
