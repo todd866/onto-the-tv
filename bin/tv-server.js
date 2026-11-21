@@ -359,17 +359,28 @@ async function rescan() {
   if (scanning) return;
   scanning = true;
   try {
+    let t = Date.now();
+    const steps = [];
+    const mark = name => { const now = Date.now(); steps.push(`${name} ${now - t}`); t = now; };
     const outcome = await rebuild(await readSettings(join(appData, 'settings.json')), false);
+    mark('rebuild');
     if (outcome.rescanned) {
       const refreshedVideos = await loadCatalogue(catalogue);
+      mark('load');
       warmSoon();
+      mark('warm');
       catalogueHolder.videos = refreshedVideos;
       const freshSettings = await readSettings(join(appData, 'settings.json'));
       channelScores = await loadChannelScores(freshSettings);
+      mark('scores');
       library = createTvLibrary({ videos: refreshedVideos, history, storage, scenes: sceneLookup, showTiers, channelScores, musicEmbed, bestEpisodes });
+      mark('library');
       knownSources.clear();
       for (const video of refreshedVideos) knownSources.add(video.src);
-      log(`catalogue reloaded: ${library.home().channels.length} channels`);
+      const count = library.home().channels.length;
+      mark('home');
+      // Which step blocks the event loop (8–10 s stalls seen on 21 Nov 2026)?
+      log(`catalogue reloaded: ${count} channels (ms: ${steps.join(', ')})`);
       void warmProfileArt();
     }
   } catch (error) { log(`rescan failed: ${error.message}`); } finally { scanning = false; }
