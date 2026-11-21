@@ -67,7 +67,13 @@ else
     else
       run_step gemini-prepare env HEAVY_SLOT_LOCAL=1 heavy-slot -- "$gemini_py" "$here/video_embed.py" prepare --max-tier "$max_tier"
     fi
-    run_step gemini-submit "$gemini_py" "$here/video_embed.py" submit
+    # Spend hold (Ian, 21 Nov 2026): Gemini bills the Google Cloud credit, which must last until next
+    # month's AI Pro credit. While ~/.config/fleet/gcp-spend-hold exists, clips are prepared but not sent.
+    if [ -f "$HOME/.config/fleet/gcp-spend-hold" ]; then
+      say "gemini-submit: skipped, Google Cloud spend hold is on"
+    else
+      run_step gemini-submit "$gemini_py" "$here/video_embed.py" submit
+    fi
     run_step gemini-wait "$gemini_py" "$here/video_embed.py" wait --timeout 3600 --interval 60
   fi
 fi
