@@ -1600,7 +1600,7 @@ export async function streamFile(request, response, file, mediaCache) {
  * `token` is the pairing secret the installed TV app sends.
  */
 export function createTvServer({ library, history, storage, artwork, uiRoot, token = '', watchEvents = null, mediaCache = null, diagnostics = createDiagnosticsStore(), gameRelay = createGameRelay(), ukeHandler = createConfiguredUkeHandler({controllerToken:token}), sceneStore = null,
-  consoleLauncher = createConsoleLauncher(), libraryRoots = null, catalogueFile = null, playNextFile = null, remoteLog = null, directionsFile = null, log = () => {} }) {
+  consoleLauncher = createConsoleLauncher(), libraryRoots = null, catalogueFile = null, playNextFile = null, remoteLog = null, directionsFile = null, onNowPlaying = null, log = () => {} }) {
   const allowSrc = src => { try { library.video(src); return true; } catch { return false; } };
   const tvCommands = createTvCommands({ allowSrc });
   const playNext = createPlayNext({ file: playNextFile, allowSrc });
@@ -1738,6 +1738,9 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         const next = readNow(await readBody(request));
         if (!next) return send(response, 400, { error: 'Invalid now playing.' });
         nowPlaying = next;
+        if (onNowPlaying && next.src) {
+          try { onNowPlaying({ item: library.video(next.src), position: next.position }); } catch { /* display only */ }
+        }
         return send(response, 200, nowPlaying);
       }
       if (path === '/api/tv-command') {

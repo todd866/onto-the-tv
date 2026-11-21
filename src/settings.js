@@ -15,6 +15,8 @@ export function defaults(home = homedir()) {
     musicStoreDir: join(home, '.local/state/music-store'),
     musicStoreTool: join(home, 'Projects/glancebar/tools/music-store/musicstore.py'),
     musicTasteListeners: {},
+    // Listener whose now-playing bus the TV joins while a music video plays (src/music-now.js); '' = off.
+    musicNowListener: '',
     ambient: { ...DEFAULT_AMBIENT_OPTIONS } };
 }
 
@@ -55,6 +57,7 @@ export async function readSettings(path, home) {
       result.musicTasteListeners = Object.fromEntries(Object.entries(data.musicTasteListeners)
         .filter(([k, v]) => /^[a-z0-9-]{1,32}$/.test(k) && typeof v === 'string' && /^[a-z0-9][a-z0-9._-]{0,47}$/.test(v)));
     }
+    if (typeof data.musicNowListener === 'string' && /^[a-z0-9][a-z0-9._-]{0,47}$/.test(data.musicNowListener)) result.musicNowListener = data.musicNowListener;
     if (data.playOn === 'mac' || data.playOn === 'tv') result.playOn = data.playOn;
     if (data.ambient) result.ambient = validateAmbientOptions(data.ambient);
   } catch (error) {

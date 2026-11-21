@@ -22,6 +22,8 @@ import { createMediaCache } from '../src/media-cache.js';
 import { createWatchEventStore } from '../src/watch-events.js';
 import { createMusicEmbedLoader } from '../src/music-pick.js';
 import { createTasteAppender } from '../src/music-taste.js';
+import { createNowWriter, storeRemote } from '../src/music-now.js';
+import { songShaFor } from '../src/music-pick.js';
 import { createDiskPriority, volumeRoots } from '../src/disk-priority.js';
 import { createGuestInvites } from '../src/guest-invites.js';
 import { createGuestServer } from '../src/guest-server.js';
@@ -175,6 +177,9 @@ const sceneLookup = src => {
 let channelScores = await loadChannelScores(settings);
 const musicEmbed = createMusicEmbedLoader({ dir: settings.musicVectorsDir, storeDir: settings.musicStoreDir, log });
 const tasteLog = createTasteAppender({ tool: settings.musicStoreTool, listeners: settings.musicTasteListeners, log });
+const nowWriter = createNowWriter({ listener: settings.musicNowListener,
+  remote: storeRemote(join(homedir(), '.config/glancebar/music-store.json')),
+  shaFor: item => songShaFor(musicEmbed.state?.ids, item).sha, log });
 await musicEmbed.refresh(true).catch(() => {});
 setInterval(() => { void musicEmbed.refresh(); }, 60_000).unref();
 // Each show's best-rated episodes (scripts/best-episodes.mjs writes them): a show new to the household opens on one.
@@ -321,7 +326,7 @@ setInterval(() => { mediaCache?.trim().catch(() => {}); }, 10 * 60_000).unref();
 const server = createTvServer({ library: current, mediaCache, history, storage, watchEvents, artwork, uiRoot: join(root, 'tv'), token, sceneStore,
   libraryRoots: async () => configuredRoots(await readSettings(join(appData, 'settings.json'))), catalogueFile: catalogue,
   playNextFile: join(homedir(), '.local/state/onto-the-tv/play-next.json'),
-  remoteLog: createRemoteLog({ file: join(data, 'remote-events.jsonl') }), directionsFile: join(data, 'directions.jsonl'), log });
+  remoteLog: createRemoteLog({ file: join(data, 'remote-events.jsonl') }), directionsFile: join(data, 'directions.jsonl'), onNowPlaying: nowWriter, log });
 server.listen(port, host, () => log(`serving ${library.home().channels.length} channels on http://${host}:${port}/`));
 
 // Invited guests: a separate server with no route to the TV's controls (src/guest-server.js).
