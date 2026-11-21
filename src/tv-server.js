@@ -1647,11 +1647,21 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
   timer.unref();
 
   const warmArt = createArtWarmer({ library, artwork, log });
+  // A blocked event loop stalls every TV request at once (21 Nov 2026: 15 s after each ended title).
+  // Log any stall over 2 s with the last request that came in, so the blocking work can be found.
+  let lastRequest = '', loopTick = Date.now();
+  const loopWatch = setInterval(() => {
+    const now = Date.now(), lag = now - loopTick - 1000;
+    loopTick = now;
+    if (lag > 2000) log(`event loop blocked ${lag} ms (last request ${lastRequest})`);
+  }, 1000);
+  loopWatch.unref?.();
   const server = createServer(async (request, response) => {
     try {
       if (!isHomeAddress(request.socket.remoteAddress)) return send(response, 403, { error: 'Home network only.' });
       const url = new URL(request.url, 'http://tv.local');
       const path = url.pathname;
+      lastRequest = `${request.method} ${path}`;
       // A Host check blocks DNS rebinding. The page served here is same-origin; the
       // installed TV app is cross-origin and must carry the pairing token. JSON-only
       // POSTs force a preflight, so other pages cannot change taste or history.
@@ -1812,7 +1822,11 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
       if (path === '/api/show') return send(response, 200, library.show(url.searchParams.get('name') || ''));
       if (path === '/api/next' && request.method === 'POST') {
         const params = await readBody(request);
+        const pickStarted = Date.now();
         const item = library.next(String(params.channel || ''), params);
+        const pickMs = Date.now() - pickStarted;
+        // 21 Nov 2026: picks after an ended title took 15-22 s with the event loop blocked; find out where.
+        if (pickMs > 1000) log(`slow pick: ${pickMs} ms for ${params.channel} (${params.reason || 'tune'})`);
         dirty = true;
         return send(response, 200, item);
       }
@@ -1899,7 +1913,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
     }
   });
   const close = server.close.bind(server);
-  server.close = callback => { clearInterval(timer); dirty = true; save().catch(() => {}).finally(() => close(callback)); return server; };
+  server.close = callback => { clearInterval(timer); clearInterval(loopWatch); dirty = true; save().catch(() => {}).finally(() => close(callback)); return server; };
   // The start-up and reload warm (bin/tv-server.js) uses the same one-at-a-time queue.
   server.warmArt = warmArt;
   return server;

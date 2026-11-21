@@ -73,7 +73,12 @@ window.ontoPlayer = function (video, avObject) {
   var state = { paused: true, ended: false, time: 0, duration: 0 };
   video.hidden = true;
   avObject.hidden = false;
-  function close() { try { av.stop(); } catch (e) {} try { av.close(); } catch (e) {} }
+  // AVPlay can sit in prepareAsync forever without calling either callback (21 Nov 2026: the next title
+  // after an ended one hung 'buffering' for an hour, and the channel never moved on). A load that has not
+  // played a frame in STALL_MS becomes an error, so the channel's retry-then-move-on line takes over.
+  var STALL_MS = 25000, stallTimer = 0;
+  function clearStall() { if (stallTimer) { clearTimeout(stallTimer); stallTimer = 0; } }
+  function close() { clearStall(); try { av.stop(); } catch (e) {} try { av.close(); } catch (e) {} }
   return {
     engine: 'avplay', on: on,
     load: function (url, start) {
@@ -83,17 +88,22 @@ window.ontoPlayer = function (video, avObject) {
         av.open(url);
         av.setDisplayRect(0, 0, 1920, 1080);
         av.setListener({
-          oncurrentplaytime: function (ms) { state.time = ms / 1000; emit('time'); },
+          oncurrentplaytime: function (ms) { clearStall(); state.time = ms / 1000; emit('time'); },
           onstreamcompleted: function () { state.ended = true; emit('ended'); },
-          onerror: function () { emit('error'); },
+          onerror: function () { clearStall(); emit('error'); },
           onbufferingstart: function () {}, onbufferingprogress: function () {}, onbufferingcomplete: function () {},
           onevent: function () {}, onsubtitlechange: function () {}, ondrmevent: function () {},
         });
+        stallTimer = setTimeout(function () {
+          stallTimer = 0;
+          if (state.paused) return; // paused before the first frame: the listener is in charge
+          close(); emit('error');
+        }, STALL_MS);
         av.prepareAsync(function () {
           state.duration = av.getDuration() / 1000;
           var go = function () { av.play(); emit('time'); };
           if (start) av.seekTo(Math.floor(start * 1000), go, go); else go();
-        }, function () { emit('error'); });
+        }, function () { clearStall(); emit('error'); });
       } catch (e) { setTimeout(function () { emit('error'); }, 0); }
     },
     play: function () { try { av.play(); state.paused = false; } catch (e) {} emit('pause'); },
