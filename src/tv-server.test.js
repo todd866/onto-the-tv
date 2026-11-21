@@ -1258,3 +1258,12 @@ test('tube HTTP endpoints filter a title Jake cannot watch', async () => {
     assert.equal((await fetch(`${base}/api/related?src=nope`)).status, 404);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+
+test('the live library proxy in bin/tv-server.js forwards every method the HTTP routes call', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../bin/tv-server.js', import.meta.url), 'utf8');
+  const proxy = src.slice(src.indexOf('const current = {'), src.indexOf('};', src.indexOf('const current = {')));
+  for (const name of ['home', 'next', 'show', 'catalogue', 'allowed', 'feed', 'related', 'search', 'creators']) {
+    assert.ok(new RegExp('\\b' + name + ':').test(proxy), `proxy forwards ${name}`);
+  }
+});

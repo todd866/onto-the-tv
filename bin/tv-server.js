@@ -227,7 +227,10 @@ const current = { home: (viewers, rating) => { const lineup = library.home(viewe
     return result;
   }, skipped: input => library.skipped(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => { inUse(); return library.file(src); }, video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
-  catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args) };
+  catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args),
+  // Jake's tube layout (Samsung YouTube-style grid): feed, up-next, search and creators.
+  feed: (...args) => { inUse(); return library.feed(...args); }, related: (...args) => library.related(...args),
+  search: (...args) => library.search(...args), creators: (...args) => library.creators(...args) };
 let mediaCache = null;
 // Where the cache lives (Ian, 15 Nov 2026: "I just don't want the m2 internal drive getting full and I want
 // snappy response"; "surely the SSD external is fast enough to serve this"). The M2's T9 SSD is the fast tier
