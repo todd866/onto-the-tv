@@ -1672,6 +1672,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     for (let index = 0; index < videos.length; index++) {
       const item = videos[index];
       if (isAdSrc(item.src)) continue;
+      // Music videos have their own channel; in the tube grid they crowded out a child's shows (21 Nov 2026).
+      if (isMusicVideoItem(item)) continue;
       if (!allowed(item.src, ids, rating)) continue;
       pool.push(index);
     }
