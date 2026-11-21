@@ -36,6 +36,64 @@ struct HomeLineup: Decodable, Equatable {
     var rating: String?
     var viewers: [HomeViewer]
     var channels: [HomeChannel]
+    var liked: [HomeLiked]
+
+    enum CodingKeys: String, CodingKey {
+        case ceiling, defaultCeiling, rating, viewers, channels, liked
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ceiling = try container.decodeIfPresent(String.self, forKey: .ceiling)
+        defaultCeiling = try container.decodeIfPresent(String.self, forKey: .defaultCeiling)
+        rating = try container.decodeIfPresent(String.self, forKey: .rating)
+        viewers = try container.decodeIfPresent([HomeViewer].self, forKey: .viewers) ?? []
+        channels = try container.decodeIfPresent([HomeChannel].self, forKey: .channels) ?? []
+        liked = try container.decodeIfPresent([HomeLiked].self, forKey: .liked) ?? []
+    }
+}
+
+struct HomeDisplay: Decodable, Equatable {
+    var show: String?
+    var episode: String?
+}
+
+/// A liked title on `/api/home`. The picture is not in the JSON; the Samsung app builds `/art?src=`.
+struct HomeLiked: Decodable, Equatable {
+    var src: String
+    var title: String
+    var show: String
+    var duration: Double
+    var resume: Double
+    var display: HomeDisplay?
+    var channel: NowChannel?
+}
+
+struct LikedTile: Identifiable, Equatable {
+    var id: String
+    var title: String
+    var artPath: String
+    var channelID: String
+    var resume: Double
+    var duration: Double
+}
+
+/// One `/api/next` item. `describe()` in src/tv-server.js, plus a `queue` the decoder ignores.
+struct NextItem: Decodable, Equatable {
+    var src: String
+    var title: String
+    var show: String
+    var duration: Double
+    var resume: Double
+}
+
+/// The fields `tv/app.js` `nextBody` adds once an item is already on.
+struct NextAdvance: Equatable {
+    var current: String
+    var reason: String
+    var time: Int
+    var watched: Int
+    var duration: Int
 }
 
 struct HomeViewer: Decodable, Equatable {
@@ -158,6 +216,38 @@ enum TVAPI {
         TVRequest(method: "GET", url: try url(base: base, path: "/api/now-playing"), headers: headers(token: token), body: nil)
     }
 
+    /// First tune sends channel, viewers and rating. An advance adds the Samsung `nextBody` fields.
+    static func nextRequest(base: String, token: String, channel: String, viewers: String, rating: String, advance: NextAdvance?) throws -> TVRequest {
+        var payload: [String: Any] = ["channel": channel, "viewers": viewers, "rating": rating]
+        if let advance {
+            payload["current"] = advance.current
+            payload["reason"] = advance.reason
+            payload["time"] = advance.time
+            payload["watched"] = advance.watched
+            payload["duration"] = advance.duration
+        }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        return TVRequest(method: "POST", url: try url(base: base, path: "/api/next"), headers: headers(token: token), body: body)
+    }
+
+    static func progressRequest(base: String, token: String, src: String, positionSeconds: Double, durationSeconds: Double, completed: Bool) throws -> TVRequest {
+        let payload: [String: Any] = [
+            "src": src,
+            "positionSeconds": positionSeconds,
+            "durationSeconds": durationSeconds,
+            "completed": completed,
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        return TVRequest(method: "POST", url: try url(base: base, path: "/api/progress"), headers: headers(token: token), body: body)
+    }
+
+    /// `fileUrl('media', src)` in tv/app.js. The token is in the query because AVPlayer cannot set headers.
+    static func mediaURL(base: String, token: String, src: String) throws -> URL {
+        var path = "/media?src=\(encodeURIComponent(src))"
+        if !token.isEmpty { path += "&t=\(encodeURIComponent(token))" }
+        return try url(base: base, path: path)
+    }
+
     static func diagnosticsRequest(base: String, token: String) throws -> TVRequest {
         TVRequest(method: "GET", url: try url(base: base, path: "/api/diagnostics"), headers: headers(token: token), body: nil)
     }
@@ -209,6 +299,10 @@ enum TVAPI {
         try JSONDecoder().decode(NowPlaying.self, from: data)
     }
 
+    static func decodeNext(_ data: Data) throws -> NextItem {
+        try JSONDecoder().decode(NextItem.self, from: data)
+    }
+
     static func serverMessage(status: Int, data: Data) -> String? {
         if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let error = object["error"] as? String, !error.isEmpty {
@@ -229,6 +323,22 @@ enum TVAPI {
             guard !channel.id.isEmpty, channel.app != true else { return nil }
             let art = channel.now?.art ?? ""
             return ChannelTile(id: channel.id, name: channel.name, artPath: art.isEmpty ? nil : art, about: channel.about ?? "")
+        }
+    }
+
+    static func likedTiles(in home: HomeLineup) -> [LikedTile] {
+        home.liked.compactMap { item in
+            guard !item.src.isEmpty else { return nil }
+            let episode = item.display?.episode?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let title = episode.isEmpty ? item.title : episode
+            return LikedTile(
+                id: item.src,
+                title: title,
+                artPath: "/art?src=" + encodeURIComponent(item.src),
+                channelID: item.channel?.id ?? "",
+                resume: item.resume,
+                duration: item.duration
+            )
         }
     }
 
