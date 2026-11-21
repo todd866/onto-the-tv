@@ -2,7 +2,7 @@ import { createTvCommands } from './tv-commands.js';
 import { liveManifest } from './tv-live.js';
 import { createPlayNext } from './play-next.js';
 import { createServer } from 'node:http';
-import { createReadStream, readFileSync, writeFileSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { appendFile, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, normalize } from 'node:path';
@@ -42,10 +42,20 @@ const canonicalSpace = (() => {
 })();
 // Multimodal video embedding map (tools/video-embed export: Gemini 3072d + local
 // EmbeddingGemma 2 768d). Absent or broken leaves every affinity neutral.
+// The nightly export rewrites the file, so reload when its mtime changes (checked at most
+// once a minute) instead of holding the first copy until the server restarts.
 const embeddedVideoSpace = (() => {
-  let cached;
-  return () => cached ??= loadVideoSpace(
-    process.env.ONTO_VIDEO_SPACE || join(homedir(), '.local/state/onto-tv-video-embed/video-space.json'));
+  const path = process.env.ONTO_VIDEO_SPACE || join(homedir(), '.local/state/onto-tv-video-embed/video-space.json');
+  let cached = null, mtime = -1, checkedAt = 0;
+  return () => {
+    const now = Date.now();
+    if (now - checkedAt < 60_000) return cached;
+    checkedAt = now;
+    let m = -1;
+    try { m = statSync(path).mtimeMs; } catch { /* absent: neutral affinities */ }
+    if (m !== mtime) { mtime = m; cached = m < 0 ? null : loadVideoSpace(path); }
+    return cached;
+  };
 })();
 const player = require('../shuffler/player.js');
 

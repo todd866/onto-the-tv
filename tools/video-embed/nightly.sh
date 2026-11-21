@@ -33,6 +33,15 @@ run_step() {
   say "$name: exit $rc"
 }
 
+# Single instance: utc-daily runs this over `ssh localhost`; a cut ssh client orphans the
+# remote copy (ppid 1) and the retry starts another, so three copies queued on 21 Nov 2026.
+zmodload zsh/system
+exec {lockfd}>>"$state/nightly.lock"
+if ! zsystem flock -t 0 -f lockfd "$state/nightly.lock"; then
+  say "another nightly holds $state/nightly.lock; exiting"
+  exit 0
+fi
+
 say "nightly start"
 
 # 1. Map A — Gemini Embedding 2 (progressive Tier 1 -> 2 -> 3, <= $5/day)
