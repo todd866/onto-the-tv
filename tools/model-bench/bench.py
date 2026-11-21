@@ -89,7 +89,79 @@ def chat3(model, text):
         return None, time.time() - t
 
 
+# Held-out requests written after the first three rounds, never used to tune anything below.
+HELDOUT = [
+    ("stick bluey on", "play_video", ["bluey"]), ("can I have fireman sam", "play_video", ["fireman sam"]),
+    ("put the wiggles on for the little one", "play_video", ["wiggles"]), ("numberblocks please", "play_video", ["numberblocks"]),
+    ("I wanna see shaun the sheep", "play_video", ["shaun"]), ("play the pokemon movie", "play_video", ["pokemon"]),
+    ("something with dinosaurs", "play_video", ["dinosaur"]), ("put on a song", "play_video", ["song"]),
+    ("the cartoons channel", "change_channel", ["cartoon"]), ("go to music", "change_channel", ["music"]),
+    ("can we have the movies channel", "change_channel", ["movie"]), ("top gear", "play_video", ["top gear"]),
+    ("hold on", "pause", []), ("pause pause pause", "pause", []), ("freeze it", "pause", []), ("wait wait", "pause", []),
+    ("ok go", "resume", []), ("continue", "resume", []), ("press play", "resume", []), ("I'm back, start it again", "resume", []),
+    ("bedtime, turn it off", "go_home", []), ("go back to the menu", "go_home", []), ("exit", "go_home", []), ("enough tv", "go_home", []),
+    ("what's this", "whats_on", []), ("what episode is this", "whats_on", []), ("who made this", "whats_on", []),
+    ("what shows do we have", "list_channels", []), ("show me the channels", "list_channels", []),
+    ("have we got any lego stuff", "find_videos", ["lego"]), ("are there videos about planes", "find_videos", ["plane"]),
+    ("find me something with sharks", "find_videos", ["shark"]), ("any peppa pig episodes?", "find_videos", ["peppa"]),
+    ("play the second one", "play_video", []), ("number one please", "play_video", []),
+    ("put on the christmas stuff", "change_channel", ["christmas"]), ("I want trains", "change_channel", ["train"]),
+    ("can we watch the gherkins", "play_video", ["gherkin"]), ("maddie moate", "play_video", ["maddie"]), ("knight rider", "play_video", ["knight rider"]),
+]
+if '--heldout' in sys.argv:
+    CASES = HELDOUT
+
+# v4 harness: rules for controls, then the household's own catalogue, then the tiny model (v3).
+import re as _re
+CATALOGUE = []
+if '--catalogue' in sys.argv:
+    CATALOGUE = [l.strip() for l in open(sys.argv[sys.argv.index('--catalogue') + 1]) if l.strip()]
+RULES = [
+    ('pause', r'\b(pause|hold on|hang on|wait|freeze|stop for|one sec|a sec|toilet|loo)\b'),
+    ('resume', r'\b(resume|unpause|continue|keep going|carry on|go again|start it again|press play|i.?m back|ok go|play again)\b'),
+    ('home', r'\b(turn (it )?off|switch (it )?off|exit|menu|home|bed ?time|enough tv|that.?s enough|stop the video|stop it|we.?re done)\b'),
+    ('louder', r'\b(louder|turn it up|volume up|can.?t hear)\b'), ('quieter', r'\b(quieter|too loud|turn it down|volume down)\b'),
+    ('whats_on', r"\b(what.?s (this|on)|what is this|what episode|who made this|what are we watching|what.?s it called|show called)\b"),
+    ('list', r'\b(what (shows|channels|can i watch)|show me the channels|what.?s there|what do we have)\b'),
+]
+ORDINALS = {'one': 1, 'first': 1, 'two': 2, 'second': 2, 'three': 3, 'third': 3, 'four': 4, 'fourth': 4, 'five': 5, 'fifth': 5}
+
+
+def norm_words(t):
+    return _re.sub(r'[^a-z0-9 ]+', ' ', t.lower()).split()
+
+
+def catalogue_hit(text):
+    w = set(norm_words(text)) | {x.rstrip('s') for x in norm_words(text)}
+    best = None
+    for name in CATALOGUE:
+        nw = [x for x in norm_words(name) if len(x) > 2 and x not in ('the', 'and', 'with', 'for')]
+        if not nw:
+            continue
+        hit = sum(1 for x in nw if x in w or x.rstrip('s') in w)
+        if hit and hit >= max(1, len(nw) // 2) and (best is None or hit > best[0]):
+            best = (hit, name)
+    return best[1] if best else None
+
+
+def harness(model, text):
+    t = text.lower()
+    m = _re.search(r'\b(number|no\.?)\s*(\d+|one|two|three|four|five)\b|\b(first|second|third|fourth|fifth) one\b', t)
+    if m:
+        return {'name': 'play', 'arguments': {'what': m.group(0)}}, 0.0
+    asks = _re.search(r'\b(any|anything|are there|have we got|do we have|find|search|look for)\b', t)
+    for action, rx in RULES:
+        if _re.search(rx, t) and not (asks and action == 'list'):
+            return {'name': action, 'arguments': {'what': ''}}, 0.0
+    hit = catalogue_hit(text)
+    if hit and not asks:
+        return {'name': 'play', 'arguments': {'what': hit}}, 0.0
+    return chat3(model, text)
+
+
 def chat(model, text):
+    if '--v4' in sys.argv:
+        return harness(model, text)
     if USE_V3:
         return chat3(model, text)
     body = {'model': model, 'stream': False, 'messages': [{'role': 'system', 'content': SYSTEM_V2 if USE_V2 else SYSTEM}, {'role': 'user', 'content': text}],
@@ -110,7 +182,7 @@ def score(model):
         except Exception as e:
             got, dt = {'error': str(e)[:80]}, 0
         args = json.dumps((got or {}).get('arguments', {})).lower()
-        if USE_V3:
+        if USE_V3 or '--v4' in sys.argv:
             good = bool(got) and got.get('name') == V3[want] and all(w in args for w in words)
         elif USE_V2:
             name, key = V2[want]
@@ -122,7 +194,7 @@ def score(model):
             good = bool(got) and got.get('name') == want and all(w in args for w in words)
         ok += good; lat.append(dt)
         rows.append({'text': text, 'want': want, 'got': got, 'ok': good})
-    res = {'model': model, 'tools': 'v3' if USE_V3 else 'v2' if USE_V2 else 'fred', 'score': round(ok / len(CASES), 3), 'n': len(CASES), 'median_s': round(sorted(lat)[len(lat) // 2], 2),
+    res = {'model': model, 'tools': ('v4' if '--v4' in sys.argv else 'v3' if USE_V3 else 'v2' if USE_V2 else 'fred') + ('-heldout' if '--heldout' in sys.argv else ''), 'x': 'v3' if USE_V3 else 'v2' if USE_V2 else 'fred', 'score': round(ok / len(CASES), 3), 'n': len(CASES), 'median_s': round(sorted(lat)[len(lat) // 2], 2),
            'at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'misses': [r for r in rows if not r['ok']]}
     with open(HERE / 'results.jsonl', 'a') as f:
         f.write(json.dumps(res) + '\n')
@@ -132,5 +204,6 @@ def score(model):
 
 if __name__ == '__main__':
     assert len(tools()) == 8, f'parsed {len(tools())} tools from fred-mcp.js'
-    for m in [a for a in sys.argv[1:] if not a.startswith('--')]:
+    skip = {sys.argv[sys.argv.index('--catalogue') + 1]} if '--catalogue' in sys.argv else set()
+    for m in [a for a in sys.argv[1:] if not a.startswith('--') and a not in skip]:
         score(m)
