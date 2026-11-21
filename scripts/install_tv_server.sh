@@ -11,7 +11,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/onto-tv-server.log"
 PORT="${ONTO_TV_PORT:-8686}"
-NODE="$(command -v node || true)"
+# Non-login ssh shells lack Homebrew on PATH; look there too.
+NODE="$(command -v node || ls /opt/homebrew/bin/node /usr/local/bin/node 2>/dev/null | head -1 || true)"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 APP_DATA=""; REMOVE=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -21,6 +23,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Check prerequisites BEFORE stopping the running server (21 Nov 2026: a failed check after
+# bootout left the TV with no server).
+if [ -z "$REMOVE" ]; then
+  [ -n "$NODE" ] || { echo "Node.js 22.12+ is required (brew install node)"; exit 1; }
+  command -v ffprobe >/dev/null || { echo "FFmpeg is required (brew install ffmpeg)"; exit 1; }
+fi
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 # bootout returns before the old job is gone; bootstrapping too soon fails with "5: Input/output error".
 for _ in $(seq 1 20); do launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break; sleep 0.5; done
@@ -28,8 +36,6 @@ if [ -n "$REMOVE" ]; then
   mv "$PLIST" "$HOME/.Trash/$LABEL.plist.$(date +%s)" 2>/dev/null || true
   echo "removed $LABEL"; exit 0
 fi
-[ -n "$NODE" ] || { echo "Node.js 22.12+ is required (brew install node)"; exit 1; }
-command -v ffprobe >/dev/null || { echo "FFmpeg is required (brew install ffmpeg)"; exit 1; }
 EXTRA=""; KEEPALIVE="<true/>"
 if [ -n "$APP_DATA" ]; then
   [ -f "$APP_DATA/settings.json" ] || { echo "no settings.json in $APP_DATA (run copy_holiday_library.sh first)"; exit 1; }
