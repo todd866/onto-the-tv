@@ -6,6 +6,10 @@ enum KeychainToken {
     private static let account = "token"
 
     static func read() -> String {
+#if DEBUG
+        // Simulator QA only: `simctl launch ... -onto.qaToken <token>` (never in release builds).
+        if let qa = UserDefaults.standard.string(forKey: "onto.qaToken"), !qa.isEmpty { return qa }
+#endif
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

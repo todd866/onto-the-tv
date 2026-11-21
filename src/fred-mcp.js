@@ -6,7 +6,7 @@
 export const FRED_AUDIENCE = { viewers: 'jake,mum,dad', rating: 'PG' };
 const PROTOCOL = '2025-06-18';
 
-const TOOLS = [
+export const TOOLS = [
   { name: 'whats_on', description: 'What is playing on the TV right now (show, title, channel), or that nothing is.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'find_videos', description: "Search the family TV library for videos Jake is allowed to watch. Returns up to 8 with a pick number.",
