@@ -57,6 +57,29 @@ const embeddedVideoSpace = (() => {
     return cached;
   };
 })();
+// Hand-picked 1920-wide stills for titles that deserve a billboard (the Christmas films and specials first):
+// <dir>/stills.json maps a library src to a jpg in <dir>. Kept on the server, never in the repo. Rechecked at
+// most once a minute; absent or broken means the generated artwork as before.
+const heroStill = (() => {
+  const dir = process.env.ONTO_HERO_STILLS || join(homedir(), '.local/state/onto-tv-hero-art');
+  let map = null, mtime = -1, checkedAt = 0;
+  return src => {
+    const now = Date.now();
+    if (now - checkedAt >= 60_000) {
+      checkedAt = now;
+      let m = -1;
+      try { m = statSync(join(dir, 'stills.json')).mtimeMs; } catch { /* none */ }
+      if (m !== mtime) {
+        mtime = m; map = null;
+        if (m >= 0) try { map = JSON.parse(readFileSync(join(dir, 'stills.json'), 'utf8')); } catch { map = null; }
+      }
+    }
+    const name = map && typeof map[src] === 'string' ? map[src] : '';
+    if (!name || name.includes('/') || name.includes('..')) return null;
+    const file = join(dir, name);
+    try { return statSync(file).isFile() ? file : null; } catch { return null; }
+  };
+})();
 const player = require('../shuffler/player.js');
 
 // One list, so a household can rename people without hunting through the UI.
@@ -1875,7 +1898,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
       if (path === '/media') return await streamFile(request, response, library.file(url.searchParams.get('src') || ''), mediaCache);
       if (path === '/art') {
         const item = library.video(url.searchParams.get('src') || '');
-        const file = artwork ? await artwork.get(item.file, { durationSeconds: item.duration }) : null;
+        const file = heroStill(item.src) || (artwork ? await artwork.get(item.file, { durationSeconds: item.duration }) : null);
         if (!file) return send(response, 404, { error: 'No artwork.' });
         if (response.destroyed || request.destroyed) return;
         const image = createReadStream(file);

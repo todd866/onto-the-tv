@@ -492,11 +492,56 @@
     if (now.next.title) line += ' \u00b7 ' + now.next.title;
     return line;
   }
+  // Billboard backdrop: the focused channel's picture fills the screen (Now layout only). A curated still
+  // (1280+ px wide) is shown sharp and drifts; the 640 px generated art is softened into ambience.
+  var backdropUrl = '';
+  function backdropScrim() {
+    var scrim = $('backdrop-scrim'), bg = '', m;
+    if (!scrim) return;
+    try { bg = window.getComputedStyle(document.body).backgroundColor || ''; } catch (e) { bg = ''; }
+    m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(bg);
+    var c = m ? m[1] + ',' + m[2] + ',' + m[3] : '7,16,12';
+    var key = 'scrim:' + c;
+    if (scrim.getAttribute('data-c') === key) return;
+    scrim.setAttribute('data-c', key);
+    scrim.style.background =
+      'linear-gradient(to right, rgba(' + c + ',.94) 0, rgba(' + c + ',.78) 30%, rgba(' + c + ',.25) 58%, rgba(' + c + ',0) 75%),' +
+      'linear-gradient(to bottom, rgba(' + c + ',.7) 0, rgba(' + c + ',0) 20%, rgba(' + c + ',0) 48%, rgba(' + c + ',.72) 70%, rgb(' + c + ') 90%)';
+  }
+  function setBackdrop(url) {
+    var box = $('backdrop');
+    if (!box) return;
+    document.body.classList.add('billboard');
+    backdropScrim();
+    if (!url || url === backdropUrl) return;
+    backdropUrl = url;
+    var image = new Image();
+    image.onload = function () {
+      if (backdropUrl !== url) return;
+      var img = document.createElement('img');
+      img.alt = '';
+      if ((image.naturalWidth || 0) < 1280) img.className = 'soft';
+      img.src = url;
+      box.insertBefore(img, $('backdrop-scrim'));
+      // Next frame, so the opacity transition runs; older pictures leave once this one is in.
+      setTimeout(function () {
+        img.className += ' on';
+        setTimeout(function () {
+          var all = box.getElementsByTagName('img'), i;
+          for (i = all.length - 1; i >= 0; i--) if (all[i] !== img) box.removeChild(all[i]);
+        }, 800);
+      }, 30);
+    };
+    image.src = url;
+  }
+  function clearBackdrop() { document.body.classList.remove('billboard'); }
   function paintHero(item) {
     var hero = $('hero'), mode = layoutMode();
-    if (!item || item.app || mode === 'pictures') { hero.hidden = true; hero.textContent = ''; return; }
+    if (!item || item.app || mode === 'pictures') { hero.hidden = true; hero.textContent = ''; clearBackdrop(); return; }
     hero.hidden = false;
     hero.className = mode === 'guide' ? 'hero-compact' : 'hero-full';
+    if (mode === 'guide') clearBackdrop();
+    else setBackdrop(item.now && item.now.art ? artUrl(item.now.art) : '');
     hero.textContent = '';
     var artWrap = document.createElement('div');
     artWrap.className = 'hero-art-wrap';
