@@ -83,9 +83,9 @@ fi
 # 2. Map B — Local EmbeddingGemma 2 (768-dim MLX, $0/day, bounded 40-min slice)
 if [ -x "$gemma_py" ]; then
   if [ -d "/Volumes/Stash" ] && command -v disk-slot >/dev/null 2>&1; then
-    run_step gemma-slice env HEAVY_SLOT_LOCAL=1 heavy-slot -- disk-slot --wait 1800 --label otv-gemma-embed /Volumes/Stash -- "$gemma_py" "$here/gemma_embed.py" --budget-seconds "${ONTO_GEMMA_BUDGET_S:-2400}"
+    run_step gemma-slice env HEAVY_SLOT_LOCAL=1 heavy-slot -- disk-slot --wait 1800 --label otv-gemma-embed /Volumes/Stash -- "$gemma_py" "$here/gemma_embed.py" --budget-seconds "${ONTO_GEMMA_BUDGET_S:-10800}"
   else
-    run_step gemma-slice env HEAVY_SLOT_LOCAL=1 heavy-slot -- "$gemma_py" "$here/gemma_embed.py" --budget-seconds "${ONTO_GEMMA_BUDGET_S:-2400}"
+    run_step gemma-slice env HEAVY_SLOT_LOCAL=1 heavy-slot -- "$gemma_py" "$here/gemma_embed.py" --budget-seconds "${ONTO_GEMMA_BUDGET_S:-10800}"
   fi
 else
   say "gemma-slice: skipped (venv not yet installed at $gemma_py)"
