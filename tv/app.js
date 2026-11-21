@@ -3602,7 +3602,8 @@
   loadPools();
   setInterval(loadPools, 600000);
   // Screensaver: five idle minutes on the home screen show the focused channel's pictures full screen (all
-  // pools when it has none) with the time. Any key wakes it and does nothing else.
+  // pools when it has none) with the time; no photo credits on screen (Ian: household use only). Any key wakes
+  // it and does nothing else.
   var SAVER_MS = 300000, lastInput = Date.now(), saver = null, saverTimer = 0, saverIndex = 0;
   function saverPool() {
     var pool = channelPools[heroChannelId] || [], all = [], id, i;
@@ -3623,8 +3624,6 @@
       saver.insertBefore(img, saver.firstChild);
       setTimeout(function () {
         img.className = 'on';
-        var credit = saver && saver.querySelector('.saver-credit');
-        if (credit) credit.textContent = entry.credit || '';
         setTimeout(function () { if (saver) dropOlder(saver, img); }, 1600);
       }, 30);
     };
@@ -3635,7 +3634,7 @@
     saver = document.createElement('div');
     saver.id = 'saver';
     saver.setAttribute('aria-hidden', 'true');
-    saver.innerHTML = '<div class="saver-shade"></div><time class="saver-clock"></time><span class="saver-credit"></span>';
+    saver.innerHTML = '<div class="saver-shade"></div><time class="saver-clock"></time>';
     document.body.appendChild(saver);
     saverIndex = Math.floor(Math.random() * saverPool().length);
     saverShow();
