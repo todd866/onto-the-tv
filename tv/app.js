@@ -2951,9 +2951,13 @@
     if (entry) { restoreEntry(entry); return; }
     stopPlayback();
   }
+  // The 'Back to <show>' chip is gone (Ian, 21 Nov 2026: "that massive back icon is kinda dumb"); remote Back
+  // goes to the main menu and Previous / Pre-Ch return to what was on.
   function paintBackChip() {
     var chip = $('back-chip');
-    if (!chip) return;
+    if (chip) chip.hidden = true;
+    return;
+    // eslint-disable-next-line no-unreachable
     var entry = watchBack && $('player') && !$('player').hidden ? watchBack.chip(profileId, Date.now()) : null;
     if (!entry || !osdOpen()) { chip.hidden = true; return; }
     chip.hidden = false;

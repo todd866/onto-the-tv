@@ -176,22 +176,10 @@ try {
   const tuneStarted = Date.now();
   await page.keyboard.press('1');
   await page.locator('#player:visible').waitFor();
-  await page.locator('#back-chip:visible').waitFor();
   const tuneMs = Date.now() - tuneStarted;
-  await page.waitForFunction(() => {
-    const img = document.getElementById('back-chip-art');
-    return img && img.complete && img.naturalWidth;
-  });
-  const chip = await page.locator('#back-chip').evaluate(button => ({
-    label: button.getAttribute('aria-label'),
-    title: document.getElementById('back-chip-title').textContent,
-    h: Math.round(button.getBoundingClientRect().height),
-  }));
-  assert.equal(chip.title, 'Timmy Time');
-  assert.equal(chip.label, 'Back to Timmy Time');
-  assert.ok(chip.h >= 80, 'chip height ' + chip.h);
-  await shot('chip-all-dark.png', 'dark');
-  await shot('chip-all-light.png', 'light');
+  await page.waitForTimeout(300);
+  // The 'Back to <show>' chip was removed (Ian, 21 Nov 2026); remote Back goes to the main menu.
+  assert.equal(await page.locator('#back-chip').isHidden(), true, 'no back chip over the picture');
 
   const beforeShow = (await page.locator('#osd-show').textContent() || '').trim();
   diagnostics.length = 0;
