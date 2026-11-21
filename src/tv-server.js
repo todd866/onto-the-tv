@@ -1,4 +1,5 @@
 import { createTvCommands } from './tv-commands.js';
+import { createSaverInfo } from './saver-info.js';
 import { liveManifest } from './tv-live.js';
 import { createPlayNext } from './play-next.js';
 import { createServer } from 'node:http';
@@ -1674,6 +1675,7 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
   consoleLauncher = createConsoleLauncher(), libraryRoots = null, catalogueFile = null, playNextFile = null, remoteLog = null, directionsFile = null, onNowPlaying = null, log = () => {} }) {
   const allowSrc = src => { try { library.video(src); return true; } catch { return false; } };
   const tvCommands = createTvCommands({ allowSrc });
+  const saverInfo = createSaverInfo({ log });
   const playNext = createPlayNext({ file: playNextFile, allowSrc });
   let nowPlaying = { src: null, position: 0, channel: null, profile: null };
   function librarySrc(src) {
@@ -1955,6 +1957,13 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
       if (path === '/api/media-cache') {
         if (!sameSecret(request.headers['x-onto-token'], token)) return send(response, 403, { error: 'Pair this TV first.' });
         return send(response, 200, mediaCache?.stats() || { enabled: false });
+      }
+      if (path === '/api/saver-info') {
+        response.setHeader('Cache-Control', 'no-store');
+        const kind = url.searchParams.get('kind');
+        if (kind === 'flights') return send(response, 200, { flights: (await saverInfo.flights()) || [], at: Date.now() });
+        if (kind === 'weather') return send(response, 200, { weather: await saverInfo.weather() });
+        return send(response, 400, { error: 'Unknown kind.' });
       }
       if (path === '/api/channel-art') {
         response.setHeader('Cache-Control', 'no-store');

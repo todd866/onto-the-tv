@@ -3641,6 +3641,155 @@
     saverShow();
     saverTimer = setInterval(saverShow, 12000);
     paintSaverClock();
+    startSaverPanel();
+  }
+  // Screensaver panels: live facts for the focused channel. Planes and cars: a radar scope of the aircraft
+  // around Perth Airport (server /api/saver-info, adsb.lol). Christmas: Perth beside the North Pole, the days to
+  // Christmas, and Santa's sleigh on a 360-degree band (at the workshop until Christmas Eve, then following
+  // local midnight west around the world).
+  var panelTimers = [], flights = [], flightsAt = 0;
+  var saverForce = '';
+  function saverMode() {
+    if (saverForce) return saverForce;
+    if (heroChannelId === 'trains' || heroChannelId === 'rides') return 'radar';
+    if (heroChannelId === 'christmas' || heroChannelId === 'fireplace') return 'xmas';
+    return '';
+  }
+  function startSaverPanel() {
+    var mode = saverMode(), panel;
+    if (!saver || !mode) return;
+    panel = document.createElement('div');
+    panel.className = 'saver-panel saver-' + mode;
+    saver.appendChild(panel);
+    if (mode === 'radar') {
+      panel.innerHTML = '<div class="sp-head"><span class="sp-title">Over Perth now</span><span class="sp-count"></span></div><canvas width="760" height="760"></canvas>';
+      var poll = function () { api('/api/saver-info?kind=flights').then(function (b) { flights = (b && b.flights) || []; flightsAt = Date.now(); }, function () {}); };
+      poll();
+      panelTimers.push(setInterval(poll, 10000));
+      panelTimers.push(setInterval(function () { drawRadar(panel); }, 1000));
+      drawRadar(panel);
+    } else {
+      panel.innerHTML = '<div class="sp-weather"></div><div class="sp-days"></div><div class="sp-sleigh"><div class="sp-band"><i class="sp-perth"><b>Perth</b></i><i class="sp-santa"><b>Santa</b></i></div><div class="sp-where"></div></div>';
+      var loadWeather = function () { api('/api/saver-info?kind=weather').then(function (b) { paintWeather(panel, b && b.weather); }, function () {}); };
+      loadWeather();
+      panelTimers.push(setInterval(loadWeather, 900000));
+      paintSleigh(panel);
+      panelTimers.push(setInterval(function () { paintSleigh(panel); }, 30000));
+    }
+  }
+  function stopSaverPanel() { while (panelTimers.length) clearInterval(panelTimers.pop()); }
+  var NM_PER_DEG = 60, AIRPORT = { lat: -31.9403, lon: 115.9669 }, RANGE_NM = 50;
+  function drawRadar(panel) {
+    var canvas = panel.querySelector('canvas'), ctx = canvas && canvas.getContext('2d');
+    if (!ctx) return;
+    var W = canvas.width, c = W / 2, R = c - 30, px = R / RANGE_NM, i, f, now = Date.now();
+    ctx.clearRect(0, 0, W, W);
+    ctx.fillStyle = 'rgba(4, 14, 12, 0.82)';
+    ctx.beginPath(); ctx.arc(c, c, R + 18, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(126, 224, 129, 0.35)'; ctx.lineWidth = 2;
+    ctx.font = '700 22px Nunito, sans-serif'; ctx.fillStyle = 'rgba(126, 224, 129, 0.75)';
+    for (i = 10; i <= RANGE_NM; i += 20) {
+      ctx.beginPath(); ctx.arc(c, c, i * px, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillText(i + ' nm', c + 6, c - i * px + 22);
+    }
+    ctx.beginPath(); ctx.moveTo(c, c - R); ctx.lineTo(c, c + R); ctx.moveTo(c - R, c); ctx.lineTo(c + R, c); ctx.stroke();
+    ctx.fillStyle = '#7ee081'; ctx.font = '800 28px Nunito, sans-serif'; ctx.fillText('N', c - 9, c - R + 4);
+    // Perth Airport: runways 03/21 and 06/24.
+    var rw = function (bearing, len) {
+      var a = bearing * Math.PI / 180, dx = Math.sin(a) * len, dy = -Math.cos(a) * len;
+      ctx.beginPath(); ctx.moveTo(c - dx, c - dy); ctx.lineTo(c + dx, c + dy); ctx.stroke();
+    };
+    ctx.strokeStyle = '#f6f2ea'; ctx.lineWidth = 4; rw(29, 14); rw(59, 9);
+    var shown = 0, cos = Math.cos(AIRPORT.lat * Math.PI / 180), placed = [];
+    for (i = 0; i < flights.length; i++) {
+      f = flights[i];
+      var dt = (now - flightsAt) / 3600000, lat = f.lat, lon = f.lon;
+      if (!f.ground && f.track !== null && f.gs) {
+        var tr = f.track * Math.PI / 180, dist = f.gs * dt / NM_PER_DEG;
+        lat += Math.cos(tr) * dist; lon += Math.sin(tr) * dist / cos;
+      }
+      var x = c + (lon - AIRPORT.lon) * cos * NM_PER_DEG * px, y = c - (lat - AIRPORT.lat) * NM_PER_DEG * px;
+      if (Math.sqrt((x - c) * (x - c) + (y - c) * (y - c)) > R) continue;
+      if (f.ground) { ctx.fillStyle = 'rgba(246, 242, 234, 0.45)'; ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); continue; }
+      shown++;
+      ctx.save(); ctx.translate(x, y); ctx.rotate((f.track || 0) * Math.PI / 180);
+      ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(10, 12); ctx.lineTo(0, 6); ctx.lineTo(-10, 12); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      // Label beside the aircraft; when it would cover one already drawn, try the other sides.
+      var name = f.callsign || f.reg || '', line2 = (f.alt >= 10000 ? 'FL' + Math.round(f.alt / 100) : f.alt.toLocaleString() + ' ft') + (f.type ? ' \u00b7 ' + f.type : '');
+      ctx.font = '800 24px Nunito, sans-serif';
+      var lw = Math.max(ctx.measureText(name).width, 20 + line2.length * 10), lh = 48, spots = [[16, -26], [-16 - lw, -26], [16, 18], [-16 - lw, 18], [-lw / 2, -66], [-lw / 2, 26]], spot = spots[0], k, b;
+      for (k = 0; k < spots.length; k++) {
+        b = { x: x + spots[k][0], y: y + spots[k][1], w: lw, h: lh };
+        if (!labelHits(placed, b)) { spot = spots[k]; break; }
+      }
+      placed.push({ x: x + spot[0], y: y + spot[1], w: lw, h: lh });
+      ctx.fillStyle = '#f6f2ea';
+      ctx.fillText(name, x + spot[0], y + spot[1] + 22);
+      ctx.fillStyle = 'rgba(246, 242, 234, 0.75)'; ctx.font = '700 20px Nunito, sans-serif';
+      ctx.fillText(line2, x + spot[0], y + spot[1] + 46);
+    }
+    var count = panel.querySelector('.sp-count');
+    if (count) count.textContent = shown + (shown === 1 ? ' aircraft' : ' aircraft');
+  }
+  function labelHits(list, b) {
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+      if (b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y) return true;
+    }
+    return false;
+  }
+  function weatherIcon(code) {
+    var sun = '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="9" fill="#ffd166"/><g stroke="#ffd166" stroke-width="4" stroke-linecap="round"><path d="M24 4v6M24 38v6M4 24h6M38 24h6M10 10l4 4M34 34l4 4M38 10l-4 4M14 34l-4 4"/></g></svg>';
+    var cloud = '<svg viewBox="0 0 48 48"><path fill="#dfe7ee" d="M14 36h22a8 8 0 0 0 0-16 11 11 0 0 0-21-3 9 9 0 0 0-1 19z"/></svg>';
+    var snow = '<svg viewBox="0 0 48 48"><g stroke="#e8f4ff" stroke-width="3.5" stroke-linecap="round"><path d="M24 6v36M8.4 15l31.2 18M8.4 33l31.2-18M19 9l5 5 5-5M19 39l5-5 5 5"/></g></svg>';
+    var rain = '<svg viewBox="0 0 48 48"><path fill="#dfe7ee" d="M14 28h22a8 8 0 0 0 0-16 11 11 0 0 0-21-3 9 9 0 0 0-1 19z"/><g stroke="#5ab4ff" stroke-width="3.5" stroke-linecap="round"><path d="M16 34l-3 7M25 34l-3 7M34 34l-3 7"/></g></svg>';
+    if (code === null || code === undefined) return cloud;
+    if (code <= 1) return sun;
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return snow;
+    if ((code >= 51 && code <= 67) || code >= 80) return rain;
+    return cloud;
+  }
+  function paintWeather(panel, w) {
+    var box = panel.querySelector('.sp-weather');
+    if (!box || !w) return;
+    var cell = function (name, x) {
+      if (!x || x.temp === null) return '';
+      return '<div class="sp-place"><span class="sp-icon">' + weatherIcon(x.code) + '</span><span class="sp-temp">' + x.temp + '\u00b0</span>' +
+        '<span class="sp-name">' + name + '</span><span class="sp-range">' + (x.max !== null ? 'high ' + x.max + '\u00b0 \u00b7 low ' + x.min + '\u00b0' : '') + '</span></div>';
+    };
+    box.innerHTML = cell('Perth', w.perth) + cell('North Pole', w.northPole);
+  }
+  function paintSleigh(panel) {
+    var now = new Date(), year = now.getFullYear();
+    var xmas = new Date(year, 11, 25);
+    if (now > new Date(year, 11, 26)) xmas = new Date(year + 1, 11, 25);
+    var days = Math.ceil((xmas - now) / 86400000);
+    var daysEl = panel.querySelector('.sp-days');
+    if (daysEl) daysEl.textContent = days > 1 ? 'Christmas in ' + days + ' days' : days === 1 ? 'Christmas is tomorrow' : 'Merry Christmas';
+    // Santa flies with local midnight: at UTC hour h, midnight is at longitude (0 - h) * 15, wrapped to +-180.
+    var startUtc = Date.UTC(xmas.getFullYear(), 11, 24, 10), endUtc = Date.UTC(xmas.getFullYear(), 11, 25, 12);
+    var flying = now.getTime() >= startUtc && now.getTime() <= endUtc;
+    var lon = 0;
+    if (flying) {
+      var h = now.getUTCHours() + now.getUTCMinutes() / 60;
+      lon = ((-(h) * 15) % 360 + 540) % 360 - 180;
+    }
+    var pos = function (l) { return ((l + 180) / 360 * 100).toFixed(2) + '%'; };
+    var santa = panel.querySelector('.sp-santa'), perth = panel.querySelector('.sp-perth'), where = panel.querySelector('.sp-where');
+    if (perth) perth.style.left = pos(115.9);
+    if (santa) { santa.style.left = pos(flying ? lon : 0); santa.className = 'sp-santa' + (flying ? ' flying' : ''); }
+    if (where) where.textContent = flying ? "Santa's sleigh \u00b7 over " + regionAt(lon) : "Santa's sleigh \u00b7 at the workshop, North Pole";
+  }
+  function regionAt(lon) {
+    if (lon >= 150 || lon < -150) return 'the Pacific and New Zealand';
+    if (lon >= 110) return 'Australia and East Asia';
+    if (lon >= 60) return 'India and Central Asia';
+    if (lon >= 20) return 'the Middle East and Africa';
+    if (lon >= -20) return 'Europe and West Africa';
+    if (lon >= -60) return 'the Atlantic and South America';
+    if (lon >= -100) return 'North America';
+    return 'the western Americas and Hawaii';
   }
   function paintSaverClock() {
     var c = saver && saver.querySelector('.saver-clock'), clock = $('clock');
@@ -3648,6 +3797,7 @@
   }
   function stopSaver() {
     if (!saver) return false;
+    stopSaverPanel();
     clearInterval(saverTimer); saverTimer = 0;
     if (saver.parentNode) saver.parentNode.removeChild(saver);
     saver = null;
@@ -3663,7 +3813,7 @@
     if (saver || play || $('home').hidden || Date.now() - lastInput < SAVER_MS) return;
     startSaver();
   }, 5000);
-  window.ontoSaver = { start: startSaver, stop: stopSaver };
+  window.ontoSaver = { start: function (mode) { saverForce = mode || ''; startSaver(); }, stop: stopSaver };
   setInterval(paintBackChip, 1000);
   setInterval(watchBand, 30000);
   loadHome();

@@ -894,3 +894,34 @@ body.season-xmas.xmas-heavy.billboard #backdrop::after { background-image: radia
   color: #fff; font-feature-settings: "tnum" 1; text-shadow: 0 2px 16px rgba(0,0,0,.5); }
 #saver .saver-credit { position: absolute; left: 64px; bottom: 58px; z-index: 3; font-size: 22px; font-weight: 700;
   color: rgba(255,255,255,.7); max-width: 1200px; }
+/* Screensaver panels (live facts over the pictures). */
+#saver .saver-panel { position: absolute; z-index: 4; color: #f6f2ea; }
+#saver .saver-radar { right: 64px; top: 60px; width: 760px; }
+#saver .saver-radar canvas { width: 760px; height: 760px; display: block; }
+#saver .sp-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 24px 6px;
+  font-size: 34px; font-weight: 800; text-shadow: 0 2px 12px rgba(0,0,0,.6); }
+#saver .sp-count { font-size: 30px; color: #ffd166; font-feature-settings: "tnum" 1; }
+#saver .saver-xmas { left: 64px; bottom: 120px; width: 900px; padding: 28px 32px; border-radius: 28px;
+  background: rgba(6, 16, 12, 0.72); }
+#saver .sp-weather { display: flex; }
+#saver .sp-place { flex: 1 1 50%; display: flex; flex-wrap: wrap; align-items: center; }
+#saver .sp-icon { width: 64px; height: 64px; margin-right: 14px; }
+#saver .sp-icon svg { width: 64px; height: 64px; display: block; }
+#saver .sp-temp { font-size: 72px; font-weight: 800; line-height: 1; font-feature-settings: "tnum" 1; }
+#saver .sp-name { flex: 0 0 100%; font-size: 32px; font-weight: 800; margin-top: 8px; }
+#saver .sp-range { flex: 0 0 100%; font-size: 26px; color: rgba(246, 242, 234, 0.75); }
+#saver .sp-days { margin-top: 22px; font-size: 40px; font-weight: 800; color: #ffd166; }
+#saver .sp-sleigh { margin-top: 18px; }
+#saver .sp-band { position: relative; height: 18px; border-radius: 9px; background: rgba(246, 242, 234, 0.18); }
+#saver .sp-band i { position: absolute; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 11px; }
+#saver .sp-perth { background: #7ee081; }
+#saver .sp-santa { background: #ff4d4d; box-shadow: 0 0 0 4px rgba(255, 77, 77, 0.35); }
+#saver .sp-santa.flying { -webkit-animation: sleigh-pulse 1.6s ease-in-out infinite alternate; animation: sleigh-pulse 1.6s ease-in-out infinite alternate; }
+@-webkit-keyframes sleigh-pulse { from { -webkit-transform: scale(1); } to { -webkit-transform: scale(1.35); } }
+@keyframes sleigh-pulse { from { transform: scale(1); } to { transform: scale(1.35); } }
+#saver .sp-where { margin-top: 12px; font-size: 28px; font-weight: 700; color: rgba(246, 242, 234, 0.85); }
+#saver .sp-band i b { position: absolute; top: 28px; left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%);
+  font-size: 22px; font-weight: 800; white-space: nowrap; color: rgba(246, 242, 234, 0.85); }
+#saver .sp-sleigh { margin-bottom: 0; }
+#saver .sp-where { margin-top: 44px; }
+#saver .sp-band i b { font-style: normal; }
