@@ -72,3 +72,17 @@ Song-map work that belongs to Glancebar is in `~/Projects/glancebar/docs/TODO.md
   shows). Update it to the paged cards.
 - [ ] **Push to GitHub needs Ian's yes** (public repo). The M2 runs commits that are not on origin; the morning
   check warns about it until they are pushed.
+
+## Cloud media tier (proposed, 20 Nov 2026 — owner: "if we store it in Google Drive it should not be
+that hard to play from the cloud"; 5 TB AI Pro Drive replaces R2 as the cold tier)
+
+- Measured from the M2 (uplink saturated by IDrive + gdrive-backup, worst case): cold sequential
+  read from gdrive: ~3.4 MB/s, ~10 s for 32 MB. Above 1080p HEVC bitrate (~1-1.5 MB/s); fine as a
+  cold tier behind the T9 block cache, which already keeps ~55 imminent titles local.
+- Design: a cloud source type in tv-server — spawn `rclone serve http <remote:path>` per source
+  (localhost, authenticated), reuse the existing block cache range logic against it. No macFUSE, no
+  kernel extensions, no mounts; cached titles keep working when the link is down.
+- Encryption: Movies are on gcrypt; rclone decrypts on read server-side (CPU cost negligible at
+  stream bitrates), so playback does not require plaintext in the cloud. Note: the msz harvest
+  uploads go to plain `gdrive:fleet-offsite/msz-2026` (unencrypted) — decide whether medical
+  material should move to gcrypt when the 5 TB layout is settled.
