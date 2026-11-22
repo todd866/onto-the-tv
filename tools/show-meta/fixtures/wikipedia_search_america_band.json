@@ -1,0 +1,14 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "Hana (American musician)",
+        "snippet": "Hana is an American musician."
+      },
+      {
+        "title": "America (band)",
+        "snippet": "America is an American rock band."
+      }
+    ]
+  }
+}

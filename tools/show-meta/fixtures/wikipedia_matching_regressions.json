@@ -1,0 +1,59 @@
+{
+  "query": {
+    "redirects": [
+      {
+        "from": "2Pac",
+        "to": "Tupac Shakur"
+      },
+      {
+        "from": "A$AP Rocky",
+        "to": "ASAP Rocky"
+      }
+    ],
+    "pages": [
+      {
+        "title": "Tupac Shakur",
+        "pageprops": {
+          "wikibase_item": "Q1"
+        }
+      },
+      {
+        "title": "ASAP Rocky",
+        "pageprops": {
+          "wikibase_item": "Q2"
+        }
+      },
+      {
+        "title": "Air (singer)",
+        "pageprops": {
+          "wikibase_item": "Q3"
+        }
+      },
+      {
+        "title": "Air (French band)",
+        "pageprops": {
+          "wikibase_item": "Q4"
+        }
+      }
+    ]
+  },
+  "instances": {
+    "Q1": [
+      "Q5"
+    ],
+    "Q2": [
+      "Q5"
+    ],
+    "Q3": [
+      "Q5"
+    ],
+    "Q4": [
+      "Q215380"
+    ]
+  },
+  "pending": {
+    "name": "South Park",
+    "wikipedia": null,
+    "wikipedia_status": "throttled"
+  }
+}

@@ -1,0 +1,153 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readdir, rm, stat, writeFile, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { defaults, validateTvSettings, readSettings, writeSettings, preserveUnreadableSettings } from './settings.js';
+import { buildPlayer, generatorArgs, readCatalogue, prepareChannels, castTarget } from './shuffler.js';
+import { fileURLToPath } from 'node:url';
+
+test('TV settings reject credentials and mismatched endpoints', () => {
+  const base = { tvHost: '192.0.2.10', avTransportUrl: '', bindHost: '' };
+  assert.equal(validateTvSettings(base).tvHost, base.tvHost);
+  assert.throws(() => validateTvSettings({ ...base, tvHost: 'http://example.com' }));
+  assert.throws(() => validateTvSettings({ ...base, avTransportUrl: 'http://user:pass@192.0.2.10/control' }));
+  assert.throws(() => validateTvSettings({ ...base, avTransportUrl: 'http://192.0.2.20/control' }));
+  assert.throws(() => validateTvSettings({ ...base, avTransportUrl: 'file:///tmp/a' }));
+});
+
+test('parallel settings writes remain whole, private, and leave no temporary files', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-settings-'));
+  try {
+    const path = join(dir, 'settings.json');
+    const a = { ...defaults('/example'), tvHost: '192.0.2.10' };
+    const b = { ...a, tvHost: '192.0.2.11' };
+    await Promise.all([writeSettings(path, a), writeSettings(path, b)]);
+    const read = await readSettings(path, '/example');
+    assert.ok([a.tvHost, b.tvHost].includes(read.tvHost));
+    assert.equal(read.playerPath, '/example/Movies/kids-holiday/kids-shuffler.html');
+    assert.equal((await stat(path)).mode & 0o777, 0o600);
+    assert.deepEqual(await readdir(dir), ['settings.json']);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('shuffler rebuild carries personal groups and sources through argv without a shell', async () => {
+  const settings = { ...defaults('/example'), tiersPath: '/private/groups.json', sourcesPath: '/private/sources.json' };
+  settings.library = '/media/Children\'s Shows $(no-shell)';
+  const args = generatorArgs('/app', settings);
+  assert.ok(args.includes(settings.library));
+  assert.deepEqual(args.slice(-4), ['--sources', settings.sourcesPath, '--tiers', settings.tiersPath]);
+  assert.ok(!args.includes('--no-sources'));
+  const message = await buildPlayer('/app', settings, async (command, actual, options) => {
+    assert.equal(command, 'python3'); assert.deepEqual(actual, args); assert.equal(options.shell, undefined);
+    return { stdout: 'Built player\n' };
+  });
+  assert.equal(message, 'Built player');
+});
+
+test('embedded channels read data without running imported HTML and preserve IDs', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-channels-'));
+  try {
+    const original = join(dir, 'old.html');
+    const videos = [{ src: 'Family/one.mp4', path: 'a #1%.mp4', title: '</script><script>bad()</script>', channel: 'Family', tier: 'shared', duration: 5 }];
+    const json = JSON.stringify(videos).replaceAll('<', '\\u003c');
+    const html = `<script>const VIDEOS = ${json};</script><script>UNTRUSTED_SOURCE_CODE()</script>`;
+    await writeFile(original, html);
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const result = await prepareChannels(root, { playerPath: original }, join(dir, 'private'));
+    const output = fileURLToPath(result.url);
+    const content = await readFile(output, 'utf8');
+    assert.equal(result.count, 1);
+    assert.ok(!content.includes('UNTRUSTED_SOURCE_CODE'));
+    assert.ok(!content.includes('<script>bad()'));
+    assert.ok(content.includes('media-src file:'));
+    const data = readCatalogue(content, output, output);
+    assert.equal(data[0].src, videos[0].src);
+    assert.equal(data[0].path, '../a #1%.mp4');
+    assert.equal((await stat(output)).mode & 0o777, 0o600);
+    assert.throws(() => readCatalogue('<script>const VIDEOS = [{"src":"a","path":"https://example.com/a","tier":"shared"}];</script>',original,output));
+  } finally { await rm(dir, { recursive:true, force:true }); }
+});
+
+test('preference import seeds audience keys but not the retired Music and Everything keys', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-import-'));
+  try {
+    const original = join(dir, 'old.html');
+    await writeFile(original, '<script>const VIDEOS = [{"src":"Family/one.mp4","path":"one.mp4","tier":"shared"}];</script>');
+    const userData = join(dir, 'private');
+    await mkdir(userData, { recursive: true });
+    await writeFile(join(userData, 'player-import.json'), JSON.stringify({
+      'kidshuffle.weights.v2.s2': '{"Family/one.mp4":0.7}',
+      'kidshuffle.weights.v2.smusic': '{"Family/one.mp4":0.15}',
+      'kidshuffle.weights.v2.sall': '{"Family/one.mp4":0.15}',
+    }));
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const content = await readFile(fileURLToPath((await prepareChannels(root, { playerPath: original }, userData)).url), 'utf8');
+    assert.ok(content.includes('kidshuffle.weights.v2.s2'));
+    assert.ok(!content.includes('kidshuffle.weights.v2.smusic'));
+    assert.ok(!content.includes('kidshuffle.weights.v2.sall'));
+  } finally { await rm(dir, { recursive:true, force:true }); }
+});
+
+test('the channel page carries places the TV saved on this Mac', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tvplaces-'));
+  try {
+    const original = join(dir, 'old.html');
+    await writeFile(original, '<script>const VIDEOS = [{"src":"Family/one.mp4","path":"one.mp4","tier":"grownup"}];</script>');
+    const userData = join(dir, 'private');
+    await mkdir(join(userData, 'tv-server'), { recursive: true });
+    await writeFile(join(userData, 'tv-server', 'playback-history.json'), JSON.stringify({ version: 1, entries: [
+      { path: join(dir, 'one.mp4'), title: 'One', positionSeconds: 600, durationSeconds: 1200, completed: false,
+        updatedAt: '2026-10-30T05:00:00.000Z', points: [] },
+      { path: join(dir, 'gone.mp4'), title: 'Gone', positionSeconds: 9, durationSeconds: 99, completed: false,
+        updatedAt: '2026-10-30T05:00:00.000Z', points: [] },
+    ] }));
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const content = await readFile(fileURLToPath((await prepareChannels(root, { playerPath: original }, userData)).url), 'utf8');
+    const places = JSON.parse(/window\.ONTO_TV_PLACES = (\{.*?\});/.exec(content)[1]);
+    assert.deepEqual(places, { 'Family/one.mp4': { time: 600, updated: Date.parse('2026-10-30T05:00:00.000Z'), completed: false } });
+  } finally { await rm(dir, { recursive:true, force:true }); }
+});
+
+test('only catalogue entries can be sent to the TV', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-cast-'));
+  try {
+    const original = join(dir, 'old.html');
+    const videos = [{ src: 'Family/one.mp4', path: 'shows/one.mp4', title: 'One', channel: 'Family', tier: 'shared', duration: 5 }];
+    await writeFile(original, `<script>const VIDEOS = ${JSON.stringify(videos)};</script>`);
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const result = await prepareChannels(root, { playerPath: original }, join(dir, 'private'));
+    assert.equal(castTarget(result.catalogue, 'Family/one.mp4'), join(dir, 'shows/one.mp4'));
+    for (const bad of ['Family/two.mp4', '', null, '../escape.mp4', '/etc/passwd']) {
+      assert.throws(() => castTarget(result.catalogue, bad), /not in this library/i);
+    }
+    const content = await readFile(fileURLToPath(result.url), 'utf8');
+    assert.ok(!content.includes(dir), 'absolute library paths must stay out of the player');
+  } finally { await rm(dir, { recursive:true, force:true }); }
+});
+
+test('unreadable settings are kept aside before defaults can overwrite them', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-settings-'));
+  try {
+    const path = join(dir, 'settings.json');
+    await writeFile(path, '{"tvHost": "192.0.2.10", "library": ', { mode: 0o600 });
+    await assert.rejects(readSettings(path, '/example'), /Cannot read settings/);
+    const kept = await preserveUnreadableSettings(path, () => 1700000000000);
+    assert.equal(kept, `${path}.unreadable-1700000000000`);
+    assert.equal(await readFile(kept, 'utf8'), '{"tvHost": "192.0.2.10", "library": ');
+    assert.equal((await stat(kept)).mode & 0o777, 0o600);
+    assert.equal(await preserveUnreadableSettings(join(dir, 'missing.json')), null);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('play-on choice persists and unknown values fall back to automatic', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'onto-settings-'));
+  try {
+    const path = join(dir, 'settings.json');
+    assert.equal(defaults('/example').playOn, '');
+    await writeSettings(path, { ...defaults('/example'), playOn: 'mac' });
+    assert.equal((await readSettings(path, '/example')).playOn, 'mac');
+    await writeFile(path, JSON.stringify({ playOn: 'phone' }));
+    assert.equal((await readSettings(path, '/example')).playOn, '');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

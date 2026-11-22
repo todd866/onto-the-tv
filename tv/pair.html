@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pair this browser</title>
+<link rel="icon" href="icon-180.png">
+<link rel="stylesheet" href="pair.css">
+</head>
+<body>
+<main class="pair">
+  <h1>Pair this browser</h1>
+  <p>Enter this server's pairing code. It is in the server's app data as <code>tv-server/pairing-token</code>.</p>
+  <form id="pair-form" autocomplete="off">
+    <label for="pair-code">Pairing code</label>
+    <input id="pair-code" name="code" type="password" spellcheck="false" autocapitalize="off" required>
+    <button type="submit">Pair</button>
+  </form>
+  <p id="pair-status" role="status" aria-live="polite"></p>
+</main>
+<script src="pair.js"></script>
+</body>
+</html>

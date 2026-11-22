@@ -1,0 +1,11 @@
+:root { color-scheme: light dark; --bg: #f4f6fb; --fg: #0b1428; --muted: #4a5670; --line: #c9d1e2; --accent: #1f5fd6; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0b1428; --fg: #eef2fb; --muted: #a9b4cc; --line: #2c3a5a; --accent: #6fa0ff; } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 -apple-system, system-ui, sans-serif; }
+.pair { max-width: 420px; margin: 0 auto; padding: 32px 16px; }
+h1 { font-size: 20px; margin: 0 0 8px; }
+p { color: var(--muted); margin: 0 0 16px; overflow-wrap: anywhere; }
+form { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+label { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+input { min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); font: inherit; }
+button { padding: 8px 14px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+#pair-status:empty { display: none; }

@@ -1,0 +1,126 @@
+{
+  "2 Meter Sessions": {
+    "id": "Q1234567",
+    "instanceOf": ["Q5398426"],
+    "startYear": "1987"
+  },
+  "List of songs by Coldplay": {
+    "id": "Q9999001",
+    "instanceOf": ["Q1340646"]
+  },
+  "4AD (EP)": {
+    "id": "Q8888001",
+    "instanceOf": ["Q482994"]
+  },
+  "4AD": {
+    "id": "Q483940",
+    "instanceOf": ["Q18127"]
+  },
+  "A Place in the Sun (film)": {
+    "id": "Q47285",
+    "instanceOf": ["Q11424"],
+    "startYear": "1951"
+  },
+  "A Place in the Sun (British TV series)": {
+    "id": "Q4657580",
+    "instanceOf": ["Q5398426"],
+    "startYear": "2000"
+  },
+  "Triple J's Hottest 100 of 2023": {
+    "id": "Q12000001",
+    "instanceOf": ["Q1340646"]
+  },
+  "Adam Newling": {
+    "id": "Q13000001",
+    "instanceOf": ["Q5"]
+  },
+  "South Park": {
+    "id": "Q16538",
+    "instanceOf": ["Q5398426"]
+  },
+  "ASAP Rocky": {
+    "id": "Q1299032",
+    "instanceOf": ["Q5"],
+    "aliases": ["A$AP Rocky", "A$AP"]
+  },
+  "Air (French band)": {
+    "id": "Q207909",
+    "instanceOf": ["Q215380"]
+  },
+  "Air": {
+    "id": "Q407979",
+    "instanceOf": ["Q4167410"]
+  },
+  "Top Gear (2002 TV series)": {
+    "id": "Q1969175",
+    "instanceOf": ["Q5398426"]
+  },
+  "Air Safety Institute": {
+    "id": "Q16900001",
+    "instanceOf": ["Q43229"]
+  },
+  "Mechanic": {
+    "id": "Q3270292",
+    "instanceOf": ["Q12737077"]
+  },
+  "Alyssa": {
+    "id": "Q1201816",
+    "instanceOf": ["Q82799"]
+  },
+  "America (band)": {
+    "id": "Q202739",
+    "instanceOf": ["Q215380"]
+  },
+  "Hana (American musician)": {
+    "id": "Q12000100",
+    "instanceOf": ["Q5"]
+  },
+  "Amine and Hamza": {
+    "id": "Q12000101",
+    "instanceOf": ["Q215380"]
+  },
+  "Aminé (rapper)": {
+    "id": "Q27709194",
+    "instanceOf": ["Q5"]
+  },
+  "Julia Stone": {
+    "id": "Q6309300",
+    "instanceOf": ["Q5"]
+  },
+  "Angus & Julia Stone": {
+    "id": "Q476326",
+    "instanceOf": ["Q215380"]
+  },
+  "Beautiful People (British TV series)": {
+    "id": "Q2277792",
+    "instanceOf": ["Q5398426"]
+  },
+  "Gangsta (Free Nationals, ASAP Rocky and Vince Staples song)": {
+    "id": "Q12000102",
+    "instanceOf": ["Q134556"]
+  },
+  "2026 Rio de Janeiro mid-air collision": {
+    "id": "Q12000103",
+    "instanceOf": ["Q1656682"]
+  },
+  "The Way (Put Your Hand in My Hand)": {
+    "id": "Q12000104",
+    "instanceOf": ["Q134556"]
+  },
+  "50 Cent": {
+    "id": "Q6066",
+    "instanceOf": ["Q5"]
+  },
+  "Al Green": {
+    "id": "Q313591",
+    "instanceOf": ["Q5"]
+  },
+  "alt-J": {
+    "id": "Q2838177",
+    "instanceOf": ["Q215380"]
+  },
+  "A Place in the Sun (Stevie Wonder song)": {
+    "id": "Q2912345",
+    "instanceOf": ["Q7366"]
+  }
+}

@@ -1,0 +1,13 @@
+// Build settings shared by both apps. Lines starting with two slashes are comments,
+// so a URL is written as https:/$()/host — $() expands to nothing.
+
+// The server a fresh install points at (Info.plist key OntoDefaultServer). Override it in
+// ~/.config/onto-the-tv/ios-private.xcconfig, which stays outside the repository:
+//   ONTO_DEFAULT_SERVER = https:/$()/<your-mac>.<tailnet>.ts.net:8443
+ONTO_DEFAULT_SERVER = https:/$()/your-mac.example.ts.net:8443
+
+// Includes are relative to this file. The main checkout (~/Projects/onto-the-tv/ios/Config)
+// is four levels below home; a worktree (~/Projects/onto-the-tv-worktrees/<name>/ios/Config)
+// is five. A missing file is skipped.
+#include? "../../../../.config/onto-the-tv/ios-private.xcconfig"
+#include? "../../../../../.config/onto-the-tv/ios-private.xcconfig"

@@ -1,0 +1,5 @@
+# Paths left out of the public snapshot (scripts/publish-public.sh). Internal ops notes.
+docs/superpowers
+docs/TODO.md
+docs/tv-project-references.md
+.playwright-mcp

@@ -1,0 +1,18 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "South Park",
+        "snippet": "South Park is an American animated television series created by Trey Parker and Matt Stone."
+      },
+      {
+        "title": "South Park (season 1)",
+        "snippet": "The first season of South Park, an American animated television series."
+      },
+      {
+        "title": "South Park, Colorado",
+        "snippet": "South Park is a high basin in Park County, Colorado."
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+:root { --ambient-cream:#f3efdf; --ambient-muted:#b2c0c6; --ambient-accent:#f2b45d; }
+html,body { width:100%; height:100%; margin:0; background:#09141b; color:var(--ambient-cream); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+#ambient-export { width:100%; height:100%; }
+.ambient-slide { position:relative; container-type:inline-size; display:flex; width:100%; height:100%; min-height:0; overflow:hidden; isolation:isolate; color:var(--ambient-cream); background:radial-gradient(circle at 80% 18%,#315063 0,#182c38 38%,#0a141b 100%); }
+.ambient-slide::after { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(115deg,#09141bcc,#0b1720b0 48%,#102c3b55); }
+.ambient-slide-content { display:flex; flex-direction:column; justify-content:center; min-width:0; width:100%; padding:5cqw; }
+.ambient-slide-eyebrow { margin:0 0 2cqw; color:var(--ambient-accent); font-size:clamp(11px,2cqw,22px); font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+.ambient-slide-title { max-width:16ch; margin:0; font-size:clamp(32px,8cqw,96px); line-height:.98; letter-spacing:-.045em; overflow-wrap:anywhere; }
+.ambient-slide-detail { max-width:38ch; margin:2cqw 0 0; color:var(--ambient-muted); font-size:clamp(14px,2.6cqw,30px); line-height:1.25; }
+.ambient-slide-footer { margin:auto 0 0; color:#cad5d9b8; font-size:clamp(10px,1.6cqw,18px); overflow-wrap:anywhere; }
+.ambient-slide-image { position:absolute; inset:0; z-index:-2; width:100%; height:100%; object-fit:contain; background:#071015; }
+.ambient-slide-photo::after { display:none; }
+.ambient-slide-photo .ambient-slide-content { justify-content:flex-end; }
+.ambient-slide-photo .ambient-slide-eyebrow,.ambient-slide-photo .ambient-slide-title,.ambient-slide-photo .ambient-slide-detail { display:none; }
+.ambient-slide-photo .ambient-slide-footer { align-self:flex-end; background:#0009; padding:6px 10px; border-radius:6px; }
+.ambient-film { width:100%; height:100%; object-fit:contain; background:#09141b; }
+.ambient-slide-weather-film .ambient-slide-content { display:none; }
+.ambient-slide-news .ambient-slide-title { max-width:18ch; font-size:clamp(30px,5.4cqw,64px); }
+.ambient-slide-news .ambient-slide-detail { max-width:35ch; }
+.ambient-forecast { display:flex; flex-wrap:wrap; gap:1cqw; margin-top:4cqw; }
+.ambient-forecast-cell { display:flex; flex-direction:column; gap:.3cqw; min-width:11cqw; padding:1.2cqw 1.5cqw; border:1px solid #ffffff1c; border-radius:1cqw; background:#08141bb8; }
+.ambient-forecast-cell span { color:var(--ambient-muted); font-size:clamp(10px,1.4cqw,16px); }
+.ambient-forecast-cell strong { font-size:clamp(15px,2.4cqw,28px); }

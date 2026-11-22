@@ -1,0 +1,8 @@
+{
+  "roots": [
+    {"label": "family", "path": "~/Movies/Family", "classify": "shows"},
+    {"label": "music", "path": "~/Movies/Music Videos", "tier": "music"},
+    {"label": "grown-ups", "path": "~/Movies/Films", "tier": "grownup"}
+  ],
+  "picks": []
+}

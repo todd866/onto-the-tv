@@ -1,0 +1,79 @@
+/* Library. Chromium 47: no grid, no gap, no custom properties. TV is dark. */
+#library {
+  position: fixed; z-index: 30; left: 0; top: 0; right: 0; bottom: 0;
+  background: #0b1428; color: #f4f1ea;
+}
+#library-modes { position: absolute; left: 36px; right: 36px; top: 28px; height: 84px; }
+#library-body { position: absolute; left: 36px; right: 28px; top: 128px; bottom: 24px; overflow: auto; }
+#library.is-search #library-body { top: 128px; }
+
+.lib-mode {
+  display: inline-block; min-height: 72px; margin: 0 12px 0 0; padding: 12px 22px;
+  border: 6px solid #f4f1ea; border-radius: 18px; background: #14213d;
+  font-size: 32px; font-weight: 800; line-height: 40px; vertical-align: top;
+}
+.lib-mode.on { background: #ffb547; border-color: #ffb547; color: #14213d; }
+.lib-mode.focused { border-color: #ffb547; }
+.lib-mode.on.focused { box-shadow: inset 0 0 0 4px #0b1428; }
+
+.lib-strip { display: flex; margin: 0 0 22px 0; }
+.lib-strip-name {
+  width: 230px; flex: 0 0 230px; padding: 18px 16px 0 0;
+  font-size: 32px; font-weight: 800; line-height: 36px; word-wrap: break-word; white-space: normal;
+}
+.lib-scroller { flex: 1; min-width: 0; display: flex; align-items: flex-start; overflow-x: auto; padding: 8px 8px 12px; }
+.lib-grid-row { display: flex; align-items: flex-start; margin: 0 0 8px 0; }
+
+.lib-card {
+  display: block; flex: 0 0 400px; min-width: 0; vertical-align: top; white-space: normal;
+  width: 400px; margin: 0 20px 12px 0; padding: 0; overflow: hidden;
+  background: #14213d; border: 8px solid #1b2a4a; border-radius: 36px; text-align: left;
+}
+.lib-card.focused { border-color: #ffb547; }
+.lib-artbox { display: block; height: 210px; background: #101a30; overflow: hidden; border-radius: 28px 28px 0 0; }
+.lib-art { display: block; width: 100%; height: 210px; object-fit: cover; }
+.lib-copy { display: block; width: 100%; padding: 12px 16px 16px; white-space: normal; }
+.lib-title { display: block; width: 100%; font-size: 32px; font-weight: 800; line-height: 36px; white-space: normal; word-wrap: break-word; }
+.lib-meta { display: block; margin-top: 10px; white-space: nowrap; }
+.lib-gauge {
+  display: inline-block; width: 160px; height: 14px; margin-right: 12px;
+  background: #243056; border-radius: 7px; vertical-align: middle;
+}
+.lib-gauge i { display: block; height: 14px; background: #ffb547; border-radius: 7px; }
+.lib-time { display: inline-block; font-size: 28px; font-weight: 800; vertical-align: middle; }
+
+.lib-ep {
+  display: flex; align-items: center; width: 100%; min-height: 72px; margin: 0 0 8px 0; padding: 12px 16px;
+  border: 4px solid transparent; border-radius: 16px; background: #14213d; text-align: left;
+}
+.lib-ep.lib-season-start { margin-top: 28px; }
+.lib-ep.focused { border-color: #ffb547; }
+.lib-ep-s, .lib-ep-e { flex: 0 0 84px; width: 84px; font-size: 32px; font-weight: 800; }
+.lib-ep-title {
+  flex: 1 1 auto; width: auto; min-width: 0;
+  font-size: 32px; font-weight: 800; line-height: 36px;
+  white-space: normal; word-wrap: break-word;
+}
+.lib-ep .lib-gauge { flex: 0 0 160px; width: 160px; margin: 0 16px 0 12px; }
+.lib-ep .lib-time { flex: 0 0 120px; width: 120px; font-size: 32px; text-align: right; }
+
+.lib-q {
+  font-size: 40px; font-weight: 800; line-height: 48px; color: #ffb547;
+  min-height: 48px; margin: 0 0 14px 0; word-wrap: break-word;
+}
+.lib-keys { float: left; width: 680px; }
+.lib-results { margin-left: 700px; }
+.lib-key {
+  display: inline-block; width: 64px; height: 64px; margin: 0 8px 8px 0; padding: 0;
+  border: 4px solid #f4f1ea; border-radius: 14px; background: #14213d;
+  font-size: 32px; font-weight: 800; line-height: 54px; text-align: center; vertical-align: top;
+}
+.lib-key-wide { width: 200px; }
+.lib-key.focused { background: #ffb547; border-color: #ffb547; color: #14213d; }
+.lib-offline { margin: 24px 0 0; font-size: 32px; font-weight: 800; color: #ffb547; }
+
+#options [data-opt="library"] .glyph svg { stroke-width: 22; }
+.app-library .app-glyph svg { width: 220px; height: 120px; }
+@media (min-width: 1600px) {
+  .app-library .app-glyph svg { width: 168px; height: 92px; }
+}

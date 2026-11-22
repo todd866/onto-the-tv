@@ -1,0 +1,18 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "2026 Rio de Janeiro mid-air collision",
+        "snippet": "On 11 January 2026 two aircraft collided over Rio de Janeiro."
+      },
+      {
+        "title": "Air (French band)",
+        "snippet": "Air are a French music duo."
+      },
+      {
+        "title": "Air",
+        "snippet": "Air is a disambiguation page."
+      }
+    ]
+  }
+}

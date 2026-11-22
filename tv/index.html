@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1">
+<title>Onto the TV</title>
+<link rel="icon" href="icon-180.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-title" content="Onto the TV">
+<meta name="theme-color" content="#0b1428">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="player-extras.css">
+<link rel="stylesheet" href="remote-games.css">
+<link id="onto-rover-styles" rel="stylesheet" href="number-rover.css">
+<link rel="stylesheet" href="library.css">
+</head>
+<body>
+<main id="home">
+  <div id="backdrop" aria-hidden="true"><div class="scrim" id="backdrop-scrim"></div></div>
+  <nav id="tube-rail" hidden aria-label="Sections"></nav>
+  <div id="tube-main">
+  <div id="top">
+    <div id="viewers" role="group" aria-label="Who's watching"></div>
+    <div id="top-meta">
+      <span id="ceiling" class="rating" hidden></span>
+      <time id="clock"></time>
+    </div>
+  </div>
+  <div id="resume-row" hidden role="group" aria-label="Continue"></div>
+  <div id="hero" hidden aria-live="polite"></div>
+  <div id="tube-chips" hidden></div>
+  <div id="channels"></div>
+  <p id="now-pager" hidden></p>
+  <p id="status" role="status"></p>
+  </div>
+</main>
+<div id="player" hidden>
+  <object id="av" type="application/avplayer" hidden></object>
+  <video id="video" preload="auto" playsinline webkit-playsinline></video>
+  <div id="osd">
+    <div id="osd-title"><span id="osd-channel"><span class="tv-chip" id="osd-num"><span class="antenna" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 28"><path d="M8 24 L40 4 L72 24" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span id="osd-num-digits"></span></span><span id="osd-chname"></span></span><span id="osd-show"></span><span id="osd-episode"></span><span id="osd-seek-legend" aria-hidden="true"><span class="keycap">OK</span><svg class="mark" viewBox="0 0 34 34"><path d="M6 18 L14 26 L28 9" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="keycap">RETURN</span><svg class="mark" viewBox="0 0 34 34"><path d="M8 8 L26 26 M26 8 L8 26" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg></span><span id="osd-guide-hint" class="keycap" aria-hidden="true"><svg viewBox="0 0 14 40"><rect x="1.5" y="1.5" width="11" height="37" rx="4" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="7" cy="14" r="2.6" fill="currentColor"/><path d="M4.500 25 h5 M4.500 31 h5" stroke="currentColor" stroke-width="2.4"/></svg>INFO</span></div>
+    <div id="osd-bar"><div id="osd-progress"><span class="keycap seek-key" aria-hidden="true"><svg viewBox="0 0 40 24"><path fill="currentColor" d="M20 3 L7 12 L20 21 Z M34 3 L21 12 L34 21 Z"/></svg></span><span id="osd-elapsed">0:00</span><div id="osd-track"><div id="osd-fill"></div><div id="osd-seek" hidden><span id="osd-seek-time"></span></div></div><span id="osd-duration">0:00</span><span class="keycap seek-key" aria-hidden="true"><svg viewBox="0 0 40 24"><path fill="currentColor" d="M6 3 L19 12 L6 21 Z M20 3 L33 12 L20 21 Z"/></svg></span></div><div id="osd-keys"><button type="button" id="osd-back" aria-label="Back" title="Back"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M30 8 L14 24 L30 40"/></svg></button><button type="button" id="osd-prev-scene" aria-label="Previous" title="Previous"><i class="key-dot red" aria-hidden="true">A</i><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M40 8 L20 24 L40 40 Z M8 8 h8 v32 h-8 z"/></svg></button><button type="button" id="osd-play" aria-label="Play or pause" title="Play or pause"><svg class="icon icon-play" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round" d="M14 8 L38 24 L14 40 Z"/></svg><svg class="icon icon-pause" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M12 8 h8 v32 h-8 z M28 8 h8 v32 h-8 z"/></svg></button><button type="button" id="osd-next" aria-label="Next" title="Next"><i class="key-dot blue" aria-hidden="true">D</i><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M8 8 L28 24 L8 40 Z M32 8 h8 v32 h-8 z"/></svg></button><button type="button" id="osd-like" aria-label="Like" aria-pressed="false" title="Like"><i class="key-dot green" aria-hidden="true">B</i><svg class="icon icon-like-off" viewBox="0 0 48 48" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="4.5" stroke-linejoin="round" d="M24 41 C10 31 5 24 5 16.500 C5 10.500 9.500 6.500 14.500 6.500 C18.500 6.500 22 8.800 24 12.500 C26 8.800 29.500 6.500 33.500 6.500 C38.500 6.500 43 10.500 43 16.500 C43 24 38 31 24 41 Z"/></svg><svg class="icon icon-like-on" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="4.5" stroke-linejoin="round" d="M24 41 C10 31 5 24 5 16.500 C5 10.500 9.500 6.500 14.500 6.500 C18.500 6.500 22 8.800 24 12.500 C26 8.800 29.500 6.500 33.500 6.500 C38.500 6.500 43 10.500 43 16.500 C43 24 38 31 24 41 Z"/></svg></button><button type="button" id="osd-options" aria-label="Options" title="Options"><i class="key-cap-label" aria-hidden="true">TOOLS</i><svg class="icon" viewBox="0 0 48 48" aria-hidden="true" fill="currentColor"><circle cx="10" cy="24" r="4"/><circle cx="24" cy="24" r="4"/><circle cx="38" cy="24" r="4"/></svg></button><button type="button" id="osd-next-scene" hidden aria-label="Next scene"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round" d="M6 10 L24 24 L6 38 Z M24 10 L42 24 L24 38 Z"/></svg></button></div></div>
+
+  </div>
+  <button id="back-chip" type="button" hidden>
+    <svg class="chev" viewBox="0 0 48 48" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M30 8 L14 24 L30 40"/></svg>
+    <img id="back-chip-art" class="thumb" alt="">
+    <span id="back-chip-title"></span>
+  </button>
+  <button id="channel-preview" type="button" hidden>
+    <img id="channel-preview-art" class="thumb" alt="">
+    <span id="channel-preview-num"></span>
+    <span id="channel-preview-copy"><span id="channel-preview-name"></span><span id="channel-preview-show"></span></span>
+    <span id="channel-preview-spin" hidden></span>
+  </button>
+  <div id="continue-strip" hidden role="group" aria-label="Continue"></div>
+  <p id="direction-caption" hidden aria-live="polite"></p>
+  <div id="ad-chip" hidden><span id="ad-label"></span><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 48"><path fill="currentColor" d="M2 6 L30 24 L2 42 Z M36 6 h10 v36 h-10 z"/></svg></span></div>
+  <button id="skip-intro" type="button" hidden><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 48"><path fill="currentColor" d="M2 6 L30 24 L2 42 Z M36 6 h10 v36 h-10 z"/></svg></span><span>Skip intro</span></button>
+  <div id="jump-strip" hidden></div>
+  <div id="tube-next" hidden></div>
+  <div id="tube-shelf" hidden></div>
+  <div id="options" hidden role="group" aria-label="Options">
+    <button type="button" class="opt" data-opt="subs"><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="56" height="36" rx="10"/><path d="M14 54h36"/></svg></span><span class="k">Subtitles</span><span class="v" id="opt-subs">Off</span></button>
+    <button type="button" class="opt" data-opt="audio"><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 64"><path fill="currentColor" d="M8 24h14l16-14v44L22 40H8z"/><path fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" d="M46 22c8 6 8 14 0 20"/></svg></span><span class="k">Audio</span><span class="v" id="opt-audio"></span></button>
+    <button type="button" class="opt" data-opt="ads"><span class="glyph" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 8 L32 18 L42 8"/><rect x="10" y="18" width="44" height="34" rx="10"/></svg></span><span class="k">Ads</span><span class="v" id="opt-ads">Play</span></button>
+  </div>
+</div>
+<div id="remote-guide" hidden></div>
+<div id="tune-flash" hidden aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" preserveAspectRatio="none"><filter id="tune-snow" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#tune-snow)"/></svg></div>
+<div id="tune-num" hidden aria-hidden="true"><span class="antenna" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 28"><path d="M8 24 L40 4 L72 24" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span id="tune-digits"></span></div>
+<div id="picker" hidden role="dialog" aria-label="Who's watching?">
+  <p class="picker-title">Who's watching?</p>
+  <div id="picker-people"></div>
+</div>
+<div id="console" hidden role="dialog" aria-label="Console games"><ul id="console-list"></ul></div>
+<div id="setup" hidden>
+  <label for="setup-address">Mac address</label>
+  <input id="setup-address" type="text" inputmode="url" autocomplete="off" spellcheck="false">
+  <p id="setup-message"></p>
+</div>
+<script src="config.js"></script>
+<script src="diagnostics.js"></script>
+<script src="player.js"></script>
+<script src="nav.js"></script>
+<script src="couch.js"></script>
+<script src="uke.js"></script>
+<script src="number-rover.js"></script>
+<script src="remote-games.js"></script>
+<script src="game-bridge.js"></script>
+<script src="watch-tracker.js"></script>
+<script src="watch-delivery.js"></script>
+<script src="library.js"></script>
+<script src="watch-back.js"></script>
+<script src="channel-arm.js"></script>
+<script src="remote-map.js"></script>
+<script src="remote-guide.js"></script>
+<script src="tube.js"></script>
+<script src="app.js"></script>
+<script src="gamepad.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "Top Gear (2002 TV series)",
+        "snippet": "Top Gear is a British motoring magazine and factual television programme."
+      },
+      {
+        "title": "Air Safety Institute",
+        "snippet": "The Air Safety Institute is a division of the Aircraft Owners and Pilots Association."
+      }
+    ]
+  }
+}

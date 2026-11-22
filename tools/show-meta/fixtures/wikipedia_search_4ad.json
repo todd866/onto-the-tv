@@ -1,0 +1,18 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "4AD (EP)",
+        "snippet": "4AD is a 1987 extended play by Pixies."
+      },
+      {
+        "title": "4AD",
+        "snippet": "4AD is a British independent record label."
+      },
+      {
+        "title": "Pixies",
+        "snippet": "The Pixies are an American alternative rock band."
+      }
+    ]
+  }
+}

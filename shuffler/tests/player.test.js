@@ -1,0 +1,1524 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { keyFor, encodePath, readWeights, saveWeights, appendLog, durationWeight, inStream, learnedWeight, pickVideo, createPlayer } = require('../player.js');
+
+const videos = [
+  { src:'Example Show/A #? [12345678].mp4', channel:'Example Show', title:'<img src=x onerror=alert(1)>', tier:'shared' },
+  { src:'Another Show/B.mp4', channel:'Another Show', title:'Episode B', tier:'shared' },
+  { src:'Big/C.mp4', channel:'Big', title:'Episode C', tier:'big' },
+];
+class Element {
+  constructor(tagName='DIV') { this.tagName=tagName; this.listeners={}; this.hidden=false; this.style={}; this.children=[]; this.textContent=''; this.disabled=false; }
+  addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
+  dispatch(name, event={}) { for (const callback of this.listeners[name] || []) callback(event); }
+  appendChild(child) { this.children.push(child); }
+  replaceChildren(...children) { this.children=children; }
+  set innerHTML(_) { throw new Error('Unsafe innerHTML assignment'); }
+}
+function fixture(options={}) {
+  const elements={};
+  for (const id of ['smum','sdad','sboth','adultTools','adultTimeline','seek','elapsed','duration','rewind','forward','later','saved','closeSaved','savedPanel','savedRows','savedEmpty','vid','splash','panel','toast','statusText','status','retry','pause','skip','back','controls','panelTitle','weightRows','s2','s6','sgrown','smusic','sall','preferShort','switch','preferences','music','cast','fullscreen','report','reportSaved','reportSavedAt','reportNote','reportDone','closePanel','reset','upNext','upNextPlay','upNextOther']) elements[id]=new Element();
+  if (options.profileFlow) for (const id of ['profiles','streams','pickerTitle','audienceSwitch','pmum','pdad','pboth','pgrown','p2','p6']) {
+    elements[id]=new Element();
+    if (id.startsWith('p') && id.length<=6) { const name=new Element('SPAN'); name.className='channel-name'; elements[id].appendChild(name); elements[id].querySelector=selector=>selector==='.channel-name'?name:null; }
+  }
+  elements.panel.hidden=true; elements.savedPanel.hidden=true; elements.reportSaved.hidden=true;
+  const vid=elements.vid;
+  Object.assign(vid,{paused:true,currentTime:0,duration:120,muted:false,playCount:0,readyState:0});
+  vid.play=options.play || function () { this.playCount++; this.readyState=1; this.dispatch('loadedmetadata'); this.paused=false; this.dispatch('playing'); return Promise.resolve(); };
+  vid.pause=function () { this.paused=true; this.dispatch('pause'); };
+  vid.removeAttribute=function (name) { delete this[name]; };
+  vid.load=function () { this.currentTime=0; this.duration=120; };
+  const document=new Element();
+  document.getElementById=id => elements[id];
+  document.createElement=tag => new Element(tag.toUpperCase());
+  document.documentElement={};
+  const entries={};
+  let clock=1000;
+  const environment={parent:options.parent,ONTO_TASTE_TOKEN:options.exportToken,ONTO_AUDIENCES:options.audiences,ONTO_AUDIENCE_NAMES:options.names,ONTO_TV_PLACES:options.tvPlaces,location:{search:options.search || ''},setTimeout:options.setTimeout || (()=>1),clearTimeout:options.clearTimeout || (()=>{}),confirm:()=>true,random:options.random || (()=>0),
+    now:options.now || (()=>clock++),addEventListener:(name,callback)=>{(window.listeners[name] ||= []).push(callback);},
+    localStorage:options.storage || {getItem:key=>(key in entries ? entries[key] : null),setItem:(key,value)=>{entries[key]=value;}}};
+  const window={listeners:{},dispatch(name,event={}){for (const callback of window.listeners[name] || []) callback(event);}};
+  if (options.storageGetterThrows) Object.defineProperty(environment,'localStorage',{get(){throw Error('Blocked');}});
+  const player=createPlayer(document,environment,options.videos || videos);
+  return {player,elements,vid,document,environment,entries,window};
+}
+
+test('component URLs preserve spaces, Unicode, hashes and question marks',()=>{
+  const path='Another Show/你好 #1? 100%.mp4';
+  assert.equal(encodePath(path),'Another%20Show/%E4%BD%A0%E5%A5%BD%20%231%3F%20100%25.mp4');
+  assert.equal(encodePath('../Shows/A.mp4'),'../Shows/A.mp4');
+});
+test('storage accepts only known finite numeric weights and preserves clamped preferences',()=>{
+  const data=JSON.stringify({[videos[0].src]:-99,[videos[1].src]:99,[videos[2].src]:'2',removed:3});
+  const result=readWeights({getItem:()=>data},2,videos);
+  assert.equal(Object.getPrototypeOf(result),null);
+  assert.equal(result[videos[0].src],0.15);
+  assert.equal(result[videos[1].src],4);
+  assert.equal(result[videos[2].src],undefined);
+  assert.equal(result.removed,undefined);
+  for (const raw of ['null','[]','"bad"','{broken']) assert.equal(Object.keys(readWeights({getItem:()=>raw},2,videos)).length,0);
+  assert.equal(saveWeights({setItem(){throw Error('quota');}},2,{}),false);
+});
+test('completion outranks early skip and errors never teach a preference',()=>{
+  assert.equal(learnedWeight(1,'skip',100,120),1.3);
+  assert.equal(learnedWeight(1,'skip',30,120),0.7);
+  assert.equal(learnedWeight(1,'error',120,120),1);
+  assert.equal(learnedWeight(3.9,'ended',120,120),4);
+  assert.equal(learnedWeight(0.15,'skip',10,120),0.15);
+});
+test('surfing past in the first seconds teaches nothing and a long watch is a mild like',()=>{
+  // Real logs: most skips come about a second in, during rapid Next-pressing.
+  assert.equal(learnedWeight(1,'skip',1,300,1),1);
+  assert.equal(learnedWeight(1,'skip',9,300,9),1);
+  assert.equal(learnedWeight(1,'skip',10,300,10),0.7);   // ten seconds in is a real look
+  assert.equal(learnedWeight(1,'skip',179,1000,179),0.7);
+  assert.equal(learnedWeight(1,'skip',200,1000),1.15);   // three minutes of a long video, then moved on
+  assert.equal(learnedWeight(3.9,'skip',200,1000),4);
+});
+test('show-first picker does not favour a catalog with 90 episodes over one with one',()=>{
+  const catalog=Array.from({length:91},(_,i)=>({src:`${i}.mp4`,channel:i<90?'Large':'Small'}));
+  let seed=12345;
+  const random=()=>((seed=(Math.imul(1664525,seed)+1013904223)>>>0)/4294967296);
+  let small=0;
+  for(let trial=0;trial<10000;trial++) if(pickVideo(catalog,catalog.map((_,i)=>i),{},-1,new Set(),[],random)===90) small++;
+  assert.ok(small>4700 && small<5300,`Small catalog selected ${small}/10000 times`);
+});
+test('picker avoids immediate and short-history repeats, but permits a lone working file',()=>{
+  const catalog=Array.from({length:8},(_,i)=>({src:`${i}.mp4`,channel:'Same'}));
+  const pool=catalog.map((_,i)=>i);
+  const selected=pickVideo(catalog,pool,{},7,new Set(),[3,4,5,6,7],()=>0);
+  assert.equal(selected,0);
+  assert.equal(pickVideo(catalog,[0,1],{},0,new Set(),[0],()=>0),1);
+  assert.equal(pickVideo(catalog,[0,1],{},0,new Set([1]),[0],()=>0),0);
+  assert.equal(pickVideo(catalog,pool,{},0,new Set(pool),[0],()=>0),-1);
+});
+test('a singleton show returns after one other show with quarter weight and show recency',()=>{
+  const catalog=Array.from({length:8},(_,i)=>({src:`${i}.mp4`,channel:i===0?'Small':'Large'}));
+  const pool=catalog.map((_,i)=>i);
+  assert.notEqual(pickVideo(catalog,pool,{},1,new Set(),[0,1],()=>0.68),0);
+  assert.equal(pickVideo(catalog,pool,{},1,new Set(),[0,1],()=>0.69),0);
+});
+test('an exhausted three-file show restores its least recently played file',()=>{
+  const catalog=Array.from({length:8},(_,i)=>({src:`${i}.mp4`,channel:i<3?'Small':'Large'}));
+  const pool=catalog.map((_,i)=>i);
+  assert.equal(pickVideo(catalog,pool,{},3,new Set(),[0,1,0,2,3],()=>0.99),1);
+});
+test('small-show relief never restores the current or failed files',()=>{
+  const catalog=Array.from({length:8},(_,i)=>({src:`${i}.mp4`,channel:i<3?'Small':'Large'}));
+  const pool=catalog.map((_,i)=>i);
+  assert.equal(pickVideo(catalog,pool,{},0,new Set([1]),[1,2,0],()=>0.99),2);
+  for(let i=0;i<100;i++) {
+    const selected=pickVideo(catalog,pool,{},0,new Set([1,2]),[1,2,0],()=>i/100);
+    assert.ok(selected>=3);
+  }
+});
+test('successive media failures stop after each file once and do not upvote',()=>{
+  const {player,vid,elements}=fixture();
+  player.startStream(2);
+  for(let count=0;count<2;count++) { vid.currentTime=120; vid.duration=120; vid.error={code:3}; vid.dispatch('error'); }
+  assert.equal(player.state.cur,-1);
+  assert.equal(player.state.failed.size,2);
+  assert.equal(vid.playCount,2);
+  assert.equal(Object.keys(player.state.weights).length,0);
+  assert.equal(elements.status.hidden,false);
+  assert.match(elements.statusText.textContent,/could not be played/);
+  assert.equal(elements.skip.disabled,true);
+  assert.equal(vid.paused,true);
+  vid.dispatch('error');
+  assert.equal(vid.playCount,2);
+});
+test('storage read, write and property-access failures do not prevent playback',()=>{
+  for(const options of [{storage:{getItem(){throw Error('denied');},setItem(){throw Error('quota');}}},{storageGetterThrows:true}]) {
+    const {player,vid}=fixture(options);
+    assert.doesNotThrow(()=>player.startStream(2));
+    vid.currentTime=20;
+    assert.doesNotThrow(()=>player.next('skip'));
+    assert.equal(vid.playCount,2);
+  }
+});
+test('blocked playback has an actionable retry and retries the same video',async()=>{
+  let calls=0;
+  const {player,vid,elements}=fixture({play(){calls++; if(calls===1) return Promise.reject(Object.assign(Error('gesture'),{name:'NotAllowedError'})); this.paused=false; this.dispatch('playing'); return Promise.resolve();}});
+  player.startStream(2);
+  const current=player.state.cur;
+  await Promise.resolve();
+  assert.equal(elements.status.hidden,false);
+  assert.equal(elements.retry.hidden,false);
+  elements.retry.dispatch('click');
+  await Promise.resolve();
+  assert.equal(player.state.cur,current);
+  assert.equal(elements.status.hidden,true);
+  assert.equal(vid.paused,false);
+});
+test('stream switch resets session, errors, panels and ignores old playback rejections',async()=>{
+  let reject;
+  const {player,vid,elements}=fixture({play(){return new Promise((_,r)=>{reject=r;});}});
+  player.startStream(2);
+  player.showWeights();
+  player.state.failed.add(1);
+  player.switchStream();
+  reject(Error('late rejection'));
+  await Promise.resolve();
+  assert.equal(player.state.cur,-1);
+  assert.equal(player.state.stream,null);
+  assert.equal(player.state.history.length,0);
+  assert.equal(player.state.failed.size,0);
+  assert.equal(elements.panel.hidden,true);
+  assert.equal(elements.status.hidden,true);
+  assert.equal(elements.controls.hidden,true);
+  assert.equal(elements.splash.hidden,false);
+  assert.equal(vid.src,undefined);
+  player.startStream(6);
+  assert.equal(player.state.pool.length,3);
+  assert.equal(player.state.failed.size,0);
+});
+test('silent QA mutes, pause/resume and Space work, and rows contain literal text',()=>{
+  const {player,vid,elements,document}=fixture({search:'?audioQa=silent'});
+  assert.equal(vid.muted,true);
+  player.startStream(2);
+  elements.pause.dispatch('click');
+  assert.equal(vid.paused,true);
+  let prevented=false;
+  document.dispatch('keydown',{key:' ',code:'Space',preventDefault(){prevented=true;}});
+  assert.equal(prevented,true);
+  assert.equal(vid.paused,false);
+  player.showWeights();
+  assert.equal(elements.weightRows.children[0].children[1].textContent,videos[0].title);
+  assert.equal(elements.panel.hidden,false);
+});
+test('streams retain separate v2 learned weights and empty playlists stop cleanly',()=>{
+  const {player,vid,entries}=fixture();
+  player.startStream(2); vid.currentTime=20; player.next('skip');
+  assert.equal(JSON.parse(entries[keyFor(2)])[videos[0].src],0.7);
+  player.switchStream(); player.startStream(6);
+  assert.equal(player.state.weights[videos[0].src],undefined);
+  const empty=fixture({videos:[videos[2]]});
+  empty.player.startStream(2);
+  assert.equal(empty.player.state.cur,-1);
+  assert.match(empty.elements.statusText.textContent,/No episodes/);
+});
+
+test('stale media events from a previous or cleared source do not fail the new file',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  const first=vid.src;
+  player.next('skip');
+  const second=player.state.cur;
+  vid.error={code:3}; vid.currentSrc=first;
+  vid.dispatch('error');
+  assert.equal(player.state.cur,second);
+  assert.equal(player.state.failed.size,0);
+  vid.currentSrc=vid.src; vid.error=null;
+  vid.dispatch('error');
+  assert.equal(player.state.failed.size,0);
+  player.switchStream(); vid.error={code:3};
+  vid.dispatch('error');
+  assert.equal(player.state.cur,-1);
+});
+test('choosing a channel stays in the app until full screen is requested',()=>{
+  const {player,document,elements}=fixture();
+  let calls=0;
+  document.documentElement.requestFullscreen=()=>{calls++;return Promise.resolve();};
+  player.startStream(2);
+  assert.equal(calls,0);
+  elements.fullscreen.dispatch('click');
+  assert.equal(calls,1);
+});
+
+test('Back resumes skipped video and forward revisits existing future without a random pick',()=>{
+  let picks=0;
+  const {player,vid,elements}=fixture({random:()=>{picks++;return 0;}});
+  player.startStream(2);
+  assert.equal(elements.back.disabled,true);
+  const first=player.state.cur;
+  vid.currentTime=37;
+  player.next('skip');
+  const second=player.state.cur;
+  vid.currentTime=12;
+  const picksBefore=picks;
+  assert.equal(elements.back.disabled,false);
+  elements.back.dispatch('click');
+  assert.equal(player.state.cur,first);
+  assert.equal(vid.currentTime,37);
+  assert.equal(elements.back.disabled,true);
+  assert.equal(player.state.weights[videos[first].src],1);
+  player.next('skip');
+  assert.equal(player.state.cur,second);
+  assert.equal(vid.currentTime,12);
+  assert.equal(picks,picksBefore);
+  assert.equal(player.state.navigation.length,2);
+  assert.equal(player.state.weights[videos[first].src],1);
+  player.back();
+  assert.equal(player.state.weights[videos[first].src],1);
+});
+
+test('separate six-second visits stay neutral; a fresh twenty-second visit is undone by Back',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  const first=player.state.cur,src=videos[first].src;
+  vid.currentTime=6;player.next('skip');
+  player.back();
+  assert.equal(vid.currentTime,6);
+  assert.equal(player.state.navigation[0].watched,0);
+  vid.currentTime=12;player.next('skip');
+  assert.equal(player.state.weights[src] ?? 1,1);
+  assert.equal(player.state.feedback.has(src),false);
+  player.back();
+  vid.currentTime=32;player.next('skip');
+  assert.equal(player.state.weights[src],0.7);
+  assert.equal(player.state.feedback.get(src).events.length,1);
+  player.back();
+  assert.equal(player.state.cur,first);
+  assert.equal(player.state.weights[src],1);
+  player.next('skip');
+  assert.equal(player.state.weights[src],1);
+});
+
+test('saved seek waits for matching metadata and rapid navigation keeps both captured positions',()=>{
+  const {player,vid}=fixture({play(){this.paused=false;return Promise.resolve();}});
+  const metadata=()=>{vid.readyState=1;vid.currentSrc=vid.src;vid.dispatch('loadedmetadata');vid.dispatch('playing');};
+  player.startStream(2); metadata();
+  vid.currentTime=42;
+  player.next('skip'); metadata();
+  vid.currentTime=18;
+  const second=vid.src;
+  player.back();
+  // A queued event for the old B source must not seek the incoming A.
+  vid.currentTime=0;vid.currentSrc=second;vid.readyState=1;
+  vid.dispatch('loadedmetadata');
+  assert.equal(vid.currentTime,0);
+  assert.equal(player.state.pendingSeek.time,42);
+  // Move forward before A's metadata; its saved42 seconds must survive.
+  player.next('skip'); metadata();
+  assert.equal(vid.currentTime,18);
+  player.back();
+  vid.currentTime=0;vid.readyState=0;vid.currentSrc=vid.src;
+  vid.dispatch('loadedmetadata');
+  assert.equal(vid.currentTime,0);
+  metadata();
+  assert.equal(vid.currentTime,42);
+  assert.equal(player.state.pendingSeek,null);
+});
+
+test('undo replays later independent feedback with caps rather than restoring an old weight',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  const src=videos[player.state.cur].src;
+  player.state.weights[src]=3.5;
+  vid.currentTime=20;player.next('skip'); // A1:3.5 ->2.45
+  vid.currentTime=120;player.next('ended'); // B1 completion
+  assert.equal(videos[player.state.cur].src,src);
+  vid.currentTime=120;player.next('ended'); // A2:2.45 ->3.185
+  assert.ok(Math.abs(player.state.weights[src]-3.185)<1e-10);
+  player.back(); // A2 completion must remain
+  player.back(); // B1 completion must remain
+  player.back(); // Undo only A1 skip; A2 now caps3.5*1.3 at4
+  assert.equal(player.state.weights[src],4);
+  player.next('skip');player.back();
+  assert.equal(player.state.weights[src],4);
+});
+
+test('a completed episode restarts on Back without a second completion upvote',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  const first=player.state.cur,src=videos[first].src;
+  vid.currentTime=120;player.next('ended');
+  assert.equal(player.state.weights[src],1.3);
+  player.back();
+  assert.equal(player.state.cur,first);
+  assert.equal(vid.currentTime,0);
+  vid.currentTime=120;player.next('ended');
+  assert.equal(player.state.weights[src],1.3);
+});
+
+test('undo handles repeated early skips and floor clipping precisely',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  const src=videos[player.state.cur].src;
+  player.state.weights[src]=0.2;
+  vid.currentTime=20;player.next('skip'); // A1 clipped to0.15
+  vid.currentTime=200;vid.duration=1000;player.next('skip'); // B neutral
+  vid.currentTime=20;player.next('skip'); // A2 already atfloor, event must still be recorded
+  player.back(); // Undo A2 (no-op originally)
+  vid.currentTime+=20;player.next('skip'); // confirms A2 skip once again
+  player.back();player.back();player.back(); // cancel A2 again, then cancel A1
+  assert.equal(player.state.weights[src],0.2);
+});
+
+test('history traversal skips broken files in either direction and stops when all fail',()=>{
+  const {player,vid,elements}=fixture();
+  player.startStream(6); // A
+  player.next('skip'); // B
+  player.next('skip'); // C
+  const last=player.state.cur;
+  player.back(); // B
+  const broken=player.state.cur;
+  vid.error={code:3};vid.currentSrc=vid.src;vid.dispatch('error'); // continue back to A
+  assert.notEqual(player.state.cur,broken);
+  assert.equal(player.state.navIndex,0);
+  assert.equal(player.state.weights[videos[player.state.cur].src],undefined); // skipped at once: surfing teaches nothing
+  assert.equal(elements.back.disabled,true);
+  player.next('skip'); // bypass broken B to existing C
+  assert.equal(player.state.cur,last);
+  assert.equal(player.state.navigation.length,3);
+  for(let count=0;count<3 && player.state.cur>=0;count++) {
+    vid.error={code:3};vid.currentSrc=vid.src;vid.dispatch('error');
+  }
+  assert.equal(player.state.cur,-1);
+  assert.equal(player.state.failed.size,3);
+  assert.equal(elements.back.disabled,true);
+  assert.equal(elements.skip.disabled,true);
+});
+
+test('navigation keeps 50 entries and folds retired learning without losing it',()=>{
+  const {player,vid,elements}=fixture();
+  player.startStream(2);
+  for(let i=0;i<60;i++) {vid.currentTime=20;player.next('skip');}
+  assert.equal(player.state.navigation.length,50);
+  assert.equal(player.state.navIndex,49);
+  assert.ok([...player.state.feedback.values()].reduce((count,ledger)=>count+ledger.events.length,0)<=50);
+  for(let i=0;i<49;i++) player.back();
+  assert.equal(player.state.navIndex,0);
+  assert.equal(elements.back.disabled,true);
+  // Eleven retired skips keep both videos disliked after undoing retained ones.
+  assert.ok(player.state.weights[videos[0].src]<0.2);
+  assert.ok(player.state.weights[videos[1].src]<0.2);
+  const count=vid.playCount;
+  player.back();
+  assert.equal(vid.playCount,count);
+});
+
+test('Left/Right and S navigate while Space pauses; stream switch clears buttons and history',()=>{
+  const {player,vid,elements,document}=fixture();
+  const key=name=>{
+    let prevented=false;
+    document.dispatch('keydown',{key:name,preventDefault(){prevented=true;}});
+    assert.equal(prevented,true);
+  };
+  player.startStream(2);vid.currentTime=23;
+  key('ArrowRight');
+  const second=player.state.cur;
+  key('ArrowLeft');
+  assert.equal(vid.currentTime,23);
+  key('s');
+  assert.equal(player.state.cur,second);
+  key(' ');
+  assert.equal(vid.paused,true);
+  player.switchStream();
+  assert.equal(player.state.navigation.length,0);
+  assert.equal(player.state.navIndex,-1);
+  assert.equal(player.state.feedback.size,0);
+  assert.equal(elements.back.disabled,true);
+  player.startStream(6);
+  assert.equal(player.state.navigation.length,1);
+  assert.equal(elements.back.disabled,true);
+});
+
+test('preference reset is not undone by navigating older history',()=>{
+  const {player,vid,elements}=fixture();
+  player.startStream(2);vid.currentTime=20;player.next('skip');
+  elements.reset.dispatch('click');
+  player.back();player.next('skip');
+  assert.equal(Object.keys(player.state.weights).length,0);
+  assert.equal(player.state.feedback.size,0);
+});
+
+test('stale play rejection during Back cannot interrupt forward playback',async()=>{
+  let reject;
+  const {player,vid,elements}=fixture();
+  player.startStream(2);vid.currentTime=24;player.next('skip');
+  const normalPlay=vid.play;
+  vid.play=()=>new Promise((_,rejectPromise)=>{reject=rejectPromise;});
+  player.back();
+  vid.play=normalPlay;
+  player.next('skip');
+  reject(Error('old back request rejected'));
+  await Promise.resolve();
+  assert.equal(elements.status.hidden,true);
+  assert.equal(vid.paused,false);
+});
+
+
+test('Back keeps an earned80-percent completion reward from Skip',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  const src=videos[player.state.cur].src;
+  vid.currentTime=100;player.next('skip');
+  assert.equal(player.state.weights[src],1.3);
+  player.back();
+  assert.equal(player.state.weights[src],1.3);
+  vid.currentTime=120;player.next('ended');
+  assert.equal(player.state.weights[src],1.3);
+});
+
+test('cancelled skip can earn completion, while repeated Back/Forward never compounds penalties',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  const src=videos[player.state.cur].src;
+  vid.currentTime=20;player.next('skip');
+  for(let i=0;i<100;i++) {
+    player.back();
+    assert.equal(player.state.weights[src],1);
+    player.next('skip');
+    assert.equal(player.state.weights[src],1);
+  }
+  assert.ok([...player.state.feedback.values()].reduce((count,ledger)=>count+ledger.events.length,0)<=2);
+  player.back();
+  vid.currentTime=120;player.next('ended');
+  assert.equal(player.state.weights[src],1.3);
+  player.back();vid.currentTime=120;player.next('ended');
+  assert.equal(player.state.weights[src],1.3);
+});
+
+test('a completed replay later resumes newly captured progress instead of restarting forever',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  vid.currentTime=120;player.next('ended');
+  player.back();
+  assert.equal(vid.currentTime,0);
+  vid.currentTime=30;player.next('skip');
+  player.back();
+  assert.equal(vid.currentTime,30);
+});
+
+test('rapid forward while a restored seek is pending stays neutral for the new visit',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);vid.currentTime=20;player.next('skip');
+  const src=videos[player.state.cur].src;
+  vid.currentTime=18;player.back();
+  const normalPlay=vid.play;
+  vid.play=function(){this.currentTime=0;this.readyState=0;return Promise.resolve();};
+  player.next('skip');
+  assert.equal(player.state.pendingSeek.time,18);
+  player.next('skip');
+  assert.equal(player.state.weights[src],undefined);
+  vid.play=normalPlay;
+});
+
+test('skipping before playback then returning can earn one completion reward',()=>{
+  const {player,vid}=fixture({play(){this.readyState=0;return Promise.resolve();}});
+  player.startStream(2);
+  const src=videos[player.state.cur].src;
+  player.next('skip');
+  assert.equal(player.state.navigation[0].graded,false);
+  player.back();
+  vid.readyState=1;vid.dispatch('loadedmetadata');
+  vid.currentTime=120;player.next('ended');
+  assert.equal(player.state.weights[src],1.3);
+  player.back();vid.readyState=1;vid.dispatch('loadedmetadata');
+  vid.currentTime=120;player.next('ended');
+  assert.equal(player.state.weights[src],1.3);
+});
+
+test('a long-watch like is undone by Back so completion earns the full reward once',()=>{
+  const {player,vid}=fixture();
+  player.startStream(2);
+  const src=videos[player.state.cur].src;
+  vid.currentTime=200;vid.duration=1000;player.next('skip');
+  assert.equal(player.state.weights[src],1.15);
+  player.back();
+  assert.equal(player.state.weights[src]??1,1);
+  vid.currentTime=1000;vid.duration=1000;player.next('ended');
+  assert.equal(player.state.weights[src],1.3);
+  player.back();vid.currentTime=1000;vid.duration=1000;player.next('ended');
+  assert.equal(player.state.weights[src],1.3);
+});
+
+test('streams are explicit tiers, never an accidental superset',()=>{
+  const {player}=fixture();
+  player.startStream(2);
+  assert.deepEqual(player.state.pool,[0,1]);            // shared only; 'big' excluded
+  player.switchStream(); player.startStream(6);
+  assert.deepEqual(player.state.pool,[0,1,2]);          // shared + big
+  player.switchStream(); player.startStream('all');
+  assert.deepEqual(player.state.pool,[0,1,2]);
+  assert.equal(inStream({tier:'preschool'},6),false);   // a toddler show never reaches Big Kids
+  assert.equal(inStream({tier:'older'},2),false);
+  assert.equal(inStream({tier:'older'},6),false);
+  assert.equal(inStream({tier:'older'},'all'),true);
+  assert.equal(inStream({tier:'nonsense'},'all'),false);
+  assert.equal(inStream({tier:'grownup'},6),false);
+  assert.equal(inStream({tier:'grownup'},'grown'),true);    // an unclassified tier reaches no stream
+});
+test('duration weighting leaves short episodes alone and tames compilations',()=>{
+  assert.equal(durationWeight({duration:420},true),1);
+  assert.equal(durationWeight({duration:900},true),1);
+  assert.equal(durationWeight({duration:3600},true),0.25);
+  assert.equal(durationWeight({duration:14400},true),0.0625);
+  assert.equal(durationWeight({duration:900000},true),0.05);  // floor: still reachable
+  assert.equal(durationWeight({duration:14400},false),1);     // toggle off restores equality
+  assert.equal(durationWeight({},true),1);
+  assert.equal(durationWeight({duration:'x'},true),1);
+});
+test('the picker prefers short episodes until the long-drive toggle is turned off',()=>{
+  const pool=[
+    {src:'Short/1.mp4',channel:'Short',title:'1',tier:'shared',duration:420},
+    {src:'Short/2.mp4',channel:'Short',title:'2',tier:'shared',duration:420},
+    {src:'Long/1.mp4',channel:'Long',title:'1',tier:'shared',duration:14400},
+    {src:'Long/2.mp4',channel:'Long',title:'2',tier:'shared',duration:14400},
+  ];
+  let seed=1; const random=()=>{seed=(seed*1103515245+12345)%2147483648; return seed/2147483648;};
+  const share=preferShort=>{
+    let long=0; const runs=20000;
+    for (let i=0;i<runs;i++) if (pickVideo(pool,[0,1,2,3],{},-1,new Set(),[],random,preferShort)>=2) long++;
+    return long/runs;
+  };
+  const biased=share(true), even=share(false);
+  assert.ok(biased<0.12,`long share with bias ${biased}`);
+  assert.ok(even>0.4 && even<0.6,`long share without bias ${even}`);
+});
+test('every visit is logged with the position reached, including tab close',()=>{
+  const {player,vid,entries,window}=fixture();
+  player.startStream(2);
+  vid.currentTime=42; player.next('skip');
+  vid.currentTime=90; player.back();
+  vid.currentTime=12; player.switchStream();
+  const log=JSON.parse(entries['kidshuffle.log.v1']);
+  assert.deepEqual(log.map(e=>[e.v,e.w,e.p,e.d,e.r,e.s]),[
+    ['Example Show/A #? [12345678].mp4',42,0,120,'skip',2],
+    ['Another Show/B.mp4',90,0,120,'back',2],
+    ['Example Show/A #? [12345678].mp4',12,42,120,'switch',2],   // resumed at 42, so 12 is a fresh visit
+  ]);
+  assert.ok(log.every(e=>Number.isFinite(e.t)));
+  const second=fixture();
+  second.player.startStream(2); second.vid.currentTime=7;
+  second.window.dispatch('pagehide');
+  assert.equal(JSON.parse(second.entries['kidshuffle.log.v1'])[0].r,'hide');
+});
+test('a long partial watch is a mild like and is recorded',()=>{
+  const {player,vid,entries}=fixture();
+  player.startStream(2);
+  vid.duration=7200; vid.currentTime=5400;   // 75% of a long film: a mild like
+  player.next('skip');
+  assert.equal(JSON.parse(entries[keyFor(2)])['Example Show/A #? [12345678].mp4'],1.15);
+  assert.deepEqual(JSON.parse(entries['kidshuffle.log.v1']).map(e=>[e.w,e.d,e.r]),[[5400,7200,'skip']]);
+});
+test('one visit logs once and an unwatched video logs nothing',()=>{
+  const {player,vid,entries}=fixture();
+  player.startStream(2);
+  vid.currentTime=30; player.next('skip'); player.back(); player.next('skip');
+  const seen=JSON.parse(entries['kidshuffle.log.v1']);
+  assert.equal(seen.length,3);
+  const quiet=fixture({play(){ return Promise.resolve(); }});   // never reaches 'playing'
+  quiet.player.startStream(2);
+  quiet.player.next('skip');
+  assert.equal(quiet.entries['kidshuffle.log.v1'],undefined);
+});
+test('the log keeps another writer entries and is capped without losing the newest',()=>{
+  const shared={}; const store={getItem:k=>(k in shared?shared[k]:null),setItem:(k,v)=>{shared[k]=v;}};
+  assert.equal(appendLog(store,{v:'first'}),true);
+  assert.equal(appendLog(store,{v:'second'}),true);
+  assert.deepEqual(JSON.parse(shared['kidshuffle.log.v1']).map(e=>e.v),['first','second']);
+  shared['kidshuffle.log.v1']=JSON.stringify(Array.from({length:3000},(_,i)=>({v:'old'+i})));
+  appendLog(store,{v:'newest'});
+  const log=JSON.parse(shared['kidshuffle.log.v1']);
+  assert.equal(log.length,3000);
+  assert.equal(log[log.length-1].v,'newest');
+  assert.equal(log[0].v,'old1');
+  assert.equal(appendLog({getItem:()=>'not json',setItem(){}},{v:'x'}),true);
+  assert.equal(appendLog({getItem:()=>null,setItem(){throw Error('quota');}},{v:'x'}),false);
+});
+test('saving learning merges instead of replacing another tab entries',()=>{
+  const shared={}; const store={getItem:k=>(k in shared?shared[k]:null),setItem:(k,v)=>{shared[k]=v;}};
+  const {player,vid}=fixture({storage:store});
+  player.startStream('all');
+  vid.currentTime=20; player.next('skip');
+  const other=JSON.parse(shared[keyFor('all')]); other['Big/C.mp4']=0.42;
+  saveWeights(store,'all',other);                       // a second tab records a video this one has not touched
+  vid.currentTime=20; player.next('skip');
+  const stored=JSON.parse(shared[keyFor('all')]);
+  assert.equal(stored['Big/C.mp4'],0.42);
+  assert.equal(stored['Example Show/A #? [12345678].mp4'],0.7);
+  assert.equal(stored['Another Show/B.mp4'],0.7);
+});
+test('reset still clears the whole record despite merging saves',()=>{
+  const shared={}; const store={getItem:k=>(k in shared?shared[k]:null),setItem:(k,v)=>{shared[k]=v;}};
+  const {player,vid,elements}=fixture({storage:store});
+  player.startStream('all');
+  vid.currentTime=20; player.next('skip');
+  const other=JSON.parse(shared[keyFor('all')]); other['Big/C.mp4']=0.42;
+  saveWeights(store,'all',other);
+  elements.reset.dispatch('click');
+  assert.deepEqual(JSON.parse(shared[keyFor('all')]),{});
+});
+test('the short-episode choice persists and survives a storage refusal',()=>{
+  const {player,entries,elements}=fixture();
+  player.startStream(2);
+  assert.equal(player.state.preferShort,true);
+  elements.preferShort.checked=false; elements.preferShort.dispatch('change');
+  assert.equal(player.state.preferShort,false);
+  assert.equal(entries['kidshuffle.preferShort.v1'],'0');
+  const reopened=fixture({storage:{getItem:k=>(k in entries?entries[k]:null),setItem(){}}});
+  assert.equal(reopened.player.state.preferShort,false);
+  const blocked=fixture({storage:{getItem(){throw Error('denied');},setItem(){throw Error('quota');}}});
+  assert.equal(blocked.player.state.preferShort,true);
+  assert.doesNotThrow(()=>blocked.player.setPreferShort(false));
+});
+test('the preferences panel names all three streams',()=>{
+  const {player,elements}=fixture();
+  for (const [stream,label] of [[2,'Little Kids 2+'],[6,'Big Kids 6+'],['all','Everything']]) {
+    player.switchStream(); player.startStream(stream); player.showWeights();
+    assert.match(elements.panelTitle.textContent,new RegExp(label.replace('+','\\+')));
+    player.showWeights();
+  }
+});
+
+const adultVideos = videos.map(video => ({...video,tier:'grownup'}));
+test('Later is neutral, restores the saved position and survives a new player', () => {
+  const f = fixture({videos:adultVideos});
+  f.player.startStream('dad'); const original=f.player.state.cur;
+  f.vid.currentTime=37; f.player.later();
+  assert.notEqual(f.player.state.cur,original);
+  assert.equal(f.player.state.weights[adultVideos[original].src],undefined);
+  f.player.resumeSaved(original); assert.equal(f.vid.currentTime,37);
+  const other=fixture({videos:adultVideos,storage:f.environment.localStorage});
+  other.player.startStream('dad'); assert.notEqual(other.player.state.cur,original); other.player.resumeSaved(original);
+  assert.equal(other.vid.currentTime,37);
+});
+test('Mum, Dad and Both keep independent feedback and bookmarks', () => {
+  const f=fixture({videos:adultVideos,audiences:true});
+  f.player.startStream('mum'); const original=f.player.state.cur;
+  f.vid.currentTime=30; f.player.later();
+  f.player.startStream('dad'); assert.equal(f.vid.currentTime,0);
+  f.vid.currentTime=20; f.player.next('skip');
+  assert.equal(JSON.parse(f.entries[keyFor('dad')])[adultVideos[original].src],0.7);
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[adultVideos[original].src],undefined);
+  const dad=f.entries[keyFor('dad')];
+  f.player.startStream('both'); f.player.next('skip');
+  assert.equal(f.entries[keyFor('dad')],dad);
+  f.player.startStream('mum'); f.player.resumeSaved(original); assert.equal(f.vid.currentTime,30);
+});
+test('Both favours overlap, while joint choices can develop separately', () => {
+  const {togetherWeight}=require('../player.js');
+  assert.equal(togetherWeight(2,2),2);
+  assert.ok(togetherWeight(4,0.15)<0.3);
+  assert.equal(togetherWeight(1,1),1);
+  assert.equal(togetherWeight(2,1),togetherWeight(1,2));
+  assert.ok(togetherWeight(1,1,1.3)>1);
+});
+test('Seeking preserves pause and does not turn scrubbed progress into a preference', () => {
+  const f=fixture({videos:adultVideos}); f.player.startStream('grown');
+  const original=f.player.state.cur; f.vid.pause(); f.player.seekTo(90);
+  assert.equal(f.vid.currentTime,90); assert.equal(f.vid.paused,true);
+  f.player.next('skip'); assert.equal(f.player.state.weights[adultVideos[original].src],undefined);
+  f.player.seekTo(-10); assert.equal(f.vid.currentTime,0);
+  f.player.seekTo(999); assert.equal(f.vid.currentTime,120);
+});
+test('Deferring every episode stops without a dislike and leaves Saved usable', () => {
+  const f=fixture({videos:adultVideos});f.player.startStream('dad');
+  for (let i=0;i<adultVideos.length;i++) f.player.later();
+  assert.equal(f.player.state.cur,-1); assert.deepEqual(Object.keys(f.player.state.weights),[]);
+  f.player.showSaved(); assert.equal(f.elements.savedRows.children.length,adultVideos.length);
+});
+
+test('Taste export requires the app capability and filters damaged saved data', () => {
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  const f=fixture({videos:adultVideos,parent,exportToken:'test-capability'});
+  f.entries['onto.adult.v1.mum']=JSON.stringify({[adultVideos[0].src]:{time:10,saved:true},bad:{time:-1}});
+  f.entries[keyFor('dad')]=JSON.stringify({[adultVideos[0].src]:9,unknown:2});
+  assert.equal(sent.length,0);
+  f.window.dispatch('message',{source:parent,data:{type:'onto:export',token:'wrong'}});
+  assert.equal(sent.length,0);
+  f.window.dispatch('message',{source:parent,data:{type:'onto:export',token:'test-capability'}});
+  assert.equal(sent.length,1);
+  assert.equal(sent[0].profiles.mum.bookmarks[adultVideos[0].src].updated,0);
+  assert.equal(sent[0].profiles.dad.weights[adultVideos[0].src],4);
+  assert.equal(sent[0].profiles.dad.weights.unknown,undefined);
+});
+
+test('Audience selection opens channels without playing and scopes subsequent choices', () => {
+  const f=fixture({videos:[...adultVideos,{src:'Music/a.mp4',title:'Music',tier:'music'}],profileFlow:true,audiences:true});
+  f.player.chooseAudience('dad');
+  assert.equal(f.vid.playCount,0);
+  assert.equal(f.elements.profiles.hidden,true);
+  assert.equal(f.elements.streams.hidden,false);
+  assert.equal(f.elements.sgrown.hidden,false);
+  f.player.chooseChannel('music');
+  assert.equal(f.player.state.stream,'dad.music');
+  assert.equal(f.player.state.pool.length,1);
+  f.player.next('skip');
+  assert.ok(f.entries[keyFor('dad')]);
+  assert.equal(f.entries[keyFor('mum')],undefined);
+  f.player.switchStream();
+  f.player.chooseChannel('grown');
+  assert.equal(f.player.state.stream,'dad');
+  // An adult library alone still opens on its own channel rather than waiting.
+  const reopened=fixture({videos:adultVideos,profileFlow:true,audiences:true,storage:f.environment.localStorage});
+  assert.equal(reopened.elements.profiles.hidden,true);
+});
+test('Kids get their age group and music, without the adult or Everything channels', () => {
+  const f=fixture({profileFlow:true,audiences:true});
+  f.player.switchStream();
+  f.player.chooseAudience('2');
+  f.player.switchStream();
+  assert.equal(f.elements.s2.hidden,false);
+  assert.equal(f.elements.s6.hidden,true);
+  assert.equal(f.elements.sgrown.hidden,true);
+  assert.equal(f.elements.sall.hidden,true);
+  assert.equal(f.elements.smum.hidden,true);
+  const before=f.vid.playCount;
+  f.player.chooseChannel("all"); assert.equal(f.vid.playCount,before);
+});
+
+test('A music-only library still offers an audience and a playable channel', () => {
+  const f=fixture({profileFlow:true,videos:[{src:'Music/a.mp4',title:'Music',tier:'music'}]});
+  assert.equal(f.elements.pgrown.hidden,false);
+  f.player.chooseAudience('grown');
+  assert.equal(f.elements.smusic.hidden,false);
+  assert.equal(f.elements.sgrown.hidden,true);
+  f.player.chooseChannel('music');
+  assert.equal(f.vid.playCount,1);
+});
+
+// --- Review fixes 2026-09-10 ---
+const filmVideos = adultVideos.map(video => ({...video,duration:120}));
+const coupleVideos = adultVideos.map(video => ({...video,tier:'couple',duration:120}));
+const musicVideo = {src:'Music/a.mp4',channel:'Music',title:'Music',tier:'music',duration:200};
+test('channel starts and switches preserve existing preferences', () => {
+  const f=fixture({videos:[...filmVideos,musicVideo],audiences:true});
+  const src=filmVideos[0].src;
+  f.entries[keyFor('mum')]=JSON.stringify({[src]:2});
+  f.player.startStream('mum');
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],2);
+  f.player.switchStream(); f.player.startStream('mum.music');
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],2);
+  f.player.switchStream(); f.player.startStream('mum');
+  assert.equal(JSON.parse(f.entries[keyFor('mum')])[src],2);
+});
+test('Reset on a channel clears only the episodes on that channel', () => {
+  const f=fixture({videos:[...filmVideos,musicVideo],audiences:true});
+  f.player.startStream('dad'); const film=filmVideos[f.player.state.cur].src;
+  f.vid.currentTime=20; f.player.next('skip');
+  assert.equal(JSON.parse(f.entries[keyFor('dad')])[film],0.7);
+  f.player.switchStream(); f.player.startStream('dad.music');
+  f.vid.currentTime=20; f.player.next('skip');
+  assert.equal(JSON.parse(f.entries[keyFor('dad')])[musicVideo.src],0.7);
+  f.elements.reset.dispatch('click');
+  const stored=JSON.parse(f.entries[keyFor('dad')]);
+  assert.equal(stored[musicVideo.src],undefined);
+  assert.equal(stored[film],0.7);
+});
+test('grading uses progress this visit, so a resumed film is not rewarded or forgiven by its position', () => {
+  // Fifth argument: seconds actually watched this visit.
+  assert.equal(learnedWeight(1,'skip',102,120,2),1);        // resumed at 85%, skipped at once: nothing learned
+  assert.equal(learnedWeight(1,'skip',241,6000,1),1);       // resumed at four minutes, left at once: surfing, nothing learned
+  assert.equal(learnedWeight(1,'skip',260,6000,20),0.7);    // resumed, watched twenty seconds, rejected: a fresh bail-out
+  assert.equal(learnedWeight(1,'skip',110,120,110),1.3);    // a short episode watched almost through
+  assert.equal(learnedWeight(1,'skip',5900,6000,900),1.3);  // fifteen minutes to the end of a long film
+  assert.equal(learnedWeight(1,'ended',120,120,2),1.3);     // finishing still counts
+});
+test('a resumed film skipped at once stays neutral whether or not metadata has arrived', () => {
+  for (const metadata of [true,false]) {
+    const f=fixture({videos:filmVideos,play(){ if (metadata) { this.readyState=1; this.dispatch('loadedmetadata'); } this.paused=false; this.dispatch('playing'); return Promise.resolve(); }});
+    const src=filmVideos[0].src;
+    f.entries['onto.adult.v1.dad']=JSON.stringify({[src]:{time:100,saved:false,updated:1}});
+    f.player.startStream('dad');
+    assert.equal(f.player.state.cur,0);
+    if (metadata) assert.equal(f.vid.currentTime,100);
+    f.player.next('skip');
+    assert.equal(f.player.state.weights[src],undefined,`metadata ${metadata}`);
+  }
+});
+test('a fresh visit after Back can teach even when the earlier visit seeked', () => {
+  const f=fixture({videos:filmVideos}); f.player.startStream('dad');
+  const src=filmVideos[f.player.state.cur].src;
+  f.player.seekTo(30); f.vid.currentTime=120; f.player.next('ended');
+  assert.equal(f.player.state.weights[src],undefined);
+  f.player.back(); assert.equal(f.vid.currentTime,0);
+  f.vid.currentTime=120; f.player.next('ended');
+  assert.equal(f.player.state.weights[src],1.3);
+});
+test('saved-for-Later rows outrank automatic bookmarks at the storage cap', () => {
+  const many=Array.from({length:520},(_,i)=>({src:`Film/${i}.mp4`,channel:'Film',title:String(i),tier:'grownup',duration:120}));
+  const f=fixture({videos:many});
+  const rows={[many[0].src]:{time:1800,saved:true,updated:100}};
+  for (let i=1;i<=500;i++) rows[many[i].src]={time:5,saved:false,updated:5000+i};
+  f.entries['onto.adult.v1.dad']=JSON.stringify(rows);
+  f.player.startStream('dad'); f.vid.currentTime=5; f.player.next('skip');
+  const stored=JSON.parse(f.entries['onto.adult.v1.dad']);
+  assert.equal(stored[many[0].src]?.saved,true);
+  assert.ok(Object.keys(stored).length<=500);
+});
+test('bookmarks for files missing from the current library survive a save', () => {
+  const f=fixture({videos:filmVideos});
+  f.entries['onto.adult.v1.dad']=JSON.stringify({'Unplugged/film.mp4':{time:1800,saved:true,updated:1}});
+  f.player.startStream('dad'); f.vid.currentTime=5; f.player.next('skip');
+  assert.deepEqual(JSON.parse(f.entries['onto.adult.v1.dad'])['Unplugged/film.mp4'],{time:1800,saved:true,updated:1});
+});
+test('the Both panel shows the effective joint weights', () => {
+  const f=fixture({videos:coupleVideos,audiences:true});
+  f.entries[keyFor('mum')]=JSON.stringify({[coupleVideos[0].src]:0.15});
+  f.player.startStream('both'); f.player.showWeights();
+  const shown=f.elements.weightRows.children.map(row=>row.children[2].textContent);
+  assert.ok(shown.includes('0.26'),`rows ${shown}`);
+});
+test('a media error while stepping back un-defers the item it lands on', () => {
+  const f=fixture({videos:filmVideos}); f.player.startStream('dad');
+  const first=f.player.state.cur; f.vid.currentTime=10; f.player.later();
+  f.vid.currentTime=10; f.player.next('skip');
+  f.player.back();
+  f.vid.error={code:3}; f.vid.currentSrc=f.vid.src; f.vid.dispatch('error');
+  assert.equal(f.player.state.cur,first);
+  assert.equal(f.player.state.deferred.has(first),false);
+});
+test('channels cannot start before an audience is chosen in profile flow', () => {
+  const f=fixture({videos:[],profileFlow:true,audiences:true});
+  assert.equal(f.player.state.stream,null);
+  f.player.chooseChannel('grown');
+  assert.equal(f.vid.playCount,0);
+  assert.equal(f.player.state.stream,null);
+});
+test('taste snapshots are throttled during playback and flushed on leaving', () => {
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  const tastes=()=>sent.filter(message=>message.type==='onto:taste');
+  let t=0;
+  const f=fixture({videos:filmVideos,parent,exportToken:'cap',now:()=>t});
+  f.window.dispatch('message',{source:parent,data:{type:'onto:export',token:'cap'}});
+  assert.equal(tastes().length,1);
+  f.player.startStream('dad');
+  for (let i=0;i<12;i++) { t+=5000; f.vid.currentTime=i*5; f.vid.dispatch('timeupdate'); }
+  assert.ok(tastes().length<=4,`sent ${tastes().length} taste snapshots in a minute`);
+  const before=tastes().length;
+  f.window.dispatch('pagehide');
+  assert.equal(tastes().length,before+1);
+});
+test('audience names come from the household configuration, defaulting to Mum and Dad', () => {
+  const f=fixture({videos:filmVideos,profileFlow:true,audiences:true,names:{mum:'Mama',dad:'Papa',both:'Us'}});
+  assert.equal(f.elements.pmum.children[0].textContent,'Mama');
+  assert.equal(f.elements.pdad.children[0].textContent,'Papa');
+  f.player.chooseAudience('mum');
+  assert.equal(f.elements.audienceSwitch.textContent,'Mama');
+  f.player.chooseChannel('grown'); f.player.showWeights();
+  assert.match(f.elements.panelTitle.textContent,/Mama/);
+  const plain=fixture({videos:filmVideos,profileFlow:true,audiences:true});
+  assert.equal(plain.elements.pmum.children[0].textContent,'');
+  plain.player.chooseAudience('dad');
+  assert.equal(plain.elements.audienceSwitch.textContent,'Dad');
+});
+const kidLibrary = [
+  {src:'Preschool/a.mp4',channel:'Preschool',title:'A',tier:'preschool',duration:400},
+  {src:'Family/b.mp4',channel:'Family',title:'B',tier:'shared',duration:400},
+  {src:'Big/c.mp4',channel:'Big',title:'C',tier:'big',duration:400},
+  {src:'Music/d.mp4',channel:'Music',title:'D',tier:'music',duration:200},
+  ...filmVideos,
+];
+test('opening the app starts the family channel without anyone choosing anything', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  assert.equal(String(f.player.state.stream),'2');
+  assert.equal(f.vid.playCount,1);
+  assert.equal(f.elements.splash.hidden,true);
+  assert.deepEqual(f.player.state.pool,[0,1]);
+});
+test('the family channel is the default even after a grown-up watched last', () => {
+  const entries={'onto.audience.v1':'dad'};
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true,
+    storage:{getItem:k=>(k in entries?entries[k]:null),setItem:(k,v)=>{entries[k]=v;}}});
+  assert.equal(String(f.player.state.stream),'2');
+});
+test('a child taps one face and their channel starts, with no channel screen', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  f.elements.audienceSwitch.dispatch('click');
+  assert.equal(f.elements.profiles.hidden,false);
+  const before=f.vid.playCount;
+  f.player.chooseAudience('6');
+  assert.equal(String(f.player.state.stream),'6');
+  assert.equal(f.vid.playCount,before+1);
+  assert.equal(f.elements.splash.hidden,true);
+});
+test('a grown-up still chooses a channel after choosing a face', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  f.elements.audienceSwitch.dispatch('click');
+  const before=f.vid.playCount;
+  f.player.chooseAudience('dad');
+  assert.equal(f.vid.playCount,before);
+  assert.equal(f.elements.streams.hidden,false);
+});
+test('children reach music from the player instead of a menu, and are offered no Taste panel', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  assert.equal(f.elements.preferences.hidden,true);
+  assert.equal(f.elements.music.hidden,false);
+  f.elements.music.dispatch('click');
+  assert.equal(f.player.state.stream,'2.music');
+  assert.equal(f.elements.music.textContent,'Shows');
+  f.elements.music.dispatch('click');
+  assert.equal(String(f.player.state.stream),'2');
+  f.elements.audienceSwitch.dispatch('click'); f.player.chooseAudience('dad'); f.player.chooseChannel('grown');
+  assert.equal(f.elements.preferences.hidden,false);
+});
+test('a library with no music never offers children a music button', () => {
+  const f=fixture({videos:kidLibrary.filter(video=>video.tier!=='music'),profileFlow:true,audiences:true});
+  assert.equal(f.elements.music.hidden,true);
+});
+function castFixture(options={}) {
+  const sent=[]; const parent={postMessage:data=>sent.push(data)};
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true,parent,...options});
+  f.sent=sent; f.parent=parent;
+  f.tv=state=>f.window.dispatch('message',{source:parent,data:{type:'onto:tv',tv:state}});
+  f.last=type=>[...sent].reverse().find(message=>message.type===type);
+  return f;
+}
+
+test('switching streams while casting clears the old lookahead before choosing',()=>{
+  const catalog=[...kidLibrary,{src:'Music/e.mp4',channel:'Music',title:'E',tier:'music',duration:200}];
+  let switching=false;
+  const f=castFixture({videos:catalog,random:()=>{
+    if(switching) assert.equal(f.player.state.cast.next,null);
+    return 0;
+  }});
+  const first=catalog[f.player.state.cur].src;
+  f.player.startCasting();
+  f.tv({path:first,positionSeconds:20,durationSeconds:400,status:'playing'});
+  assert.ok(f.player.state.cast.next);
+  switching=true;
+  f.player.startStream('2.music');
+  assert.ok(f.player.state.pool.includes(f.player.state.cur));
+  assert.equal(catalog[f.player.state.cur].tier,'music');
+  assert.equal(f.last('onto:cast-play').src,catalog[f.player.state.cur].src);
+});
+test('a stale cast lookahead outside the current pool or failed is ignored',()=>{
+  const f=castFixture();
+  f.player.startCasting();
+  f.player.startStream('2.music');
+  f.player.state.cast.next={index:0};
+  f.player.next('skip');
+  assert.ok(f.player.state.pool.includes(f.player.state.cur));
+  assert.equal(kidLibrary[f.player.state.cur].tier,'music');
+  f.player.startStream(2);
+  const failed=f.player.state.pool.find(index=>index!==f.player.state.cur);
+  f.player.state.failed.add(failed);
+  f.player.state.cast.next={index:failed};
+  f.player.next('skip');
+  assert.ok(f.player.state.pool.includes(f.player.state.cur));
+  assert.notEqual(f.player.state.cur,failed);
+});
+
+test('native cast queue results ignore stale replies and retry one rejected lookahead', () => {
+  const f=castFixture();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:first,positionSeconds:20,durationSeconds:400,status:'playing'});
+  const firstRequest=f.last('onto:cast-queue-next');
+  assert.ok(firstRequest);
+  const planned=f.player.state.cast.next;
+  assert.equal(firstRequest.src,kidLibrary[planned.index].src);
+
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:cast-queue-result',requestId:'stale',currentSrc:first,src:firstRequest.src,queued:true}});
+  assert.equal(f.player.state.cast.next.pending,true);
+  f.window.dispatch('message',{source:f.parent,data:{...firstRequest,type:'onto:cast-queue-result',queued:false}});
+  assert.equal(f.player.state.cast.next.pending,false);
+
+  f.tv({path:first,positionSeconds:24,durationSeconds:400,status:'playing'});
+  const retries=f.sent.filter(message=>message.type==='onto:cast-queue-next');
+  assert.equal(retries.length,2);
+  assert.equal(retries[1].requestId,firstRequest.requestId);
+});
+
+test('native cast transition is accepted only for the planned next item and teaches the prior item once', () => {
+  const f=castFixture();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:first,positionSeconds:390,durationSeconds:400,status:'playing'});
+  const planned=f.player.state.cast.next;
+  const nextSrc=kidLibrary[planned.index].src;
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:cast-queue-result',requestId:f.last('onto:cast-queue-next').requestId,currentSrc:first,src:nextSrc,queued:true}});
+  f.tv({path:'Unknown/file.mp4',positionSeconds:0,durationSeconds:400,status:'playing',transition:{fromPath:first,toPath:'Unknown/file.mp4',positionSeconds:390,durationSeconds:400,completed:true}});
+  assert.equal(f.player.state.cur,kidLibrary.findIndex(video=>video.src===first));
+  f.tv({path:nextSrc,positionSeconds:0,durationSeconds:400,status:'playing',transition:{fromPath:first,toPath:nextSrc,positionSeconds:390,durationSeconds:400,completed:true}});
+  assert.equal(kidLibrary[f.player.state.cur].src,nextSrc);
+  assert.equal(f.player.state.weights[first],1.3);
+  assert.equal(f.sent.filter(message=>message.type==='onto:cast-play').length,1,'native transition must not issue a second Play');
+  f.tv({path:nextSrc,positionSeconds:4,durationSeconds:400,status:'playing'});
+  assert.equal(f.player.state.weights[first],1.3);
+});
+
+test('adult lookaheads with a saved bookmark stay on the software path', () => {
+  const f=castFixture({videos:adultVideos,profileFlow:false});
+  const saved={};
+  for (const video of adultVideos.slice(1)) saved[video.src]={time:10,saved:false,updated:1};
+  f.entries['onto.adult.v1']=JSON.stringify(saved);
+  f.player.startStream('grown');
+  f.player.startCasting();
+  const first=adultVideos[f.player.state.cur].src;
+  f.tv({path:first,positionSeconds:20,durationSeconds:400,status:'playing'});
+  assert.equal(f.player.state.cast.next.software,true);
+  assert.equal(f.sent.some(message=>message.type==='onto:cast-queue-next'),false);
+});
+
+test('sending the channel to the TV hands over the episode and its position', () => {
+  const f=castFixture();
+  f.vid.currentTime=42;
+  f.elements.cast.dispatch('click');
+  const handover=f.last('onto:cast-play');
+  assert.equal(handover.src,kidLibrary[f.player.state.cur].src);
+  assert.equal(handover.seconds,42);
+  assert.equal(f.vid.paused,true);
+  assert.equal(f.elements.cast.textContent,'Stop the TV');
+});
+test('while the TV is playing, its position drives what the learner is told', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:20,durationSeconds:400,status:'playing'});
+  f.player.next('skip');
+  assert.equal(f.player.state.weights[src],0.7);
+});
+test('a film watched through on the TV earns its reward, not a bail-out', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:390,durationSeconds:400,status:'playing'});
+  f.player.next('skip');
+  assert.equal(f.player.state.weights[src],1.3);
+});
+test('when the TV finishes an episode the channel sends the next one', () => {
+  const f=castFixture();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:first,positionSeconds:400,durationSeconds:400,status:'playing'});
+  f.tv({path:'',positionSeconds:0,durationSeconds:0,status:'finished'});
+  const next=f.last('onto:cast-play');
+  assert.notEqual(next.src,first);
+  assert.equal(f.player.state.weights[first],1.3);
+});
+test('a stop on the TV remote brings the episode back rather than skipping', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:40,durationSeconds:400,status:'playing'});
+  f.tv({path:'',positionSeconds:40,durationSeconds:400,status:'idle'});
+  assert.equal(f.player.state.cast,null);
+  assert.equal(f.last('onto:cast-play').src,src);
+  assert.equal(f.player.state.weights[src],undefined);
+  assert.equal(f.vid.currentTime,40);
+});
+test('stopping the TV brings the episode back to the laptop where it left off', () => {
+  const f=castFixture();
+  f.elements.cast.dispatch('click');
+  const src=kidLibrary[f.player.state.cur].src;
+  f.tv({path:src,positionSeconds:75,durationSeconds:400,status:'playing'});
+  f.elements.cast.dispatch('click');
+  assert.ok(f.last('onto:cast-stop'));
+  assert.equal(f.vid.currentTime,75);
+  assert.equal(f.elements.cast.textContent,'Onto the TV');
+});
+test('leaving the channel while it is on the TV stops the TV', () => {
+  const f=castFixture();
+  f.elements.cast.dispatch('click');
+  f.elements.switch.dispatch('click');
+  assert.ok(f.last('onto:cast-stop'));
+  assert.equal(f.player.state.cast,null);
+});
+test('a finished report is not a skip for every later poll', () => {
+  const f=castFixture();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:first,positionSeconds:400,durationSeconds:400,status:'playing'});
+  f.tv({status:'finished'});
+  const second=f.last('onto:cast-play').src;
+  f.tv({status:'finished'});
+  assert.equal(f.last('onto:cast-play').src,second);
+});
+test('the TV losing the connection returns playback to the laptop without teaching a dislike', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:30,durationSeconds:400,status:'playing'});
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:cast-off',reason:'The TV stopped responding.'}});
+  assert.equal(f.player.state.cast,null);
+  assert.equal(f.player.state.weights[src],undefined);
+  assert.match(f.elements.toast.textContent,/TV/);
+});
+test('adult cast timeline and seek controls use TV time without moving the paused laptop', () => {
+  const f=castFixture({videos:adultVideos,profileFlow:false});
+  f.player.startStream('grown');
+  f.vid.currentTime=23; f.player.startCasting();
+  const src=adultVideos[f.player.state.cur].src;
+  f.tv({path:src,positionSeconds:200,durationSeconds:400,status:'playing'});
+  assert.equal(f.elements.seek.value,200);
+  assert.equal(f.elements.seek.max,400);
+  assert.equal(f.elements.elapsed.textContent,'3:20');
+  assert.equal(f.elements.duration.textContent,'6:40');
+  const watched=f.player.state.navigation[f.player.state.navIndex].watched;
+  f.player.seekTo(250);
+  assert.deepEqual(f.last('onto:cast-seek'),{type:'onto:cast-seek',seconds:250});
+  assert.equal(f.elements.seek.value,250);
+  assert.equal(f.player.state.navigation[f.player.state.navIndex].watched,watched);
+  f.elements.forward.dispatch('click');
+  assert.equal(f.last('onto:cast-seek').seconds,260);
+  f.elements.rewind.dispatch('click');
+  assert.equal(f.last('onto:cast-seek').seconds,250);
+  f.document.dispatch('keydown',{key:'ArrowRight',shiftKey:true,preventDefault(){}});
+  assert.equal(f.last('onto:cast-seek').seconds,260);
+  f.document.dispatch('keydown',{key:'ArrowLeft',shiftKey:true,preventDefault(){}});
+  assert.equal(f.last('onto:cast-seek').seconds,250);
+  f.elements.seek.value='350'; f.elements.seek.dispatch('input'); f.elements.seek.dispatch('change');
+  assert.equal(f.last('onto:cast-seek').seconds,350);
+  f.player.seekTo(999); assert.equal(f.last('onto:cast-seek').seconds,400);
+  f.player.seekTo(-10); assert.equal(f.last('onto:cast-seek').seconds,0);
+  assert.equal(f.vid.currentTime,23);
+  assert.equal(f.vid.paused,true);
+  assert.equal(f.last('onto:history').positionSeconds,0);
+});
+test('local channel history reports played progress every five seconds and flushes on closing', () => {
+  let time=0;
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  const f=fixture({parent,now:()=>time});
+  const history=()=>sent.filter(message=>message.type==='onto:history');
+  f.player.startStream(2);
+  assert.deepEqual(history(),[{type:'onto:history',src:videos[0].src,title:videos[0].title,
+    positionSeconds:0,durationSeconds:120,completed:false}]);
+  for (let i=1;i<50;i++) { time=i*100; f.vid.currentTime=i/10; f.vid.dispatch('timeupdate'); }
+  assert.equal(history().length,1);
+  time=5000; f.vid.currentTime=5; f.vid.dispatch('timeupdate');
+  assert.equal(history().length,2);
+  assert.equal(history()[1].positionSeconds,5);
+  time=5500; f.vid.currentTime=5.5; f.window.dispatch('pagehide');
+  assert.equal(history().length,3);
+  assert.equal(history()[2].positionSeconds,5.5);
+  assert.equal(history()[2].completed,false);
+});
+test('pending or failed local selections cannot replace the last genuinely played history item', () => {
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  const library=videos.map(video=>({...video,tier:'shared'}));
+  const f=fixture({parent,videos:library,play(){return Promise.resolve();}});
+  const history=()=>sent.filter(message=>message.type==='onto:history');
+  f.player.startStream(2);
+  assert.equal(history().length,0);
+  f.vid.readyState=1; f.vid.currentSrc=f.vid.src; f.vid.dispatch('loadedmetadata'); f.vid.dispatch('playing');
+  const played=library[f.player.state.cur].src;
+  f.vid.currentTime=42; f.player.next('skip');
+  assert.equal(history().at(-1).src,played);
+  assert.equal(history().at(-1).positionSeconds,42);
+  const count=history().length;
+  // Events still queued for the outgoing source must not name the selection.
+  f.vid.dispatch('playing'); f.vid.dispatch('timeupdate');
+  f.vid.currentSrc=f.vid.src; f.vid.error={code:3}; f.vid.dispatch('error');
+  f.window.dispatch('pagehide');
+  assert.equal(history().length,count);
+  assert.ok(history().every(message=>message.src===played && !message.completed));
+});
+test('history marks completion only when an actually played channel item ends', () => {
+  const sent=[], parent={postMessage:data=>sent.push(data)};
+  const f=fixture({parent});
+  f.player.startStream(2);
+  f.vid.currentTime=119; f.player.next('skip');
+  assert.ok(sent.filter(message=>message.type==='onto:history').every(message=>!message.completed));
+  const completed=videos[f.player.state.cur].src;
+  f.vid.currentTime=120; f.vid.ended=true; f.vid.dispatch('ended');
+  const finished=sent.filter(message=>message.type==='onto:history' && message.completed);
+  assert.equal(finished.length,1);
+  assert.equal(finished[0].src,completed);
+  assert.equal(finished[0].positionSeconds,120);
+});
+test('cast history waits for the selected TV item to play and retains TV time on leaving', () => {
+  const f=castFixture({profileFlow:false,play(){return Promise.resolve();}});
+  const history=()=>f.sent.filter(message=>message.type==='onto:history');
+  f.player.startStream(2); f.player.startCasting();
+  const first=kidLibrary[f.player.state.cur].src;
+  f.tv({path:first,positionSeconds:0,durationSeconds:400,status:'starting'});
+  assert.equal(history().length,0);
+  f.tv({path:first,positionSeconds:42,durationSeconds:400,status:'playing'});
+  assert.equal(history().at(-1).src,first);
+  assert.equal(history().at(-1).positionSeconds,42);
+  f.player.next('skip');
+  const pending=kidLibrary[f.player.state.cur].src;
+  const count=history().length;
+  f.tv({path:first,positionSeconds:43,durationSeconds:400,status:'playing'});
+  f.vid.dispatch('playing'); f.vid.dispatch('timeupdate');
+  f.window.dispatch('pagehide');
+  assert.equal(history().length,count);
+  assert.ok(history().every(message=>message.src!==pending));
+  f.tv({path:pending,positionSeconds:75,durationSeconds:400,status:'playing'});
+  assert.equal(history().at(-1).src,pending);
+  f.tv({path:pending,positionSeconds:77,durationSeconds:400,status:'playing'});
+  f.player.switchStream();
+  assert.equal(history().at(-1).positionSeconds,77);
+  assert.equal(history().at(-1).completed,false);
+});
+test('a pending adult bookmark is handed to the TV and completion names the finished item', () => {
+  const f=castFixture({videos:adultVideos,profileFlow:false,play(){return Promise.resolve();}});
+  f.entries['onto.adult.v1']=JSON.stringify({[adultVideos[0].src]:{time:70}});
+  f.player.startStream('grown'); f.player.startCasting();
+  assert.equal(f.last('onto:cast-play').seconds,70);
+  assert.equal(f.player.state.pendingSeek,null);
+  assert.equal(f.last('onto:history'),undefined);
+  const first=adultVideos[f.player.state.cur].src;
+  f.tv({path:first,positionSeconds:400,durationSeconds:400,status:'playing'});
+  f.tv({path:'',positionSeconds:0,durationSeconds:0,status:'finished'});
+  assert.deepEqual(f.last('onto:history'),{type:'onto:history',src:first,title:adultVideos[0].title,
+    positionSeconds:400,durationSeconds:400,completed:true});
+  assert.notEqual(f.last('onto:cast-play').src,first);
+});
+test('leaving a playing channel returns to who is watching', () => {
+  const f=fixture({videos:kidLibrary,profileFlow:true,audiences:true});
+  f.elements.switch.dispatch('click');
+  assert.equal(f.elements.splash.hidden,false);
+  assert.equal(f.elements.profiles.hidden,false);
+  assert.equal(f.elements.streams.hidden,true);
+});
+
+// Regression: dislike must survive opening the app, and show rotation must not override it.
+test('repeated reloads retain learned dislike and completion weights',()=>{
+  const entries={[keyFor(6)]:JSON.stringify({[videos[0].src]:0.15,[videos[1].src]:2.6})};
+  const storage={getItem:key=>entries[key]};
+  for(let i=0;i<20;i++) entries[keyFor(6)]=JSON.stringify(readWeights(storage,6,videos));
+  assert.deepEqual(JSON.parse(entries[keyFor(6)]),{[videos[0].src]:0.15,[videos[1].src]:2.6});
+});
+test('recent favourite shows remain eligible instead of forcing a rejected show',()=>{
+  const catalog=Array.from({length:13},(_,i)=>({src:`fav-${i}`,channel:i<6?'A':i<12?'B':'Rejected',duration:300}));
+  const weights=Object.fromEntries(catalog.map(v=>[v.src,v.channel==='Rejected'?0.15:2]));
+  const pool=catalog.map((_,i)=>i);let seed=55,rejected=0;
+  const random=()=>((seed=(Math.imul(1664525,seed)+1013904223)>>>0)/4294967296);
+  for(let i=0;i<10000;i++){
+    const choice=pickVideo(catalog,pool,weights,6,new Set(),[0,6],random);
+    assert.ok(choice!==0 && choice!==6);
+    if(choice===12) rejected++;
+  }
+  assert.ok(rejected>0 && rejected<1200,`rejected selected ${rejected} times`);
+});
+test('confirmed early skips persist across a fresh player, unstarted media stays neutral',()=>{
+  const data={}; const storage={getItem:k=>data[k]??null,setItem:(k,v)=>{data[k]=v;}};
+  const first=fixture({storage}); first.player.startStream(6);
+  const src=videos[first.player.state.cur].src;
+  first.vid.currentTime=20; first.player.next('skip');
+  assert.equal(JSON.parse(data[keyFor(6)])[src],0.7);
+  const reopened=fixture({storage}); reopened.player.startStream(6);
+  assert.equal(reopened.player.state.weights[src],0.7);
+  const pending=fixture({play(){return new Promise(()=>{});}});pending.player.startStream(6);
+  const unplayed=videos[pending.player.state.cur].src;pending.player.next('skip');
+  assert.equal(pending.player.state.weights[unplayed],undefined);
+});
+test('sequential picks keep a repeatedly rejected one-file show uncommon',()=>{
+  const catalog=Array.from({length:25},(_,i)=>({src:`seq-${i}`,channel:i===24?'Rejected':i<12?'A':'B',duration:300}));
+  const pool=catalog.map((_,i)=>i), weights=Object.fromEntries(catalog.map(v=>[v.src,v.channel==='Rejected'?1:2]));
+  let seed=91,current=-1,rejected=0;const history=[];
+  const random=()=>((seed=(Math.imul(1664525,seed)+1013904223)>>>0)/4294967296);
+  for(let i=0;i<3000;i++){
+    current=pickVideo(catalog,pool,weights,current,new Set(),history,random);
+    if(current===24){weights[catalog[current].src]=learnedWeight(weights[catalog[current].src],'skip',20,300,20);if(i>=100)rejected++;}
+    history.push(current);if(history.length>6)history.shift();
+  }
+  assert.equal(weights['seq-24'],0.15);
+  assert.ok(rejected<300,`rejected ${rejected}/2900 after learning`);
+});
+test('a one-second TV skip teaches nothing; twenty seconds then a skip records a dislike',()=>{
+  const f=castFixture();const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');f.tv({path:src,positionSeconds:1,durationSeconds:400,status:'playing'});
+  f.player.next('skip');
+  assert.equal(f.player.state.weights[src],undefined);
+  const second=f.last('onto:cast-play').src;
+  f.tv({path:second,positionSeconds:20,durationSeconds:400,status:'playing'});
+  f.player.next('skip');
+  assert.equal(f.player.state.weights[second],0.7);
+  assert.equal(JSON.parse(f.entries[keyFor(2)])[second],0.7);
+});
+test('another source taking the TV leaves the channel paused on the laptop at the TV position', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.elements.cast.dispatch('click');
+  f.tv({path:src,positionSeconds:30,durationSeconds:400,status:'playing'});
+  const plays=f.vid.playCount;
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:cast-off',reason:'The screensaver is on the TV.',resume:false}});
+  assert.equal(f.player.state.cast,null);
+  assert.equal(f.vid.playCount,plays,'the hidden channel must not start playing on the laptop');
+  assert.equal(f.player.state.navigation[f.player.state.navIndex].time,30);
+  assert.equal(f.player.state.weights[src],undefined);
+});
+
+test('Report captures a frozen player snapshot and responds to state requests', () => {
+  const messages=[];
+  const parent={postMessage(message){messages.push(message);}};
+  const f=fixture({parent});
+  f.player.startStream(2);
+  f.vid.currentTime=18;
+  f.elements.report.dispatch('click');
+  const report=messages.find(message=>message.type==='onto:report');
+  assert.equal(report.source,'button');
+  assert.equal(report.state.current.src,videos[f.player.state.cur].src);
+  assert.equal(report.state.mediaTime,18);
+  f.vid.currentTime=45;
+  f.window.dispatch('message',{source:parent,data:{type:'onto:report-state',requestId:'r1',reportId:report.reportId}});
+  const response=messages.find(message=>message.type==='onto:report-state-result');
+  assert.equal(response.requestId,'r1');
+  assert.equal(response.state.mediaTime,18,'reply uses the press-time snapshot');
+  assert.deepEqual(response.state.history,report.state.history);
+});
+
+test('Report key ignores text input and note row sends note then dismisses', () => {
+  const messages=[];
+  const parent={postMessage(message){messages.push(message);}};
+  const f=fixture({parent});
+  f.player.startStream(2);
+  f.window.dispatch('message',{source:parent,data:{type:'onto:report-saved',folder:'/tmp/report',at:'2026-01-01T00:00:00Z'}});
+  assert.equal(f.elements.reportSaved.hidden,false);
+  f.elements.reportNote.value='stutter';
+  f.elements.reportNote.dispatch('keydown',{key:'Enter',preventDefault(){}});
+  assert.deepEqual(messages.at(-1),{type:'onto:report-note',folder:'/tmp/report',note:'stutter'});
+  assert.equal(f.elements.reportSaved.hidden,true);
+});
+
+test('report key works before a stream, ignores editors, and reports do not change playback', () => {
+  const messages=[], parent={postMessage:value=>messages.push(value)};
+  const f=fixture({parent});
+  const key = target => f.document.dispatch('keydown', { key:'r', target, preventDefault(){} });
+  key({tagName:'INPUT'}); key({tagName:'TEXTAREA'}); key({isContentEditable:true});
+  assert.equal(messages.filter(x=>x.type==='onto:report').length,0);
+  key({tagName:'BODY'});
+  assert.equal(messages.at(-1).source,'key');
+  f.player.startStream(2);
+  const plays=f.vid.playCount, paused=f.vid.paused, state=JSON.stringify(f.player.state.navigation);
+  key({tagName:'BODY'});
+  assert.equal(f.vid.playCount,plays); assert.equal(f.vid.paused,paused);
+  assert.equal(JSON.stringify(f.player.state.navigation),state);
+});
+
+test('report state includes live navigation, weights, bounded log and cast plan', () => {
+  const f=castFixture();
+  const src=kidLibrary[f.player.state.cur].src;
+  f.player.state.weights[src]=1.8;
+  f.vid.currentTime=25;
+  f.entries['kidshuffle.log.v1']=JSON.stringify(Array.from({length:70},(_,i)=>({i})));
+  f.player.startCasting();
+  f.tv({path:src,positionSeconds:30,durationSeconds:400,status:'playing'});
+  f.window.dispatch('message',{source:f.parent,data:{type:'onto:report-state',requestId:'snapshot'}});
+  const data=f.last('onto:report-state-result').state;
+  assert.equal(data.cast.casting,true);
+  assert.equal(data.cast.lastTvStatus.positionSeconds,30);
+  assert.equal(data.cast.plannedNext.src,kidLibrary[f.player.state.cast.next.index].src);
+  assert.equal(data.navigation[data.navIndex].time,30);
+  assert.equal(data.weights[src],1.8);
+  assert.equal(data.viewingLog.length,50);
+  assert.equal(data.viewingLog[0].i,20);
+  assert.deepEqual(data.failed,[]); assert.deepEqual(data.deferred,[]);
+  assert.equal(data.poolSize,f.player.state.pool.length);
+  f.player.next('skip');
+  assert.equal(data.cast.lastTvStatus.positionSeconds,30,'returned report remains detached');
+});
+const mobland = [5,6,7,8,9,10].map(n => ({src:`grown-ups/Mobland/Mobland S01E${String(n).padStart(2,'0')}.mp4`, title:`Mobland S01E${String(n).padStart(2,'0')}`, channel:'Mobland', tier:'grownup', duration:2500}));
+const seriesLibrary = [...mobland, {src:'Films/Weapons (2025).mp4', title:'Weapons (2025)', channel:'Films', tier:'grownup', duration:7700}];
+const titleOf = f => seriesLibrary[f.player.state.cur].title;
+test('episode numbers order a series and ignore titles without them', () => {
+  const {episodeNumber}=require('../player.js');
+  assert.ok(episodeNumber({title:'Mobland S01E10'}) > episodeNumber({title:'Mobland S01E09'}));
+  assert.ok(episodeNumber({title:'Show S02E01'}) > episodeNumber({title:'Show S01E12'}));
+  assert.equal(episodeNumber({title:'Weapons (2025)'}), null);
+  assert.equal(episodeNumber({title:'Series 1 The Doctor [CH1702Q021S00]'}), null);
+});
+test('a serial picks the episode in progress, then the one after the last finished', () => {
+  const {seriesNext}=require('../player.js');
+  const all=mobland.map((_,i)=>i), src=i=>mobland[i].src;
+  assert.equal(seriesNext(mobland,all,'Mobland',{},new Map()),0);
+  // A three-second sample of E08 is not where the story is.
+  assert.equal(seriesNext(mobland,all,'Mobland',{[src(0)]:{time:121,updated:5},[src(3)]:{time:3,updated:9}},new Map()),0);
+  assert.equal(seriesNext(mobland,all,'Mobland',{},new Map([[src(0),10],[src(1),20]])),2);
+  // Abandoning an older episode after finishing a newer one follows the newer.
+  assert.equal(seriesNext(mobland,all,'Mobland',{[src(0)]:{time:600,updated:5}},new Map([[src(1),20]])),2);
+  assert.equal(seriesNext(mobland,all,'Mobland',{},new Map(mobland.map(v=>[v.src,1]))),-1);
+  // Skipping the current episode moves on rather than restarting it.
+  assert.equal(seriesNext(mobland,all,'Mobland',{[src(0)]:{time:600,updated:5}},new Map(),0),1);
+});
+test('opening Dad resumes the episode in progress, not a random later one', () => {
+  const f=fixture({videos:seriesLibrary,random:()=>0.99});
+  f.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[0].src]:{time:121,saved:false,updated:5},[mobland[3].src]:{time:3.4,saved:false,updated:9}});
+  f.player.startStream('dad');
+  assert.equal(titleOf(f),'Mobland S01E05');
+  assert.equal(f.player.state.navigation[0].time,121);
+});
+test('a shuffle that lands on a serial starts at its first unwatched episode', () => {
+  for (const roll of [0,0.2,0.4]) {
+    const f=fixture({videos:seriesLibrary,random:()=>roll});
+    f.player.startStream('dad');
+    assert.ok(['Mobland S01E05','Weapons (2025)'].includes(titleOf(f)),titleOf(f));
+  }
+});
+test('finishing an episode plays the next one, and credits count as finished', () => {
+  const f=fixture({videos:seriesLibrary,random:()=>0});
+  f.player.startStream('dad'); assert.equal(titleOf(f),'Mobland S01E05');
+  f.vid.currentTime=120; f.player.next('ended');
+  assert.equal(titleOf(f),'Mobland S01E06');
+  // Stopped in the credits of E06 last time: a new session starts E07.
+  const later=fixture({videos:seriesLibrary,random:()=>0});
+  later.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[1].src]:{time:2450,saved:false,updated:5}});
+  later.player.startStream('dad');
+  assert.equal(titleOf(later),'Mobland S01E07');
+});
+test('a place the TV saved more recently is picked up on the laptop', () => {
+  // Dad stopped E05 at 2 minutes here; later the TV got to 20 minutes.
+  const tvPlaces={[mobland[0].src]:{time:1200,updated:50,completed:false}};
+  const f=fixture({videos:seriesLibrary,random:()=>0.99,tvPlaces});
+  f.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[0].src]:{time:121,saved:false,updated:5}});
+  f.player.startStream('dad');
+  assert.equal(titleOf(f),'Mobland S01E05');
+  assert.equal(f.player.state.navigation[0].time,1200);
+  // Finished on the TV: the laptop moves on to E06.
+  const done=fixture({videos:seriesLibrary,random:()=>0,tvPlaces:{[mobland[0].src]:{time:0,updated:50,completed:true}}});
+  done.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[0].src]:{time:121,saved:false,updated:5}});
+  done.player.startStream('dad');
+  assert.equal(titleOf(done),'Mobland S01E06');
+  // An older TV place does not undo the laptop's.
+  const stale=fixture({videos:seriesLibrary,random:()=>0.99,tvPlaces:{[mobland[0].src]:{time:1200,updated:1,completed:false}}});
+  stale.entries['onto.adult.v1.dad']=JSON.stringify({[mobland[0].src]:{time:121,saved:false,updated:5}});
+  stale.player.startStream('dad');
+  assert.equal(stale.player.state.navigation[0].time,121);
+});
+test('kids channels keep shuffling numbered episodes', () => {
+  const kids=mobland.map(v=>({...v,tier:'shared',duration:300}));
+  const f=fixture({videos:kids,random:()=>0.99});
+  f.player.startStream(2);
+  assert.equal(kids[f.player.state.cur].title,'Mobland S01E10');
+});
+test('clicking the picture pauses and plays, but a double-click only goes fullscreen', () => {
+  const timers=new Map(); let id=0;
+  const f=fixture({videos:seriesLibrary,setTimeout:(callback)=>{timers.set(++id,callback);return id;},clearTimeout:key=>timers.delete(key)});
+  const fire=()=>{ for (const [key,callback] of [...timers]) { timers.delete(key); callback(); } };
+  f.document.fullscreenElement=null; f.document.documentElement.requestFullscreen=()=>{ f.document.fullscreenElement=f.document.documentElement; return Promise.resolve(); };
+  f.player.startStream('dad'); assert.equal(f.vid.paused,false);
+  f.vid.dispatch('click',{pointerType:'mouse'}); fire(); assert.equal(f.vid.paused,true);
+  f.vid.dispatch('click',{pointerType:'mouse'}); fire(); assert.equal(f.vid.paused,false);
+  f.vid.dispatch('click',{pointerType:'mouse'}); f.vid.dispatch('click',{pointerType:'mouse'});
+  f.vid.dispatch('dblclick',{preventDefault(){}}); fire(); assert.equal(f.vid.paused,false);
+  f.vid.dispatch('click',{pointerType:'touch'}); fire(); assert.equal(f.vid.paused,false);
+});
+test('a finished serial offers the next episode with a countdown, or something else', () => {
+  const timers=new Map(); let id=0;
+  const options={videos:seriesLibrary,random:()=>0,setTimeout:(callback)=>{timers.set(++id,callback);return id;},clearTimeout:key=>timers.delete(key)};
+  const tick=()=>{ for (const [key,callback] of [...timers]) { timers.delete(key); callback(); } };
+  const f=fixture(options);
+  f.player.startStream('dad'); assert.equal(titleOf(f),'Mobland S01E05');
+  f.vid.currentTime=120; f.vid.ended=true; f.vid.dispatch('ended');
+  assert.equal(f.elements.upNext.hidden,false);
+  assert.equal(titleOf(f),'Mobland S01E05','waits for a choice');
+  assert.equal(f.elements.upNextPlay.children[0].textContent,'▶ Next episode · Mobland S01E06');
+  assert.equal(f.elements.upNextPlay.children[1].textContent,'10');
+  for (let i=0;i<10;i++) tick();
+  assert.equal(f.elements.upNextPlay.children[1].textContent,'0');
+  tick(); assert.equal(titleOf(f),'Mobland S01E06'); assert.equal(f.elements.upNext.hidden,true);
+  // Something else leaves the show.
+  f.vid.ended=true; f.vid.dispatch('ended'); assert.equal(f.elements.upNext.hidden,false);
+  f.elements.upNextOther.dispatch('click');
+  assert.equal(titleOf(f),'Weapons (2025)'); assert.equal(f.elements.upNext.hidden,true);
+  // The last episode of a run simply moves on.
+  const last=fixture({...options,videos:[mobland[5],seriesLibrary[6]]});
+  last.player.startStream('dad'); last.vid.ended=true; last.vid.dispatch('ended');
+  assert.equal(last.elements.upNext.hidden,true);
+});
+test('on the TV a finished serial waits for Next episode or Something else instead of pre-queueing', () => {
+  const timers=new Map(); let id=0;
+  const tick=()=>{ for (const [key,callback] of [...timers]) { timers.delete(key); callback(); } };
+  const f=castFixture({videos:seriesLibrary,profileFlow:false,random:()=>0,setTimeout:(callback)=>{timers.set(++id,callback);return id;},clearTimeout:key=>timers.delete(key)});
+  f.player.startStream('dad'); f.player.startCasting();
+  const first=seriesLibrary[f.player.state.cur].src;
+  f.tv({path:first,positionSeconds:60,durationSeconds:2500,status:'playing'});
+  assert.equal(f.last('onto:cast-queue-next'),undefined,'the TV is not handed E06 in advance');
+  f.tv({path:first,positionSeconds:2500,durationSeconds:2500,status:'finished'});
+  assert.equal(f.elements.upNext.hidden,false);
+  assert.equal(f.elements.upNextPlay.children[0].textContent,'▶ Next episode · Mobland S01E06');
+  for (let i=0;i<11;i++) tick();
+  assert.equal(f.last('onto:cast-play').src,mobland[1].src);
+  // Something else on the TV changes show.
+  f.tv({path:mobland[1].src,positionSeconds:60,durationSeconds:2500,status:'playing'});
+  f.tv({path:mobland[1].src,positionSeconds:2500,durationSeconds:2500,status:'finished'});
+  f.elements.upNextOther.dispatch('click');
+  assert.equal(f.last('onto:cast-play').src,'Films/Weapons (2025).mp4');
+});

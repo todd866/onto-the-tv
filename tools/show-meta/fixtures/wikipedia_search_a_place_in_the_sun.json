@@ -1,0 +1,18 @@
+{
+  "query": {
+    "search": [
+      {
+        "title": "A Place in the Sun (film)",
+        "snippet": "A Place in the Sun is a 1951 American drama film."
+      },
+      {
+        "title": "A Place in the Sun (British TV series)",
+        "snippet": "A Place in the Sun is a British television series about property abroad."
+      },
+      {
+        "title": "A Place in the Sun",
+        "snippet": "A Place in the Sun may refer to several works."
+      }
+    ]
+  }
+}

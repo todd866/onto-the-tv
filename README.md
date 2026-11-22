@@ -1,0 +1,305 @@
+<p align="center"><img src="brand/onto-the-tv-icon.png" width="140" alt="An amber television with a sunset on its screen"></p>
+
+# Onto the TV
+
+**A few channels, fed by the videos you already have.**
+
+Open the app, choose who is watching, and pick a channel from the same numbered
+lineup used on the TV. The desktop starts with everyone selected (G). Each channel draws its next
+episode from your own library, learns from skips and completions, and avoids
+recent repeats. Playback happens inside the app. **Onto the TV** hands that
+channel to a Samsung on the same network. The app prepares one next episode for
+the TV's native Next control, follows confirmed TV track changes, and learns
+from remote skips as well as app skips. TVs without native queue support still
+advance when an episode finishes. Adult items with a saved position use the
+software transition so they resume correctly.
+
+![Channels in Onto the TV](brand/app-preview.png)
+
+The TV tab opens individual files on the TV. Opening or dropping another file
+saves your place and replaces the current video; **Add to queue** leaves it
+playing. **History** lists the latest 500 files watched in the app or on the TV,
+with the last watched time, progress, completion and a button to resume on the TV.
+When it is full, files without scene bookmarks are dropped first.
+History starts recording with this version; existing channel taste/bookmarks stay
+separate. The Mac stays awake and on the same network while it serves the TV.
+
+**Library** is a visual browser: Continue watching, film tiles, search and show
+filters. Click a tile to play or resume it where the toolbar's **Play on** switch
+points: **Mac** plays in the app (the default on a laptop), **TV** sends it to the
+Samsung. The Mac player's **Onto the TV** button carries on from the same spot on the
+TV. History and dropped files follow the same switch.
+The Mac player picks **CC** subtitles (sidecar `.srt`/`.vtt` or text tracks inside the
+file), the **♪** audio track and the speed, and **⏭ Next** plays the next file in the
+show's folder (then the next season folder); it also follows on when an episode ends.
+Files the app's Chromium cannot play (AVI, MPEG-TS, AC3/E-AC3/DTS audio, older video
+codecs) are converted once with ffmpeg into a cache (`mac-ready` in the app's data
+folder, capped at 10 GB): audio-only fixes take seconds, video conversion uses the
+Mac's hardware encoder and shows its progress. Artwork comes from local video
+frames and is cached privately; browsing does not start playback. Add more video
+folders through Library settings. These additions are for browsing and do not
+change the children's channel groups.
+
+## Watch from the TV instead
+
+A Mac that stays on (for example a spare one with a media drive) can serve the library to
+the TV, which then browses and plays with its own remote: channels, Continue and every show.
+Channels pick and learn exactly as they do in the app.
+
+```sh
+scripts/install_tv_server.sh      # runs bin/tv-server.js at login on port 8686
+```
+
+Then open `http://<Mac address>:8686/` in the TV's web browser, or install the TV app:
+see [tizen/README.md](tizen/README.md).
+
+Better still, plug that Mac into the TV and let it be the smart TV: `npm run tv-shell` opens
+the home screen full screen with no Mac visible. Home has big tiles for each channel,
+YouTube (YouTube's own TV app, signed in once) and Games, Continue, and Live TV, which tunes the
+Samsung's own tuner over the network; while live TV shows, the remote's channel and number
+keys pass to the TV and Home or Back comes back. Volume always goes to the TV.
+`scripts/install_tv_shell.sh` starts it at login and restarts it if it quits. The TV's
+address, its HDMI input key, the Home keys and the live channel list are in
+`tv-shell.json` in the app's data folder.
+
+## Games
+
+Number Snake is on the Games tile: everyone shares the screen and collects the numbers in order.
+The TV Macs have no Rust toolchain, so build the game where Rust is installed and keep the wasm:
+
+```sh
+games/build.sh
+```
+
+That writes `tv/games/number-snake.wasm`, which the TV server serves with the page. Pair Bluetooth
+controllers on the Mac behind the TV; the page reads up to four standard gamepads (d-pad or left
+stick, A to join). Without one, the arrows drive player 1, WASD drives player 2, and Enter or Space
+is A. Escape, Backspace, or the controller's Back button returns home.
+
+### Holiday mode: a second Mac with the library on a drive
+
+A second Mac (a laptop that travels) can stream from the main TV Mac at home and serve its own
+copy from an external drive when that Mac cannot be reached. Its internal disk holds only the code.
+
+```sh
+scripts/copy_holiday_library.sh /Volumes/TV --from m2           # library + settings onto the drive
+scripts/install_tv_server.sh --app-data "/Volumes/TV/Onto the TV" # runs only while the drive is in
+```
+
+The drive copy shares the main Mac's pairing token, so one TV app accepts either Mac: build it
+with both addresses (`tizen/build.sh --server-host m2 --address http://<M2>:8686 --address
+http://<second Mac>:8686`). On the second Mac, the TV shell's `tv-shell.json` takes
+`"servers": ["http://<M2>:8686/", "http://127.0.0.1:8686/"]` and shows the first that answers.
+Re-run the copy before a trip; it copies only what changed. The first time the server reads the
+drive, macOS asks whether node may use files on a removable volume: allow it at that Mac.
+
+## Install on a Mac
+
+You need macOS 13 or later, Node.js 22.12+, Python 3.10+ and FFmpeg. Node builds
+the app; the installed app carries its own Electron runtime. Python and FFmpeg
+stay external.
+
+```sh
+brew install node python ffmpeg
+git clone https://github.com/todd866/onto-the-tv.git
+cd onto-the-tv
+npm ci
+npm run install-app
+```
+
+Open **Onto the TV** from `~/Applications`. The installer downloads Electron on
+first use, builds a self-contained app, checks its signature, and keeps the
+previous version as a hidden backup beside it. Older backups of the app are
+removed, so repeated installs do not accumulate gigabytes. Installation never
+starts playback. This is a source build with an ad-hoc signature, not a
+notarized release.
+
+For development, `npm start` runs it in place. To build without registering it:
+
+```sh
+python3 scripts/install_mac_app.py --output "dist/Onto the TV.app" --no-register
+```
+
+## Set up channels
+
+1. Keep one show per folder inside a video library.
+2. Copy [shuffler/tiers.example.json](shuffler/tiers.example.json) to a private
+   `tiers.json` and put your show folder names into the groups.
+3. In **Library settings**, choose the folder and the show groups, then
+   **Refresh**.
+4. Open the app. The family channel starts; use **Channels** if you need a
+   different viewer.
+
+Unassigned shows appear only in Everything. The groups are your own judgement,
+not age ratings, and the picker is not a parental lock. Extra folders and
+individual films go in a [sources file](shuffler/sources.example.json).
+
+Already have a player generated by the browser version? **Library settings →
+Channel setup → Import library…** reads its video list. The app renders its own
+player and never runs imported HTML. Choose your show groups and sources before
+refreshing.
+
+The app's stored preferences are separate from your browser's. To carry old ones
+over, put a JSON object of storage-key/value pairs in
+`~/Library/Application Support/Onto the TV/player-import.json` before first use.
+Only `kidshuffle.weights.v2.s2`, `.s6`, `.sgrown`, `.smum`, `.sdad`, `.sboth`,
+the viewing log and the short-episode preference are accepted, and existing app
+values are never overwritten. Music and Everything now learn under the watching
+audience's own key, so the retired `.smusic` and `.sall` keys are ignored. Keep
+this file outside the repository. There is no continuing browser sync.
+
+The [shuffler guide](shuffler/README.md) covers configuration, shortcuts,
+learning, browser compatibility and copying videos to an Android phone with VLC
+playlists. Phone playback does not run the learner.
+
+## Who is watching
+
+Channels uses the running local TV server on port 8686. Start it with
+`scripts/install_tv_server.sh` if needed. The youngest child limits the lineup to G, the older child to PG,
+and adults allow the full catalogue. These are household preferences, not a
+parental lock. Changing viewers clears the old lineup immediately; selecting no
+one leaves no media channels available.
+
+Desktop selections last for the window session and do not change the TV's saved
+viewers or its evening defaults. Channel numbers, names, picks and the player come
+from the TV server. Both surfaces use the same artwork cards and viewer symbols;
+the desktop keeps its Library, Screensaver, TV and History tools alongside them.
+
+Use the arrow keys to move through desktop channel cards, Home/End for the first
+or last card, and Enter to play. Back returns to the channel you picked. Long
+channel and programme names wrap, and unavailable channels have a Retry control.
+Library and TV remain separate local-file management surfaces.
+
+The older generated offline shuffler and its import/preferences format are
+covered in the [shuffler guide](shuffler/README.md). Native Channels now uses the
+TV player instead. See [native/TV parity](docs/native-parity.md) for intentional
+differences and verification.
+
+## Set up a TV
+
+In **TV → Connection**, enter the TV's IPv4 address from its network settings.
+The default control endpoint is
+`http://TV_ADDRESS:9197/upnp/control/AVTransport1`. If your Samsung uses a
+different UPnP AVTransport endpoint, set it under advanced settings, where you
+can also pin the Mac's Wi-Fi address if the automatic choice is wrong.
+
+While a channel is playing, **Onto the TV** sends the current episode and
+picks up from the laptop’s position. Skip and pause on the Mac control the TV.
+When the file ends, the channel’s next pick follows. Stop on the Samsung remote
+brings the episode back to the laptop rather than skipping.
+
+This drives Samsung's DLNA renderer, not AirPlay, Chromecast or the TV's YouTube
+app. It grew from a 2017 Samsung; other models depend on their own renderer.
+There is no device discovery yet. The TV tab also opens individual files. Its timeline, **−10s** and **+30s**
+buttons seek without restarting the file; quick clicks combine into one jump.
+Left/right arrows work when focus is outside a control. Saved progress survives
+Stop and app restarts. Files that finish start from the beginning next time.
+If a TV rejects seeking, playback continues and the app reports the problem.
+
+**Scenes & chapters** offers clickable chapter titles embedded in the file.
+Name a moment and choose **Save point** to keep your own scene bookmark. These
+points stay with the file in your private history; × removes a saved point.
+Files without chapter metadata need your own scene names: the app does not
+invent plot summaries or scan whole films for scenes.
+
+For command-line use, `npm run cast -- --help` exposes the casting tools.
+YouTube URLs there need `yt-dlp`; the desktop app works with local files.
+
+## Reporting a problem
+
+Use Report (or R) in the player, Report a Problem (⌘⇧R) in the menu, or `npm run report -- "what went wrong"`.
+Reports are saved privately under `~/Library/Application Support/Onto the TV/reports/`.
+They contain a point-in-time player, TV, settings, playback history and recent error snapshot.
+App captures also include a screenshot and the last 15 minutes of events; CLI captures use disk data only. Add an optional note after capture; reports never leave the Mac.
+
+## Privacy and network access
+
+- Videos stay in your folders. There is no cloud account and no telemetry.
+- Channel preferences and up to 3,000 viewing records live in the app's local
+  storage. The [guide](shuffler/README.md#watching-and-learning) lists exactly
+  what a record holds. Clearing app storage removes them.
+- Watch history, resume positions and named scene points live in the private
+  `playback-history.json` beside the app settings. History is keyed by the local
+  file path, so moving or renaming a file creates a separate entry.
+- TV settings and chosen paths live in
+  `~/Library/Application Support/Onto the TV/settings.json`, outside the repo.
+- While casting, a temporary HTTP server serves only the selected files at
+  random, unguessable URLs. It is meant for a trusted home network, and the TV
+  protocol is unencrypted. Stopping or quitting revokes the URLs.
+- Your configurations, generated players, phone inventories, playlists and media
+  do not belong in a public fork. The provided `.gitignore` covers their default
+  names; renamed private files need to stay outside the repo too.
+
+- **The TV server (port 8686) asks other devices for its pairing token.** The
+  token lives in `tv-server/pairing-token` in the app data. Requests from the
+  server's own Mac (loopback, not forwarded by `tailscale serve`) need nothing.
+  Every other API, video, picture or subtitle request must carry the token:
+  - the installed TV app and the phone apps send the `X-Onto-Token` header, and
+    `?t=` on `/media`, `/art`, `/subs`, `/scene-thumb` and `/channel-art`, where
+    a player or `<img>` cannot add a header;
+  - the Mac app adds the header in its main process for the tailnet address,
+    and for the home address once that has proved it holds the token. A page
+    never sees the token;
+  - a browser on another device opens `/pair.html` once and types the token.
+    It gets an HttpOnly, SameSite=Strict cookie holding an HMAC of the token.
+
+  The static interface, fonts, `/api/health`, `/api/whoami` and the game relay
+  (six-digit code) stay open. `ONTO_AUTH_MODE=observe` (the default) or
+  `--auth-mode observe` lets unpaired requests through and logs one line per
+  kind (`auth observe: would reject …`). `ONTO_AUTH_MODE=enforce` refuses them
+  with 401, or 403 for a wrong token.
+
+- **Who lives here stays out of the repo.** Viewer ids, names and rating
+  ceilings, the profiles, and the machines' addresses (the TV server's home and
+  tailnet origins, the TV, the race server) live in
+  `~/.config/onto-the-tv/household.json` (or the path in `ONTO_HOUSEHOLD`).
+  `src/household.js` documents the format and holds a generic example, used
+  when the file is missing; the server logs which one it loaded. Watch history
+  and taste are stored under the viewer ids, so keep the ids once chosen, and
+  give every Mac running the app or server the same file. The iOS and tvOS apps
+  read their default server from `~/.config/onto-the-tv/ios-private.xcconfig`
+  (`ios/README.md`).
+
+No films, shows, music, download lists or personal viewing data ship with this
+project.
+
+## Development and tests
+
+```sh
+npm test
+npm run test:python
+```
+
+The tests use simulated TVs and phones, temporary loopback servers, and short
+silent clips generated by FFmpeg. They do not touch real hardware, and the
+player tests drive its state machine directly rather than opening a window.
+
+| Folder | Purpose |
+| --- | --- |
+| `src/` | Electron shell, private settings, TV queue and embedded channels |
+| `ui/` | Offline app interface |
+| `casting/` | Media preparation, HTTP serving and Samsung control |
+| `shuffler/` | Offline player, generator, Android sync and playlist tools |
+| `brand/` | Shared TV icon and macOS icon bundle |
+
+## License and credits
+
+[MIT](LICENSE). The original app icon was generated with OpenAI's image tools and
+is included under the same license. Electron and its bundled components keep
+their own licenses, which the installer carries into the app. FFmpeg and optional
+tools are installed separately. Samsung is a trademark of its owner; this is an
+independent project.
+
+## Screensaver
+
+The Screensaver tab previews a quiet programme for the room. Turn Weather, Headlines and Photos on individually or combine them, then choose **Onto the TV** to start. Merely browsing or changing options does not change TV playback. Stop or open another video to leave it. This is a manually started programme, with no idle timer.
+
+Weather reads Isobar’s published local forecast archive (`~/Data/isobar`); the prepared map animation is discovered in `~/Library/Caches/Isobar/wall` (`ISOBAR_WALL_DIR` can override it). Isobar owns the weather maps and their forecast interpolation. Local forecast cards, photos and optional BBC World News headlines are composed into silent 24fps H.264/AAC video with generated transition frames. News is off by default. Photos come only from a folder you choose; JPEG, PNG and WebP are supported.
+
+The app prepares one rotation ahead, refreshes sources between segments, and removes temporary media after it leaves the queue. Keep the Mac and app running while the TV is playing. Photo scanning and news requests are bounded; missing sources are reported in the preview. World-weather coverage is a future programme segment.
+
+## Music ecosystem
+
+Music-video channels and likes share the unified song alias table (`music/ids.json`), audio embeddings, and append-only taste log maintained by [music-core](https://github.com/todd866/music-core), alongside [6IAN radio](https://github.com/todd866/6ian-radio) and [Glancebar](https://github.com/todd866/glancebar).
+
+[Omni](https://github.com/todd866/omnifeed) is the separate unified-content project.
