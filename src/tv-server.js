@@ -26,9 +26,9 @@ import {
   artistKeyForVideo, buildMusicHeardMap, isMusicVideoChannel, isMusicVideoItem, isMusicVideoPick,
   mildMusicSkipWeight, musicRankScore, pickMusicVideoIndex, youtubeTasteBoost,
 } from './music-pick.js';
-import { canonSlug, christmasAffinity, loadShowSpace } from './show-space.js';
+import { canonSlug, christmasAffinity, loadShowSpace, showAffinity } from './show-space.js';
 import { loadVideoSpace, videoAffinity } from './video-space.js';
-import { creatorChannels, lovedOnYouTube } from './youtube-watch.js';
+import { creatorChannels, lovedOnYouTube, youtubeIdOf } from './youtube-watch.js';
 
 // The TV pulls from this server: it lists the library, picks each channel's next
 // episode with the same picker and learning rules as the app's player, and streams
@@ -36,13 +36,21 @@ import { creatorChannels, lovedOnYouTube } from './youtube-watch.js';
 
 const require = createRequire(import.meta.url);
 
-// The canon knowledge map (tools/show-embed export: every Christmas entry we know
-// about, embedded, with nearest neighbours). Loaded once, lazily; absent or broken
-// leaves every affinity neutral.
+// The canon knowledge map (tools/show-embed export: shows and Christmas entries,
+// embedded with nearest neighbours). Reloads when its mtime changes (checked at most
+// once a minute) so background harvests/exports take effect without restarting.
 const canonicalSpace = (() => {
-  let cached;
-  return () => cached ??= loadShowSpace(
-    process.env.ONTO_SHOW_SPACE || join(homedir(), '.local/state/onto-tv-embed/show-space.json'));
+  const path = process.env.ONTO_SHOW_SPACE || join(homedir(), '.local/state/onto-tv-embed/show-space.json');
+  let cached = null, mtime = -1, checkedAt = 0;
+  return () => {
+    const now = Date.now();
+    if (now - checkedAt < 60_000) return cached;
+    checkedAt = now;
+    let m = -1;
+    try { m = statSync(path).mtimeMs; } catch { /* absent: neutral affinities */ }
+    if (m !== mtime) { mtime = m; cached = m < 0 ? null : loadShowSpace(path); }
+    return cached;
+  };
 })();
 // Multimodal video embedding map (tools/video-embed export: Gemini 3072d + local
 // EmbeddingGemma 2 768d). Absent or broken leaves every affinity neutral.
@@ -59,6 +67,24 @@ const embeddedVideoSpace = (() => {
     try { m = statSync(path).mtimeMs; } catch { /* absent: neutral affinities */ }
     if (m !== mtime) { mtime = m; cached = m < 0 ? null : loadVideoSpace(path); }
     return cached;
+  };
+})();
+// Creator cover thumbnails for YouTube downloads (<dir>/<11-char-id>.jpg on the server's SSD): real YouTube
+// thumbnails hook a child far better than a random mid-video ffmpeg frame, without tv-server ever calling YouTube.
+const youtubeThumb = (() => {
+  const dir = process.env.ONTO_YT_THUMBS || join(homedir(), '.local/state/onto-tv-yt-thumbs');
+  let ids = null, checkedAt = 0;
+  return item => {
+    const id = youtubeIdOf(item);
+    if (!id) return null;
+    const now = Date.now();
+    if (!ids || now - checkedAt >= 60_000) {
+      checkedAt = now;
+      try {
+        ids = new Set(readdirSync(dir).filter(f => f.endsWith('.jpg')).map(f => f.slice(0, -4)));
+      } catch { ids = new Set(); }
+    }
+    return ids.has(id) ? join(dir, `${id}.jpg`) : null;
   };
 })();
 // Hand-picked 1920-wide stills for titles that deserve a billboard (the Christmas films and specials first):
@@ -254,6 +280,10 @@ export const TV_CHANNELS = [
     titles: /\b(?:songs|nursery rhymes?|sing[- ]?along|lullab(?:y|ies)|karaoke|song contest)\b/i },
   { id: 'dance', number: 46, name: 'Dance', audience: 'kid', tier: 'music', leaning: true,
     shows: /^(?:20syl|amtrac|anjunadeep|avicii|axel thesleff|barry can.t swim|ben b[oö]hmer|bicep|big wild|bob moses|bonobo|bronson|bunt|calvin harris|camelphat|caribou|cercle|cerrone|channel tres|chris lake|christian l[oö]ffler|confidence man|cosmo.s midnight|cri|cut copy|darius|daso|diplo|disclosure|dj poolboi|dom dolla|ed banger records|ekcle|elderbrook|eliza rose|enamour|eric prydz|fatboy slim|fcukers|fisher|flight facilities|floating points|flume|four tet|franc moody|frankie knuckles|fred again|french 79|future classic|gener8ion|groove armada|howling|jakatta|jamie xx|jon hopkins|jungle|jungle4eva|justice|kaskade|kaytramin[eé]|kaytranada|kid francescoli|kidnap|klangkarussell|lane 8|lcd soundsystem|le youth|lf system|louis the child|maribou state|marsh|mau p|minimal groove|moby|modjo|m[oø]me|mura masa|new order|nils hoffmann|nimino|nto|odesza|omnom|parcels|parisi|parra for cuva|paul woolford|pauloakenfold|peggy gou|petit biscuit|pnau|polo & pan|porter robinson|rezident|rone|ross from friends|r[uü]f[uü]s du sol|sachi|sammy virji|shallou|snakehips|swedish house mafia|switch disco|teed|the avalanches|the blaze|the chemical brothers|the orb|thylacine|todd terje|tourist|vantage|what so not|whethan|wuki|young franco|yung bae|zhu)(?![a-z0-9])/i },
+  // Glancebar song-map kind channels (16 Nov 2026: TV music follows Ian's taste; omitted when unscored).
+  { id: 'chill', number: 48, name: 'Chill', audience: 'adult', scored: true, adultsOnly: true },
+  { id: 'alt', number: 49, name: 'Alt', audience: 'adult', scored: true, adultsOnly: true },
+  { id: 'rap', number: 50, name: 'Rap', audience: 'adult', scored: true, adultsOnly: true },
 ].filter(channel => channel.id);  // a household without someone in a role has no channel for them
 // The second grown-up's own mix (4 Nov 2026): British reality TV and sitcoms. No animation, no violence.
 const ADULT_B_TIERS = new Set(['grownup', 'couple', 'sitcom', 'comedy', 'bbc', 'standup', 'docs']);
@@ -262,9 +292,14 @@ const ADULT_B_SKIPS = /^(?:mobland|snatch|lock stock|the gentlemen|in bruges)\b/
 // is a low-weight discovery. Per show: 4 against 0.3, so favourites win about three picks in four.
 const FAVOURITE_WEIGHT = 4, DISCOVERY_WEIGHT = 0.3;
 const ADULT_B_SHOWS = /^(?:(?:couples )?come dine with me|bald and bankrupt|friends\b|kath (?:&|and) kim|the big bang theory|big bang theory|gogglebox|first dates|four in a bed|the great british bake off|great british bake off|bake off|escape to the country|a place in the sun|location,? location|the hotel inspector|24 hours in a&e|married at first sight uk|love island|the apprentice|dragons.? den|grand designs|bargain hunt|homes under the hammer|the traitors|race across the world|the repair shop)/i;
-// The older child's own mix (4 Nov 2026): Minecraft and cars lead. Shouty YouTuber channels stay off.
+// The older child's own mix (4 Nov 2026; expanded 23 Nov 2026 to hook him with his real YouTube creators):
+// Minecraft, Track Time, cars and RC lead the card, with his favourite YouTube builders/gamers/challengers in the mix.
 const OLDER_TIERS = new Set(['shared', 'big', 'older']);
-const OLDER_SHOWS = /minecraft|grian|mumbo|hermitcraft|pixlriffs|track time|hot wheels|\bcars?\b|lego|\brc\b|odyssey|remote control/i;
+const OLDER_SHOWS = /minecraft|grian|mumbo|hermitcraft|pixlriffs|track time|hot wheels|\bcars?\b|lego|\brc\b|odyssey|remote control|beck ?bro|fuzz|terragreen|mark rober|outdoor boys|cinewave|stay ?wild|daniel ?ferri|stephen sharer|carter sharer|ben azelart|waffloos|caylus|preston|bng|beamng|mrwhosetheboss|emswizzle|td ?bricks|nixian|wd ?detailing|red ?bull|prop ?department|dude ?dans|danny ?macaskill/i;
+// Baby and toddler shows (CBeebies/ABC Kids preschool folders that live in `shared` as well as `preschool`):
+// kept for the youngest viewer, sunk out of the older child's Tube Home, Chips, and Creators when watching without them.
+const BABY_SHOW_RE = /^(?:bing\b|peppa pig|play school|cbeebies|charlie and lola|sarah and duck|jojo and gran gran|fireman sam|hey duggee|cocomelon|nick jr|in the night garden|teletubbies|ms ?rachel|hop hop|the wiggles|emma memma|teeny tiny stevies|super simple songs|justine clarke|lah-?lah|bounce patrol|danny go|the kiboomers|little baby bum|mother goose club|numberblocks|alphablocks|colourblocks|timmy time|rafi\b|beddybyes|giggle and hoot|gardening australia junior|blippi|handyman hal|tish tash|dodge.s pup school)/i;
+const isBabyShow = item => Boolean(item && (item.tier === 'preschool' || BABY_SHOW_RE.test(String(item.channel || '').replace(/^[^\w]+/, ''))));
 // The older child's card and the next picks walk this list: Minecraft, then Track Time, then cars, then RC.
 function olderLeadRank(name) {
   const text = String(name || '');
@@ -274,14 +309,10 @@ function olderLeadRank(name) {
   if (/odyssey|\brc\b|remote control/i.test(text)) return 3;
   return 4;
 }
-// Shows the kids love that the parents would rather ration (4 Nov 2026): the plane-crash
-// cartoons ("If Planes Could Talk"), and YouTube slop in general. Fine to watch, rarely picked, and never billed
-// as a card's "now on" while the channel has anything else.
+// Plane-crash cartoons and toddler toy-farm channels stay rationed (23 Nov 2026: older-kid YouTubers un-rationed
+// so his own creators actually surface and hook him).
 const LIMITED_SHOWS = new RegExp(['billy.s aviation', 'if planes could talk', 'plane crash', 'air crash', 'mayday',
-  'brent rivera', 'ben azelart', 'stephen sharer', 'carter sharer', 'unspeakable', 'stokes twins', 'beck ?bro', 'vlad and niki',
-  'kids diana', 'waffloos', 'lincoln.s super', 'mrbeast', 'try not to laugh', 'ytp',
-  // Added 6 Nov 2026 from real viewing: Peppa-theory clickbait, kitten-gadget and challenge channels.
-  'cinewave', 'daniel ?ferri', 'stay ?wild'].join('|'), 'i');
+  'vlad and niki', 'kids diana', 'lincoln.s super', 'ytp'].join('|'), 'i');
 const LIMITED_WEIGHT = 0.05;
 // The first grown-up's favourites (5 Nov 2026): British crime and gangster films, Star Trek, Futurama and
 // South Park, dry Aussie comedy, Blackadder, and aviation, military, motoring, maker and live-music
@@ -301,11 +332,11 @@ const FAVOURITES = Object.fromEntries([[ROLE.adultB, ADULT_B_SHOWS], [ROLE.older
 // A grown-up on their own sees channels in the order they would reach for them; unlisted
 // channels follow in catalogue order. Learned taste breaks ties within the rest.
 const PERSON_LINEUP = Object.fromEntries([[ROLE.adultA, [CH.adultA, 'movies', 'thrillers', 'military', 'aviation', 'motoring', 'makers', 'scifi', 'adultanim', 'comedy',
-    'triplej', 'doublej', 'livesets', 'music', 'docs', 'sports', 'rides', 'sitcoms', 'seinfeld', 'classic', 'd80', 'd90', 'd70', 'truecrime',
+    'triplej', 'doublej', 'alt', 'chill', 'rap', 'livesets', 'music', 'docs', 'sports', 'rides', 'sitcoms', 'seinfeld', 'classic', 'd80', 'd90', 'd70', 'truecrime',
     'grownups', 'crime', 'friends', 'reality']],
   [ROLE.adultB, [CH.adultB, 'reality', 'friends', 'sitcoms', 'grownups', 'truecrime', 'crime', 'comedy', 'music', 'seinfeld', 'movies']]].filter(([id]) => id));
 // After 7pm these sink below films, drama and documentaries.
-const SHORT_CLIP_CHANNELS = new Set(['music', 'livesets', 'shorts', 'makers', 'comedy', 'triplej', 'doublej']);
+const SHORT_CLIP_CHANNELS = new Set(['music', 'livesets', 'shorts', 'makers', 'comedy', 'triplej', 'doublej', 'chill', 'alt', 'rap']);
 // Episodic channels play the next episode; cartoons and music stay shuffled.
 const SERIAL_CHANNELS = new Set(['movies', 'sitcoms', 'grownups', 'friends', 'seinfeld', 'crime', 'thrillers', 'military',
   'aviation', 'motoring', 'scifi', 'classic', 'truecrime', 'reality', 'docs']);
@@ -365,6 +396,13 @@ export function whoamiProof(token, nonce) {
 
 export function channelScoresSignaturePart(path, info) {
   return `channel-scores:${path}:${info ? `${info.mtimeMs}:${info.size}` : 'missing'}`;
+}
+
+// Titles held only in the cloud are listed from tv-server/cloud-manifest.json. A change to that file changes
+// the catalogue even when no watched folder's date moved (a file two folders down, an entry withdrawn), so it
+// is part of the signature that decides whether to rebuild.
+export function cloudManifestSignaturePart(info) {
+  return `cloud-manifest:${info ? `${info.mtimeMs}:${info.size}` : 'none'}`;
 }
 
 export function inTvGenre(item, channelId, scores = null) {
@@ -1209,19 +1247,26 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       }
     } else if (!isMusicVideoChannel(channelId)) {
       const vspace = embeddedVideoSpace();
-      if (vspace) {
-        const recentSrcs = [...watched.finished.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .map(([src]) => src)
-          .filter(src => vspace.bySrc.has(src))
-          .slice(0, 3);
-        if (recentSrcs.length) {
-          const base = weights;
-          weights = Object.create(null);
-          for (const index of pool) {
-            const item = videos[index];
-            weights[item.src] = player.weightFor(base, item.src) * videoAffinity(vspace, item.src, recentSrcs);
-          }
+      const sspace = canonicalSpace();
+      const held = likes();
+      const likedSrcs = Object.keys(held).filter(src => held[src] > 0);
+      const recentFinished = [...watched.finished.entries()].sort((a, b) => b[1] - a[1]);
+      const anchorSrcs = vspace ? [
+        ...recentFinished.map(([src]) => src).filter(src => vspace.edges?.has(src)).slice(0, 3),
+        ...likedSrcs.filter(src => vspace.edges?.has(src)).slice(0, 3),
+      ] : [];
+      const anchorShows = sspace ? [
+        ...recentFinished.map(([src]) => bySrc.get(src)).filter(idx => idx !== undefined).map(showOf).filter(s => canonSlug(sspace, s)).slice(0, 3),
+        ...likedSrcs.map(src => bySrc.get(src)).filter(idx => idx !== undefined).map(showOf).filter(s => canonSlug(sspace, s)).slice(0, 2),
+      ] : [];
+      if (anchorSrcs.length || anchorShows.length) {
+        const base = weights;
+        weights = Object.create(null);
+        for (const index of pool) {
+          const item = videos[index];
+          weights[item.src] = player.weightFor(base, item.src)
+            * videoAffinity(vspace, item.src, anchorSrcs)
+            * showAffinity(sspace, showOf(index), anchorShows);
         }
       }
     }
@@ -1488,7 +1533,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       used.add(chosen);
       return chosen;
     };
-    // Ordered episode indices for the endless row; fromIndex is reserved for show-embedding similarity later.
+    // Ordered episode indices for the endless row, steered by multimodal video + canon show similarity to anchorIndex.
     // A row of one show is no choice: the same show comes back no sooner than five tiles later.
     function spreadShows(order) {
       // Only the head needs spreading; nobody pages 200 tiles in, and the whole catalogue would cost a request.
@@ -1500,11 +1545,23 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
       }
       return out.concat(rest);
     }
-    const rankCandidates = (anchorIndex, pool, score) => spreadShows(pool.filter(index => usable(index))
-      .map(index => ({ index, score: score(index) }))
-      .filter(entry => Number.isFinite(entry.score) && entry.score > -Infinity)
-      .sort((a, b) => b.score - a.score || a.index - b.index)
-      .map(entry => entry.index));
+    const vspaceForDirections = !musicChannel ? embeddedVideoSpace() : null;
+    const sspaceForDirections = !musicChannel ? canonicalSpace() : null;
+    const rankCandidates = (anchorIndex, pool, score) => {
+      const hasAnchor = anchorIndex !== undefined && videos[anchorIndex] && !isMusicVideoItem(videos[anchorIndex]);
+      const anchorSrcs = hasAnchor && vspaceForDirections ? [videos[anchorIndex].src] : [];
+      const anchorShows = hasAnchor && sspaceForDirections ? [showOf(anchorIndex)] : [];
+      return spreadShows(pool.filter(index => usable(index))
+        .map(index => ({
+          index,
+          score: score(index)
+            * (anchorSrcs.length ? videoAffinity(vspaceForDirections, videos[index].src, anchorSrcs) : 1)
+            * (anchorShows.length ? showAffinity(sspaceForDirections, showOf(index), anchorShows) : 1),
+        }))
+        .filter(entry => Number.isFinite(entry.score) && entry.score > -Infinity)
+        .sort((a, b) => b.score - a.score || a.index - b.index)
+        .map(entry => entry.index));
+    };
     const pool = poolFor(channelId, ids, rating);
     const here = TV_CHANNELS.find(channel => channel.id === channelId);
     const planned = [];
@@ -1655,13 +1712,14 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const finished = !!(entry && (entry.completed || player.nearlyFinished(entry.positionSeconds, entry.durationSeconds || duration)));
     const position = entry && !finished ? entry.positionSeconds || 0 : 0;
     const name = creatorName(item);
+    const ytThumb = youtubeThumb(item);
     return {
       src: item.src,
       title: item.title || item.src,
       show: name,
       creator: name,
       duration,
-      art: '/art?src=' + encodeURIComponent(item.src),
+      art: '/art?src=' + encodeURIComponent(item.src) + (ytThumb ? '&v=yt' : ''),
       resume: position > 5 ? position : 0,
       watched: finished,
     };
@@ -1698,7 +1756,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     }
     found = { index, seconds: new Map(), blocked: new Set(), good: new Set(), preschool: new Set(), older: null };
     for (const [slug, creator] of byCreator) {
-      if (creator.items.every(item => item.tier === 'preschool')) found.preschool.add(slug);
+      if (creator.items.every(isBabyShow)) found.preschool.add(slug);
       const rows = creatorChannels(index, creator.items, creator.name);
       if (!rows.length) continue;
       found.seconds.set(slug, rows.reduce((sum, row) => sum + row.recentSeconds, 0));
@@ -1710,14 +1768,17 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return found;
   }
 
+  function littlePresent(ids) {
+    return TV_VIEWERS.some(person => person.ceiling === RATING_ORDER[0] && ids.includes(person.id));
+  }
+
   // The history is the whole household's: it cannot say who watched what. A preschool creator's YouTube
   // time (Hop Hop the Owl, Ms Rachel) is the little one's, so it lifts a grid only when a viewer with
   // the youngest ceiling is watching. Otherwise an older child's grid filled up with baby shows.
   function tubeView(ids) {
     const tube = tubeYouTube();
     if (!tube || !tube.preschool.size) return tube;
-    const little = TV_VIEWERS.some(person => person.ceiling === RATING_ORDER[0] && ids.includes(person.id));
-    if (little) return tube;
+    if (littlePresent(ids)) return tube;
     if (!tube.older) {
       const keep = map => new Map([...map].filter(([slug]) => !tube.preschool.has(slug)));
       tube.older = { ...tube, seconds: keep(tube.seconds), good: new Set([...tube.good].filter(slug => !tube.preschool.has(slug))) };
@@ -1731,8 +1792,8 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     if (!tube) return 1;
     const item = videos[index];
     const slug = creatorSlug(creatorName(item));
-    let boost = 1 + Math.min(1, (tube.seconds.get(slug) || 0) / 3600);
-    if (tube.good.has(slug)) boost *= 1.5;
+    let boost = 1 + Math.min(2.5, (tube.seconds.get(slug) || 0) / 3600);
+    if (tube.good.has(slug)) boost *= 1.25;
     if (lovedOnYouTube(tube.index, item)) boost *= 1.5;
     return boost;
   }
@@ -1745,24 +1806,31 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   function byLearned(weights, ids = []) {
     const tube = tubeView(ids);
-    const score = index => player.weightFor(weights, videos[index].src) * tubeBoost(index, tube);
+    const little = littlePresent(ids);
+    const score = index => player.weightFor(weights, videos[index].src)
+      * tubeBoost(index, tube)
+      * (favouriteShow(videos[index], ids) ? 1.35 : 1)
+      * (!little && isBabyShow(videos[index]) ? 0.1 : 1);
     return (a, b) => score(b) - score(a) || String(videos[a].src).localeCompare(String(videos[b].src));
   }
 
-  // At most two cards from the same show sit next to each other. A run is kept
-  // only when nothing else is left to put between them.
+  // Spread creators across the Home grid: avoid repeating a creator within four cards while other creators remain,
+  // and at most two side-by-side when only two creators are left.
   function spreadShows(indices) {
     const queued = indices.slice();
     const out = [];
     const showOfIndex = index => videos[index].channel || '';
     while (queued.length) {
-      let placed = -1;
-      for (let i = 0; i < queued.length; i++) {
-        const show = showOfIndex(queued[i]);
-        const n = out.length;
-        if (n >= 2 && showOfIndex(out[n - 1]) === show && showOfIndex(out[n - 2]) === show) continue;
-        placed = i;
-        break;
+      const recent4 = new Set(out.slice(-4).map(showOfIndex));
+      let placed = queued.findIndex(idx => !recent4.has(showOfIndex(idx)));
+      if (placed < 0) {
+        for (let i = 0; i < queued.length; i++) {
+          const show = showOfIndex(queued[i]);
+          const n = out.length;
+          if (n >= 2 && showOfIndex(out[n - 1]) === show && showOfIndex(out[n - 2]) === show) continue;
+          placed = i;
+          break;
+        }
       }
       if (placed < 0) placed = 0;
       out.push(queued.splice(placed, 1)[0]);
@@ -1772,6 +1840,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
 
   function creatorGroups(pool, byFile, weights, ids) {
     const groups = new Map();
+    const little = littlePresent(ids);
     for (const index of pool) {
       const item = videos[index];
       const label = creatorName(item);
@@ -1782,8 +1851,9 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
         groups.set(id, group);
       }
       const entry = byFile.get(item.file);
-      if (!group.indices.length) group.youtube = tubeView(ids)?.seconds.get(id) || 0;
-      group.seconds += watchSeconds(entry, item);
+      const baby = !little && isBabyShow(item);
+      if (!group.indices.length) group.youtube = baby ? 0 : (tubeView(ids)?.seconds.get(id) || 0);
+      if (!baby) group.seconds += watchSeconds(entry, item);
       group.weight += player.weightFor(weights, item.src);
       if (favouriteShow(item, ids)) group.favourite = true;
       group.indices.push(index);
@@ -1847,26 +1917,47 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     const favouriteIds = new Set(chips.filter(item => item.id !== 'all').map(item => item.id));
     const tube = tubeView(ids);
     let indices = pool;
-    if (chip && chip !== 'all') indices = pool.filter(index => creatorSlug(creatorName(videos[index])) === chip);
+    if (chip && chip !== 'all' && chip !== 'library') indices = pool.filter(index => creatorSlug(creatorName(videos[index])) === chip);
     let ordered;
-    if (chip && chip !== 'all') {
+    if (chip === 'library') {
+      const little = littlePresent(ids);
+      const cont = [], done = [];
+      for (const index of pool) {
+        if (!little && isBabyShow(videos[index])) continue;
+        const card = tubeCard(index, byFile);
+        if (card.resume > 5) cont.push(index);
+        else if (card.watched) done.push(index);
+      }
+      const byUpdated = (a, b) => (Date.parse(byFile.get(videos[b].file)?.updatedAt) || 0) - (Date.parse(byFile.get(videos[a].file)?.updatedAt) || 0);
+      cont.sort(byUpdated);
+      done.sort(byUpdated);
+      ordered = [...cont, ...done];
+    } else if (chip && chip !== 'all') {
       // A creator or show chip is that catalogue, newest episode first.
       ordered = newestFirst(indices);
     } else {
+      const little = littlePresent(ids);
       const resume = [];
       const favourites = [];
       const rest = [];
       for (const index of indices) {
+        const item = videos[index];
         const card = tubeCard(index, byFile);
-        if (card.resume > 5) resume.push(index);
-        else if (!card.watched && (favouriteShow(videos[index], ids) || favouriteIds.has(creatorSlug(creatorName(videos[index])))
-          || (tube && (tube.good.has(creatorSlug(creatorName(videos[index]))) || lovedOnYouTube(tube.index, videos[index]))))) favourites.push(index);
+        const baby = !little && isBabyShow(item);
+        const slug = creatorSlug(creatorName(item));
+        if (card.resume > 5 && !baby) resume.push(index);
+        else if (!card.watched && !baby && (favouriteShow(item, ids) || favouriteIds.has(slug)
+          || (tube && (tube.good.has(slug) || (tube.seconds.get(slug) || 0) >= 600 || lovedOnYouTube(tube.index, item))))) favourites.push(index);
         else rest.push(index);
       }
       resume.sort((a, b) => (Date.parse(byFile.get(videos[b].file)?.updatedAt) || 0) - (Date.parse(byFile.get(videos[a].file)?.updatedAt) || 0));
+      // Keep at most one row (4 cards) of in-progress episodes at the top of All so fresh creator picks fill the screen;
+      // the rest stay in the grid (and Library on the rail shows Continue Watching).
+      const leadResume = resume.slice(0, 4);
+      if (resume.length > 4) rest.push(...resume.slice(4));
       favourites.sort(byLearned(weights, ids));
       rest.sort(byLearned(weights, ids));
-      ordered = spreadShows([...resume, ...favourites, ...rest]);
+      ordered = spreadShows([...leadResume, ...favourites, ...rest]);
     }
     const offset = Math.max(0, Number.parseInt(options.offset, 10) || 0);
     const limit = clampCount(options.limit, 24, 60);
@@ -1959,7 +2050,7 @@ export function createTvLibrary({ videos, history, storage, random = Math.random
     return { creators: list, cards };
   }
 
-  return { home, billing, show, next, progress, like, liked, directions, directionChosen, allowed, feed, related, search, creators, skipped, file: src => video(src).video.file, video: src => video(src).video, catalogue: () => videos };
+  return { home, billing, show, next, progress, like, liked, directions, directionChosen, allowed, feed, related, search, creators, skipped, file: src => video(src).video.file, cloud: src => video(src).video.cloud || null, video: src => video(src).video, catalogue: () => videos };
 }
 
 /**
@@ -2002,15 +2093,25 @@ function send(response, status, body, headers = {}) {
   response.end(content);
 }
 
-export async function streamFile(request, response, file, mediaCache) {
-  let info;
-  try { info = await stat(file); }
-  catch (error) {
-    // The TV player already turns a failed /media response into Retry / next.
-    if (error.code === 'ENOENT' || error.code === 'EIO' || error.code === 'ENXIO') {
-      throw Object.assign(new Error('This video is offline.'), { status: 404 });
+export async function streamFile(request, response, file, mediaCache, cloud = null, knownInfo = null, onStat = null) {
+  // When a title's opening is already kept on the fast SSD cache (or its size/mtime was just read from a slow
+  // USB drive), skip blocking on `stat(file)` over USB before serving cached blocks (23 Nov 2026).
+  let info = mediaCache && knownInfo && Number.isFinite(knownInfo.size) && Number.isFinite(knownInfo.mtimeMs) ? knownInfo : null;
+  if (!info) {
+    try {
+      info = await stat(file);
+      if (onStat) onStat(file, { size: info.size, mtimeMs: info.mtimeMs });
     }
-    throw error;
+    catch (error) {
+      // Held only in the cloud copy (22 Nov 2026): the catalogue knows its size and mtime, and the cache reads
+      // its blocks from there (media-cache.js `remote`), or from what it kept while the file was on the drive.
+      if (error.code === 'ENOENT' && cloud && mediaCache) info = cloud;
+      // The TV player already turns a failed /media response into Retry / next.
+      else if (error.code === 'ENOENT' || error.code === 'EIO' || error.code === 'ENXIO') {
+        throw Object.assign(new Error('This video is offline.'), { status: 404 });
+      }
+      else throw error;
+    }
   }
   const type = MIME[extname(file).toLowerCase()] || 'application/octet-stream';
   const range = parseRange(request.headers.range, info.size);
@@ -2361,10 +2462,13 @@ export function createTvServer({ library, history, storage, artwork, uiRoot, tok
         if (changed) dirty = true;
         return send(response, 200, { ok: true });
       }
-      if (path === '/media') return await streamFile(request, response, library.file(url.searchParams.get('src') || ''), mediaCache);
+      if (path === '/media') {
+        const src = url.searchParams.get('src') || '';
+        return await streamFile(request, response, library.file(src), mediaCache, library.cloud?.(src) || null, library.knownInfo?.(src) || null, library.rememberInfo || null);
+      }
       if (path === '/art') {
         const item = library.video(url.searchParams.get('src') || '');
-        const file = heroStill(item.src) || (artwork ? await artwork.get(item.file, { durationSeconds: item.duration }) : null);
+        const file = heroStill(item.src) || youtubeThumb(item) || (artwork ? await artwork.get(item.file, { durationSeconds: item.duration }) : null);
         if (!file) return send(response, 404, { error: 'No artwork.' });
         if (response.destroyed || request.destroyed) return;
         const image = createReadStream(file);

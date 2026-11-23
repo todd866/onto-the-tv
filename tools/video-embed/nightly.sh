@@ -61,29 +61,40 @@ else
     say "FAIL no GEMINI_API_KEY in $keyfile"
     failed+=("no key")
   else
-    max_tier="${ONTO_VIDEO_MAX_TIER:-1}"  # text metadata only (Ian, 21 Nov 2026: "embed non-video metadata and save money"); 2 adds keyframes
+    max_tier="${ONTO_VIDEO_MAX_TIER:-4}"  # Progressive ladder: Tier 1 text -> 2 keyframes -> 3 audio -> 4 scene clips
+    budget_tool="$HOME/Projects/music-core/embed/budget.py"
+    if [ -z "${ONTO_VIDEO_EMBED_CAP_USD:-}" ] && [ -f "$budget_tool" ]; then
+      hol=$("$gemini_py" "$budget_tool" cap --lane tv 2>/dev/null || true)
+      [ -n "$hol" ] && export ONTO_VIDEO_EMBED_CAP_USD="$hol" && say "holistic budget cap (tv): \$$hol"
+    fi
     run_step gemini-init "$gemini_py" "$here/video_embed.py" spend --init
     run_step gemini-collect "$gemini_py" "$here/video_embed.py" collect
-    if [ -d "/Volumes/Stash" ] && command -v disk-slot >/dev/null 2>&1; then
-      run_step gemini-prepare env HEAVY_SLOT_LOCAL=1 heavy-slot -- disk-slot --wait 1800 --label otv-video-embed /Volumes/Stash -- "$gemini_py" "$here/video_embed.py" prepare --max-tier "$max_tier"
-    else
-      run_step gemini-prepare env HEAVY_SLOT_LOCAL=1 heavy-slot -- "$gemini_py" "$here/video_embed.py" prepare --max-tier "$max_tier"
-    fi
-    # Spend hold (Ian, 21 Nov 2026): Gemini bills the Google Cloud credit, which must last until next
-    # month's AI Pro credit. While ~/.config/fleet/gcp-spend-hold exists, clips are prepared but not sent.
-    if [ -f "$HOME/.config/fleet/gcp-spend-hold" ]; then
-      say "gemini-submit: skipped, Google Cloud spend hold is on"
-    else
-      run_step gemini-submit "$gemini_py" "$here/video_embed.py" submit
-    fi
-    run_step gemini-wait "$gemini_py" "$here/video_embed.py" wait --timeout 3600 --interval 60
+    # Run up to 2 tier passes when budget remains (e.g. finishing Tier 2 keyframes for ~$2.20
+    # immediately flows remaining daily allowance into Tier 3 movie audio in the same window).
+    for pass in 1 2; do
+      if [ -d "/Volumes/Stash" ] && command -v disk-slot >/dev/null 2>&1; then
+        run_step "gemini-prepare-$pass" env HEAVY_SLOT_LOCAL=1 heavy-slot -- disk-slot --wait 14400 --label otv-video-embed /Volumes/Stash -- "$gemini_py" "$here/video_embed.py" prepare --max-tier "$max_tier"
+      else
+        run_step "gemini-prepare-$pass" env HEAVY_SLOT_LOCAL=1 heavy-slot -- "$gemini_py" "$here/video_embed.py" prepare --max-tier "$max_tier"
+      fi
+      [ -f "$state/gemini/prepared.json" ] || break
+      if [ -f "$HOME/.config/fleet/gcp-spend-hold" ]; then
+        say "gemini-submit-$pass: skipped, Google Cloud spend hold is on"
+        break
+      fi
+      run_step "gemini-submit-$pass" "$gemini_py" "$here/video_embed.py" submit
+      run_step "gemini-wait-$pass" "$gemini_py" "$here/video_embed.py" wait --timeout 3600 --interval 60
+      # Stop if batch is still running asynchronously after wait timeout
+      [ -f "$state/gemini/prepared.json" ] && break
+    done
+    [ -f "$budget_tool" ] && run_step gemini-budget "$gemini_py" "$budget_tool" status
   fi
 fi
 
 # 2. Map B — Local EmbeddingGemma 2 (768-dim MLX, $0/day, bounded 40-min slice)
 if [ -x "$gemma_py" ]; then
   if [ -d "/Volumes/Stash" ] && command -v disk-slot >/dev/null 2>&1; then
-    run_step gemma-slice env HEAVY_SLOT_LOCAL=1 heavy-slot -- disk-slot --wait 1800 --label otv-gemma-embed /Volumes/Stash -- "$gemma_py" "$here/gemma_embed.py" --budget-seconds "${ONTO_GEMMA_BUDGET_S:-10800}"
+    run_step gemma-slice env HEAVY_SLOT_LOCAL=1 heavy-slot -- disk-slot --wait 14400 --label otv-gemma-embed /Volumes/Stash -- "$gemma_py" "$here/gemma_embed.py" --budget-seconds "${ONTO_GEMMA_BUDGET_S:-10800}"
   else
     run_step gemma-slice env HEAVY_SLOT_LOCAL=1 heavy-slot -- "$gemma_py" "$here/gemma_embed.py" --budget-seconds "${ONTO_GEMMA_BUDGET_S:-10800}"
   fi

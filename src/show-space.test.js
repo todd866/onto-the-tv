@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { slugify, loadShowSpace, canonSlug, christmasAffinity } from './show-space.js';
+import { slugify, loadShowSpace, canonSlug, christmasAffinity, showAffinity } from './show-space.js';
 
 const SPACE = {
   'rudolph-the-red-nosed-reindeer-tv-special': { name: 'Rudolph the Red-Nosed Reindeer', kind: 'special', next: [['frosty-the-snowman-tv-special', 0.8], ['the-year-without-a-santa-claus', 0.7]] },
@@ -38,4 +38,12 @@ test('christmasAffinity rewards canon neighbours of what was just watched', () =
   assert.equal(christmasAffinity(space, 'Timmy Time', ['Rudolph the Red-Nosed Reindeer (1964)']), 1);
   // No recent history: neutral.
   assert.equal(christmasAffinity(space, 'Frosty the Snowman (1969)', []), 1);
+});
+
+test('showAffinity lifts symmetric canon neighbours for Down directions and channel picks', () => {
+  const space = loadShowSpace.from(SPACE);
+  const yearWithoutSanta = showAffinity(space, 'The Year Without a Santa Claus (1974)', ['Rudolph the Red-Nosed Reindeer (1964)']);
+  assert.ok(yearWithoutSanta > 1 && yearWithoutSanta <= 1.6);
+  assert.equal(showAffinity(space, 'Frosty the Snowman (1969)', ['Frosty the Snowman (1969)']), 1);
+  assert.equal(showAffinity(space, 'Timmy Time', ['Frosty the Snowman (1969)']), 1);
 });

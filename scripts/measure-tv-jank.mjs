@@ -23,6 +23,8 @@ const CPU = Number(process.env.TV_CPU || 6);
 // The TV's AVPlay stop/close is synchronous; key telemetry puts Back from the player at ~200 ms against ~14 ms for a
 // home move (remote-events.jsonl, 14-21 Nov 2026). The stub blocks for this long in stop() to model it.
 const STOP_MS = Number(process.env.TV_STOP_MS || 250);
+const PAUSE_MS = Number(process.env.TV_PAUSE_MS || 300);
+const SEEK_MS = Number(process.env.TV_SEEK_MS || 150);
 const PROFILE = process.env.TV_PROFILE || 'all';
 await mkdir(cacheDir, { recursive: true });
 
@@ -74,7 +76,18 @@ try {
         const now = ch.now || {};
         return route.fulfill({ json: { src: 'fixture/' + (now.title || 'x') + '.mp4', show: now.show || 'Show', title: now.title || 'Title', art: now.art || '', resume: 0, duration: 600 } });
       }
-      if (url.pathname === '/api/directions') return route.fulfill({ json: { options: [] } });
+      if (url.pathname === '/api/directions') {
+        const tiles = Array.from({ length: 12 }, (_, i) => ({
+          kind: i === 0 ? 'show' : 'channel',
+          label: 'More like this',
+          src: 'fixture/tile-' + i + '.mp4',
+          title: 'Episode ' + (i + 1),
+          show: 'Show ' + (i + 1),
+          duration: 1500,
+          channel: { id: 'ch-' + i, number: i + 1, name: 'Ch ' + (i + 1) },
+        }));
+        return route.fulfill({ json: { tiles, next: 12 } });
+      }
       return route.fulfill({ json: { ok: true, items: [] } });
     }
     if (url.pathname.startsWith('/api/') || url.pathname === '/art' || url.pathname.startsWith('/still') || url.pathname.startsWith('/pictures')) {
@@ -92,7 +105,7 @@ try {
     catch { return route.fulfill({ status: 404, body: '' }); }
   });
   const playerSource = await readFile(path.join(root, 'player.js'), 'utf8');
-  const playerStub = `window.ontoPlayer=function(){var h={},t=12,p=false;function block(ms){var e=performance.now()+ms;while(performance.now()<e){}}return {engine:'avplay',on:function(n,f){h[n]=f},time:function(){return t},duration:function(){return 600},paused:function(){return p},ended:function(){return false},load:function(u,start){t=start||0;p=false;setTimeout(function(){h.playing&&h.playing();h.canplay&&h.canplay();},50)},play:function(){p=false},pause:function(){p=true},stop:function(){p=true;block(${STOP_MS})},seek:function(v){t=v},tracks:function(){return {audio:[],text:[]}},selectAudio:function(){},selectText:function(){}};};`;
+  const playerStub = `window.ontoPlayer=function(){var h={},t=12,p=false;function block(ms){var e=performance.now()+ms;while(performance.now()<e){}}return {engine:'avplay',on:function(n,f){h[n]=f},time:function(){return t},duration:function(){return 600},paused:function(){return p},ended:function(){return false},load:function(u,start){t=start||0;p=false;setTimeout(function(){h.playing&&h.playing();h.canplay&&h.canplay();},50)},play:function(){p=false;block(${Math.round(PAUSE_MS / 2)})},pause:function(){p=true;block(${PAUSE_MS})},stop:function(){p=true;block(${STOP_MS})},seek:function(v){t=v;block(${SEEK_MS})},tracks:function(){return {audio:[],text:[]}},selectAudio:function(){},selectText:function(){}};};`;
   await page.route('http://tv.test/player.js', route => route.fulfill({ contentType: 'text/javascript', body: playerSource + '\n' + playerStub }));
 
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -175,12 +188,15 @@ try {
   // Home: across the channel cards and back, down and up.
   await step(40, 'home ▼ (to the cards)');
   for (let i = 0; i < 5; i++) await step(right, 'home ▶ ' + (i + 1), 600);
-  for (let i = 0; i < 3; i++) await step(37, 'home ◀ ' + (i + 1), 600);
-  // Into the player and back out.
-  await step(13, 'home OK (play)', 2500);
-  await step(40, 'player ▼ (tray/controls)', 1200);
-  await step(39, 'player ▶ (controls)'); await step(37, 'player ◀ (controls)');
-  await step(10009, 'player Back (close)', 1200);
+  for (let i = 0; i < 2; i++) await step(37, 'home ◀ ' + (i + 1), 600);
+  // Into the player and back out (including tap-seek, pause/play, and 12-card Down directions).
+  await step(13, 'home OK (play)', 2600);
+  await step(39, 'player ▶ (tap-seek +10s)', 600);
+  await step(13, 'player OK (pause)', 800);
+  await step(13, 'player OK (resume)', 800);
+  await step(40, 'player ▼ (12-card directions)', 1200);
+  await step(39, 'player ▶ (directions 2)'); await step(37, 'player ◀ (directions 1)');
+  await step(10009, 'player Back (close tray)', 800);
   await step(10009, 'player Back (to home)', 2500);
   await step(right, 'home ▶ after Back', 600); await step(37, 'home ◀ after Back', 600);
   const after = await metrics();

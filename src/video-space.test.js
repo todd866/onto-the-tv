@@ -29,6 +29,8 @@ test('videoAffinity lifts neighbours of recently watched items and stays neutral
   assert.ok(space);
   const score = videoAffinity(space, 'grown-ups/Films/Lethal Weapon (1987).mp4', ['grown-ups/Films/Die Hard (1988).mp4']);
   assert.ok(Math.abs(score - (1 + VIDEO_AFFINITY_BONUS * 0.82)) < 1e-6);
+  const reverse = videoAffinity(space, 'grown-ups/Films/Gremlins (1984).mp4', ['grown-ups/Films/Die Hard (1988).mp4']);
+  assert.ok(Math.abs(reverse - (1 + VIDEO_AFFINITY_BONUS * 0.51)) < 1e-6, 'symmetric reverse k-NN edge lifts candidate');
   assert.equal(videoAffinity(space, 'unknown/video.mp4', ['grown-ups/Films/Die Hard (1988).mp4']), 1);
   assert.equal(videoAffinity(space, 'grown-ups/Films/Die Hard (1988).mp4', ['grown-ups/Films/Die Hard (1988).mp4']), 1);
   assert.equal(videoAffinity(null, 'grown-ups/Films/Die Hard (1988).mp4', ['grown-ups/Films/Lethal Weapon (1987).mp4']), 1);

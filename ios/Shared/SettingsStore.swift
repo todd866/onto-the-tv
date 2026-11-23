@@ -66,6 +66,17 @@ final class SettingsStore {
         set { defaults.set(newValue, forKey: "onto.rating") }
     }
 
+    var manifoldLensID: String {
+        get { defaults.string(forKey: "onto.manifoldLens") ?? "" }
+        set {
+            if newValue.isEmpty {
+                defaults.removeObject(forKey: "onto.manifoldLens")
+            } else {
+                defaults.set(newValue, forKey: "onto.manifoldLens")
+            }
+        }
+    }
+
     /// The household from the last `/api/home` reply, or the generic fallback before the first one.
     var people: [Person] {
         get {

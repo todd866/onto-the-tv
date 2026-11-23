@@ -40,6 +40,10 @@ if [ -f "$EXPORT/.public-exclude" ]; then
   while IFS= read -r pat; do
     case "$pat" in ''|\#*) continue ;; esac
     (cd "$EXPORT" && for p in $pat; do [ -e "$p" ] && rm -rf "$p"; done) || true
+    # Fail closed: nothing a listed pattern names may survive the removal.
+    if (cd "$EXPORT" && for p in $pat; do [ -e "$p" ] && exit 0; done; exit 1); then
+      echo "BLOCKED: excluded path still present: $pat" >&2; exit 1
+    fi
   done < "$EXPORT/.public-exclude"
 fi
 

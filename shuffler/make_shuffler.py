@@ -238,6 +238,55 @@ def cached_probe(path, ffprobe, tv, cache, used, checkpoint=None):
     return duration, error
 
 
+# Titles whose file has left the drives and plays from the cloud copy (22 Nov 2026; owner: "local copies of
+# enough to start a show, then backfill from the cloud"). The walk below cannot find them, so they are listed
+# from this manifest instead: {absolute path: {"size", "mtime" (ns), "duration"}}, the same three facts the probe
+# cache holds. Whatever moves a file off a drive calls record_cloud first. A file that is on the drive is always
+# listed from the drive; a root whose drive is away is still offline, manifest or not.
+CLOUD_MANIFEST_VERSION = 1
+
+
+def cloud_manifest_path(output):
+    return output.parent / "cloud-manifest.json"
+
+
+def load_cloud_manifest(path):
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict) or data.get("version") != CLOUD_MANIFEST_VERSION or not isinstance(data.get("entries"), dict):
+        return {}
+    entries = {}
+    for key, value in data["entries"].items():
+        if (isinstance(key, str) and os.path.isabs(key) and isinstance(value, dict)
+                and type(value.get("size")) is int and value["size"] > 0 and type(value.get("mtime")) is int
+                and isinstance(value.get("duration"), (int, float)) and not isinstance(value.get("duration"), bool)
+                and math.isfinite(value["duration"]) and value["duration"] > 0):
+            entries[key] = {"size": value["size"], "mtime": value["mtime"], "duration": float(value["duration"])}
+    return entries
+
+
+def record_cloud(manifest_path, cache_entries, paths, tv=True):
+    """Before files leave a drive: copy what the probe cache knows about each into the manifest.
+    Returns (recorded, skipped). A file the cache does not hold as playable is skipped: move nothing
+    that was skipped, or it drops out of the catalogue."""
+    manifest_path = Path(manifest_path)
+    entries = load_cloud_manifest(manifest_path)
+    recorded, skipped = [], []
+    for path in paths:
+        hit = cache_entries.get(f"{int(bool(tv))}|{path}")
+        if (isinstance(hit, dict) and not hit.get("error") and type(hit.get("size")) is int and hit["size"] > 0
+                and type(hit.get("mtime")) is int and isinstance(hit.get("duration"), (int, float)) and hit["duration"] > 0):
+            entries[str(path)] = {"size": hit["size"], "mtime": hit["mtime"], "duration": float(hit["duration"])}
+            recorded.append(str(path))
+        else:
+            skipped.append(str(path))
+    if recorded:
+        atomic_write(manifest_path, json.dumps({"version": CLOUD_MANIFEST_VERSION, "entries": entries}, indent=1, sort_keys=True))
+    return recorded, skipped
+
+
 def clean_title(stem):
     return re.sub(r"\s*\[[\w-]{8,}\]$", "", stem)
 
@@ -280,10 +329,12 @@ def _raise_if_offline(base, exc):
 
 
 def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, tiers=None, tv=False, cache=None, used=None,
-                   checkpoint=None):
+                   checkpoint=None, cloud=None):
     """Gather playable videos from every configured root plus the individual picks.
     With `cache` (from load_probe_cache), unchanged files are not probed again; the
-    entries actually used are written into `used`, which becomes the next cache."""
+    entries actually used are written into `used`, which becomes the next cache.
+    `cloud` (from load_cloud_manifest) lists titles that are on no drive: each is added under its root or
+    pick exactly as its file would be, marked `cloud: {size, mtime}` so the server can play it from the cloud copy."""
     if roots is None:
         roots = [{"label": "", "path": library, "classify": "shows"}]
     videos, rejected, warned, seen = [], [], set(), {}
@@ -303,6 +354,21 @@ def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, t
             "src": src,
             "path": Path(os.path.relpath(path, output.parent)).as_posix(),
             "title": title, "channel": channel, "tier": tier, "duration": duration,
+        })
+
+    cloud_real = {os.path.realpath(key): key for key in (cloud or {})}      # real path -> the manifest's own key
+
+    def add_cloud(path, src, channel, title, tier, entry):
+        if src in seen:
+            rejected.append((src, f"duplicate name; already used by {seen[src]}"))
+            return
+        seen[src] = str(path)
+        videos.append({
+            "src": src,
+            "path": Path(os.path.relpath(path, output.parent)).as_posix(),
+            "title": title, "channel": channel, "tier": tier, "duration": float(entry["duration"]),
+            # mtime is nanoseconds and too long for a JSON number in JavaScript, so it travels as text.
+            "cloud": {"size": entry["size"], "mtime": str(entry["mtime"])},
         })
 
     for root in roots:
@@ -326,10 +392,32 @@ def collect_videos(library, output, ffprobe="ffprobe", roots=None, picks=None, t
             src = (label + "/" + relative.as_posix()) if label else relative.as_posix()
             tier = tier_for(channel, warned, tiers) if root.get("classify") == "shows" else root.get("tier", "older")
             add(path, src, channel, clean_title(path.stem), tier)
+        real_base = os.path.realpath(base)
+        for real, key in sorted(cloud_real.items()):
+            # Compared by real path: the manifest and this root may spell a symlinked prefix differently.
+            try:
+                relative = Path(real).relative_to(real_base)
+            except ValueError:
+                continue
+            path = base / relative
+            if path.suffix.lower() not in MEDIA_SUFFIXES or any(part.startswith(".") for part in relative.parts):
+                continue
+            if os.path.lexists(path):
+                continue    # on the drive: the walk above has listed it from the drive
+            channel = relative.parts[0] if len(relative.parts) > 1 else (label or base.name)
+            src = (label + "/" + relative.as_posix()) if label else relative.as_posix()
+            tier = tier_for(channel, warned, tiers) if root.get("classify") == "shows" else root.get("tier", "older")
+            add_cloud(path, src, channel, clean_title(path.stem), tier, cloud[key])
 
     for pick in picks or []:
         path = Path(pick["path"])
         if not path.is_file():
+            held = (cloud or {}).get(cloud_real.get(os.path.realpath(path), ""))
+            if held:
+                channel = pick.get("show") or path.parent.name
+                add_cloud(path, channel + "/" + path.name, channel, pick.get("title") or clean_title(path.stem),
+                          pick.get("tier", "older"), held)
+                continue
             rejected.append((pick.get("title") or str(path), "listed in sources.json but not on disk"))
             continue
         channel = pick.get("show") or path.parent.name
@@ -373,6 +461,8 @@ def main(argv=None):
     parser.add_argument("--tiers", type=Path, help="folder classification JSON (default: tiers.json if present)")
     parser.add_argument("--no-sources", action="store_true", help="use only --library, ignoring sources.json")
     parser.add_argument("--tv", action="store_true", help="also accept formats a Samsung TV plays (MKV, MOV, Dolby Digital)")
+    parser.add_argument("--cloud-manifest", type=Path,
+                        help="titles held only in the cloud copy (default: cloud-manifest.json beside the output, if present)")
     args = parser.parse_args(argv)
     library = args.library.expanduser().resolve()
     output = (args.output or library / "kids-shuffler.html").expanduser().resolve()
@@ -414,8 +504,9 @@ def main(argv=None):
         if fresh[0] % 50 == 0:
             save_probe_cache(cache_path, {**cache, **used})
 
+    cloud = load_cloud_manifest(args.cloud_manifest or cloud_manifest_path(output))
     try:
-        videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers, args.tv, cache, used, checkpoint)
+        videos, rejected = collect_videos(library, output, ffprobe, roots, picks, tiers, args.tv, cache, used, checkpoint, cloud)
     except RootOffline as exc:
         parser.error(f"library root offline: {exc.path}")
     save_probe_cache(cache_path, used)

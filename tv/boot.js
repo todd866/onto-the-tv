@@ -39,12 +39,22 @@
     }(0));
   }
   function useLocal() { build(local, '', false); }
-  function ask(index) {
-    var request, base, timer, settled = false;
+  function ask(index, retried) {
+    var request, base, timer, settled = false, t0 = Date.now();
     if (started) return;
     if (index >= servers.length) { useLocal(); return; }
     base = String(servers[index]).replace(/\/$/, '');
-    function fail() { if (settled) return; settled = true; clearTimeout(timer); try { request.abort(); } catch (e) {} ask(index + 1); }
+    function fail() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { request.abort(); } catch (e) {}
+      if (!retried && Date.now() - t0 < 500) {
+        setTimeout(function () { ask(index, true); }, 900);
+        return;
+      }
+      ask(index + 1, false);
+    }
     try {
       request = new XMLHttpRequest();
       request.open('GET', base + '/api/tv-live', true);
@@ -64,5 +74,5 @@
     } catch (e) { fail(); }
   }
   if (skipLive || !servers.length || !config.token || !local) useLocal();
-  else ask(0);
+  else ask(0, false);
 }());

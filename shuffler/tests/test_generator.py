@@ -300,5 +300,150 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(picks, [])
 
 
+class CloudManifestTests(unittest.TestCase):
+    """22 Nov 2026: a title whose file has left the drives (it plays from the cloud copy) stays in the catalogue."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.base = Path(self.directory.name)
+        self.library = self.base / 'library'
+        (self.library / 'Example Show').mkdir(parents=True)
+        self.output = self.base / 'out.html'
+        self.probe = mock.patch.object(generator, 'probe_video', return_value=(60.0, None))
+        self.probe.start()
+        self.addCleanup(self.probe.stop)
+
+    def entry(self, size=1000, mtime=1731234567123456789, duration=1500.5):
+        return {'size': size, 'mtime': mtime, 'duration': duration}
+
+    def test_a_title_held_only_in_the_cloud_is_listed_from_the_manifest(self):
+        here = self.library / 'Example Show' / 'Episode 1.mp4'
+        here.write_bytes(b'x')
+        gone = self.library / 'Example Show' / 'Episode 2.mp4'
+        videos, rejected = generator.collect_videos(self.library, self.output, tiers={'shared': {'Example Show'}},
+                                                    cloud={str(gone): self.entry()})
+        self.assertEqual(rejected, [])
+        by_src = {v['src']: v for v in videos}
+        self.assertEqual(sorted(by_src), ['Example Show/Episode 1.mp4', 'Example Show/Episode 2.mp4'])
+        self.assertNotIn('cloud', by_src['Example Show/Episode 1.mp4'])
+        held = by_src['Example Show/Episode 2.mp4']
+        self.assertEqual(held['cloud'], {'size': 1000, 'mtime': '1731234567123456789'})
+        self.assertEqual((held['channel'], held['tier'], held['duration'], held['title']), ('Example Show', 'shared', 1500.5, 'Episode 2'))
+        self.assertEqual(held['path'], 'library/Example Show/Episode 2.mp4')
+
+    def test_a_file_on_the_drive_is_listed_from_the_drive_even_if_the_manifest_names_it(self):
+        here = self.library / 'Example Show' / 'Episode 1.mp4'
+        here.write_bytes(b'x')
+        videos, _ = generator.collect_videos(self.library, self.output, cloud={str(here): self.entry(duration=9.0)})
+        self.assertEqual(len(videos), 1)
+        self.assertNotIn('cloud', videos[0])
+        self.assertEqual(videos[0]['duration'], 60.0)
+
+    def test_an_extra_root_keeps_its_label_and_fixed_tier_for_cloud_titles(self):
+        (self.library / 'Example Show' / 'Episode 1.mp4').write_bytes(b'x')
+        stash = self.base / 'Stash' / 'sitcoms'
+        (stash / 'A Sitcom').mkdir(parents=True)
+        gone = stash / 'A Sitcom' / 'S01E01.mkv'
+        videos, _ = generator.collect_videos(self.library, self.output, roots=[
+            {'label': '', 'path': self.library, 'classify': 'shows'},
+            {'label': 'sitcoms', 'path': stash, 'tier': 'sitcom'}], cloud={str(gone): self.entry()})
+        held = next(v for v in videos if 'cloud' in v)
+        self.assertEqual((held['src'], held['channel'], held['tier']), ('sitcoms/A Sitcom/S01E01.mkv', 'A Sitcom', 'sitcom'))
+
+    def test_a_pick_held_only_in_the_cloud_is_listed_and_one_that_is_simply_missing_is_still_refused(self):
+        (self.library / 'Example Show' / 'Episode 1.mp4').write_bytes(b'x')
+        films = self.base / 'films'
+        held, lost = films / 'A Film (1950)' / 'A Film (1950).mp4', films / 'Lost' / 'Lost.mp4'
+        videos, rejected = generator.collect_videos(self.library, self.output, picks=[
+            {'path': str(held), 'title': 'A Film (1950)', 'show': 'Films', 'tier': 'grownup'},
+            {'path': str(lost), 'title': 'Lost', 'show': 'Films', 'tier': 'grownup'}], cloud={str(held): self.entry()})
+        film = next(v for v in videos if v['channel'] == 'Films')
+        self.assertEqual((film['src'], film['title'], film['tier'], film['cloud']['size']), ('Films/A Film (1950).mp4', 'A Film (1950)', 'grownup', 1000))
+        self.assertEqual(rejected, [('Lost', 'listed in sources.json but not on disk')])
+
+    def test_manifest_entries_outside_every_root_hidden_or_not_video_are_ignored(self):
+        (self.library / 'Example Show' / 'Episode 1.mp4').write_bytes(b'x')
+        videos, _ = generator.collect_videos(self.library, self.output, cloud={
+            str(self.base / 'elsewhere' / 'x.mp4'): self.entry(),
+            str(self.library / 'Example Show' / '.hidden.mp4'): self.entry(),
+            str(self.library / '.staging' / 'y.mp4'): self.entry(),
+            str(self.library / 'Example Show' / 'notes.txt'): self.entry()})
+        self.assertEqual([v['src'] for v in videos], ['Example Show/Episode 1.mp4'])
+
+    def test_the_manifest_never_stands_in_for_a_drive_that_is_away(self):
+        (self.library / 'Example Show' / 'Episode 1.mp4').write_bytes(b'x')
+        missing = self.base / 'Stash' / 'Movies'
+        with self.assertRaises(generator.RootOffline):
+            generator.collect_videos(self.library, self.output, roots=[
+                {'label': '', 'path': self.library, 'classify': 'shows'},
+                {'label': 'stash', 'path': missing, 'tier': 'older'}], cloud={str(missing / 'A' / 'b.mp4'): self.entry()})
+
+    def test_a_shelf_whose_files_have_all_left_is_listed_whole_as_long_as_its_folder_remains(self):
+        # The mover must leave each root folder in place: a root that is missing means "drive away" and stops
+        # the whole build (the test above). An empty one is simply a shelf that now lives in the cloud.
+        (self.library / 'Example Show' / 'Episode 1.mp4').write_bytes(b'x')
+        shelf = self.base / 'Stash' / 'sitcoms'
+        shelf.mkdir(parents=True)
+        cloud = {str(shelf / 'A Sitcom' / f'S01E0{n}.mp4'): self.entry(size=100 + n) for n in (1, 2, 3)}
+        videos, rejected = generator.collect_videos(self.library, self.output, roots=[
+            {'label': '', 'path': self.library, 'classify': 'shows'},
+            {'label': 'sitcoms', 'path': shelf, 'tier': 'sitcom'}], cloud=cloud)
+        self.assertEqual(rejected, [])
+        self.assertEqual(sorted(v['src'] for v in videos if 'cloud' in v),
+                         ['sitcoms/A Sitcom/S01E01.mp4', 'sitcoms/A Sitcom/S01E02.mp4', 'sitcoms/A Sitcom/S01E03.mp4'])
+
+    def test_the_command_itself_lists_a_cloud_title_from_the_manifest_beside_the_catalogue(self):
+        # Through main(), as the server runs it, with a real probe of the file that is on the drive.
+        self.probe.stop()
+        self.addCleanup(self.probe.start)
+        here = self.library / 'Example Show' / 'Episode 1.mp4'
+        subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=16x16:d=0.2',
+                        '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(here)], check=True)
+        gone = self.library / 'Example Show' / 'Episode 2.mp4'
+        output = self.base / 'tv-server' / 'catalogue.html'
+        tiers = self.base / 'tiers.json'
+        tiers.write_text(json.dumps({'shared': ['Example Show']}))
+        command = ['python3', str(ROOT / 'make_shuffler.py'), '--library', str(self.library), '--tiers', str(tiers),
+                   '--no-sources', '--output', str(output)]
+        before = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(before.returncode, 0, before.stderr)
+        self.assertIn('1 videos', before.stdout)
+        generator.record_cloud(generator.cloud_manifest_path(output),
+                               {'0|' + str(gone): {'size': 4321, 'mtime': 1731234567123456789, 'duration': 600.0, 'error': None}}, [str(gone)], tv=False)
+        after = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(after.returncode, 0, after.stderr)
+        self.assertIn('2 videos', after.stdout)
+        page = output.read_text()
+        self.assertIn('"cloud": {"size": 4321, "mtime": "1731234567123456789"}', page)
+        self.assertIn('Example Show/Episode 2.mp4', page)
+        elsewhere = self.base / 'other' / 'manifest.json'
+        elsewhere.parent.mkdir()
+        elsewhere.write_text(json.dumps({'version': 1, 'entries': {}}))
+        named = subprocess.run(command + ['--cloud-manifest', str(elsewhere)], capture_output=True, text=True)
+        self.assertIn('1 videos', named.stdout)        # an explicit manifest replaces the one beside the catalogue
+
+    def test_recording_copies_what_the_probe_cache_knows_and_loading_drops_anything_malformed(self):
+        manifest = self.base / 'tv-server' / 'cloud-manifest.json'
+        drive = '/Volumes' + '/Stash/Movies'
+        a, b, c = drive + '/sitcoms/A/1.mp4', drive + '/sitcoms/A/2.mp4', drive + '/sitcoms/A/3.mkv'
+        cache = {'1|' + a: {'size': 10, 'mtime': 111, 'duration': 5.0, 'error': None},
+                 '1|' + b: {'size': 20, 'mtime': 222, 'duration': None, 'error': 'hevc video does not play in a browser'},
+                 '0|' + c: {'size': 30, 'mtime': 333, 'duration': 7.0, 'error': None}}
+        recorded, skipped = generator.record_cloud(manifest, cache, [a, b, c, drive + '/unknown.mp4'], tv=True)
+        self.assertEqual(recorded, [a])
+        self.assertEqual(sorted(skipped), sorted([b, c, drive + '/unknown.mp4']))
+        self.assertEqual(generator.load_cloud_manifest(manifest), {a: {'size': 10, 'mtime': 111, 'duration': 5.0}})
+        generator.record_cloud(manifest, {'1|' + c: {'size': 30, 'mtime': 333, 'duration': 7.0, 'error': None}}, [c], tv=True)
+        self.assertEqual(sorted(generator.load_cloud_manifest(manifest)), [a, c])       # earlier entries are kept
+        manifest.write_text(json.dumps({'version': 1, 'entries': {a: {'size': 10, 'mtime': 111, 'duration': 5.0},
+                            'relative/path.mp4': {'size': 1, 'mtime': 1, 'duration': 1.0}, b: {'size': 0, 'mtime': 1, 'duration': 1.0},
+                            c: {'size': 5, 'mtime': 'soon', 'duration': 1.0}}}))
+        self.assertEqual(sorted(generator.load_cloud_manifest(manifest)), [a])
+        self.assertEqual(generator.load_cloud_manifest(self.base / 'no-such-file.json'), {})
+        manifest.write_text('not json')
+        self.assertEqual(generator.load_cloud_manifest(manifest), {})
+
+
 if __name__ == '__main__':
     unittest.main()

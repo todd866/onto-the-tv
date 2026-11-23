@@ -2,7 +2,7 @@
 
 Native remote for the TV server, and the Apple TV app that plays a channel itself. SwiftUI, iOS 18 or tvOS 18, no third-party packages. The generated Xcode project is not committed.
 
-The iPhone app and the Apple TV app share `ios/Shared/`: `TVAPI.swift` (requests and decoding), `SettingsStore.swift`, `KeychainToken.swift`, `TVClient.swift`, and `ArtLoader.swift` (artwork with the token in the `X-Onto-Token` header, ephemeral session, nothing cached on disk).
+The iPhone app and the Apple TV app share `ios/Shared/`: `TVAPI.swift` (requests and decoding), `SettingsStore.swift`, `KeychainToken.swift`, `TVClient.swift`, `ManifoldClient.swift` (signed TV channel lenses from [Manifold](https://github.com/todd866/manifold)), and `ArtLoader.swift` (artwork with the token in the `X-Onto-Token` header, ephemeral session, nothing cached on disk).
 
 Generate the project, then build the iPhone app:
 

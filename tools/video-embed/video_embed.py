@@ -44,6 +44,8 @@ TEXT_BATCH_USD_PER_MTOK = 0.10
 IMAGE_BATCH_USD_PER_MTOK = 0.225
 IMAGE_TOKENS_PER_FRAME = 258
 AUDIO_BATCH_USD_PER_SEC = 0.00008
+VIDEO_CLIP_MAX_SEC = 24.0
+VIDEO_CLIP_BATCH_USD_PER_SEC = 0.0018  # conservative 300 tok/s @ $6/1M Batch (~$0.0432 per 24s scene clip)
 
 CLIP_MAX_SEC = 80.0
 SHARD_MAX_BYTES = int(1.5 * 1024 * 1024 * 1024)
@@ -62,8 +64,8 @@ DEFAULT_STATE = Path.home() / ".local/state/onto-tv-video-embed"
 DEFAULT_CAP_OVERRIDE = Path.home() / ".config/onto-the-tv/video-embed-cap-override.json"
 DEFAULT_FFMPEG = "/opt/homebrew/bin/ffmpeg"
 
-# Fusion weights across tiers (renormalised to whichever tiers exist for a video)
-TIER_WEIGHTS = {1: 0.30, 2: 0.40, 3: 0.30}
+# Fusion weights across tiers (renormalised via L2 norm to whichever tiers exist for a video)
+TIER_WEIGHTS = {1: 0.22, 2: 0.33, 3: 0.25, 4: 0.20}
 
 
 def utc_now_iso() -> str:
@@ -183,9 +185,9 @@ def merge_tier_vectors(
 
 
 def rebuild_fused_vectors(directory: Path, dims: int) -> dict[str, dict[str, Any]]:
-    """Fuse tier1, tier2, tier3 vectors per canonical video id into fused.f32."""
+    """Fuse tier1..tier4 vectors per canonical video id into fused.f32."""
     by_id: dict[str, dict[int, tuple[dict[str, Any], list[float]]]] = {}
-    for tier in (1, 2, 3):
+    for tier in (1, 2, 3, 4):
         rows, vecs, _ = load_vectors(directory, f"tier{tier}", expected_dims=dims)
         for r, v in zip(rows, vecs):
             by_id.setdefault(r["id"], {})[tier] = (r, v)
@@ -508,6 +510,44 @@ def extract_audio_clips_b64(video_path: Path, windows: Sequence[tuple[float, flo
     return out
 
 
+def video_clip_windows(duration_seconds: float) -> list[tuple[float, float]]:
+    """Up to 3x24s scene windows (<=32 frames @ 1fps inside Gemini's 8,192-token multimodal window)."""
+    d = float(duration_seconds)
+    if d <= 0:
+        return []
+    if d <= VIDEO_CLIP_MAX_SEC * 1.5:
+        dur = min(d, VIDEO_CLIP_MAX_SEC)
+        return [(max(0.0, (d - dur) * 0.5), dur)]
+    half = VIDEO_CLIP_MAX_SEC / 2.0
+    windows: list[tuple[float, float]] = []
+    for c in (0.25 * d, 0.50 * d, 0.75 * d):
+        start = max(0.0, min(d - VIDEO_CLIP_MAX_SEC, c - half))
+        end = min(d, start + VIDEO_CLIP_MAX_SEC)
+        windows.append((start, end - start))
+    return windows
+
+
+def extract_video_clips_b64(video_path: Path, windows: Sequence[tuple[float, float]], ffmpeg: str = DEFAULT_FFMPEG) -> list[str]:
+    """Extract compact 320p 1fps H.264 + mono AAC MP4 scene clips for joint audiovisual embedding."""
+    out: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="otv-vid-") as td:
+        for idx, (start, dur) in enumerate(windows):
+            mp4 = Path(td) / f"v{idx}.mp4"
+            cmd = [
+                ffmpeg, "-nostdin", "-v", "error", "-y",
+                "-ss", f"{start:.2f}", "-t", f"{dur:.2f}",
+                "-i", str(video_path),
+                "-vf", "fps=1,scale='min(320,iw)':-2",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-ac", "1", "-ar", "16000", "-b:a", "48k",
+                "-movflags", "+faststart", str(mp4),
+            ]
+            r = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
+            if r.returncode == 0 and mp4.is_file() and mp4.stat().st_size > 0:
+                out.append(base64.b64encode(mp4.read_bytes()).decode("ascii"))
+    return out
+
+
 # ---------- Cost estimation & Spend Ledger (Perth day, fail-closed) ----------
 
 def estimate_tier1_usd(text: str) -> float:
@@ -523,6 +563,10 @@ def estimate_tier3_usd(duration: float) -> float:
     return sum(w[1] for w in clip_windows(duration)) * AUDIO_BATCH_USD_PER_SEC
 
 
+def estimate_tier4_usd(duration: float) -> float:
+    return sum(w[1] for w in video_clip_windows(duration)) * VIDEO_CLIP_BATCH_USD_PER_SEC
+
+
 def current_cap_usd(cap_arg: float | None = None, override_path: Path = DEFAULT_CAP_OVERRIDE) -> float:
     if cap_arg is not None:
         return float(cap_arg)
@@ -532,6 +576,15 @@ def current_cap_usd(cap_arg: float | None = None, override_path: Path = DEFAULT_
     ov = read_json(override_path, {})
     if isinstance(ov, dict) and ov.get("perth_date") == perth_today() and "usd" in ov:
         return float(ov["usd"])
+    for cand in (Path.home() / "Projects/music-core/embed", Path.home() / "Projects/glancebar/tools/music-embed"):
+        if (cand / "budget.py").is_file():
+            try:
+                if str(cand) not in sys.path:
+                    sys.path.insert(0, str(cand))
+                import budget as _gemini_budget
+                return float(_gemini_budget.lane_daily_cap_usd("tv"))
+            except Exception:
+                pass
     return DEFAULT_CAP_USD
 
 
@@ -578,6 +631,22 @@ def reserve_spend(gemini_dir: Path, usd: float, cap_usd: float, note: str) -> fl
         return new_total
 
 
+def release_spend(gemini_dir: Path, usd: float, note: str = "release") -> float:
+    day = perth_today()
+    with spend_locked(gemini_dir):
+        p = gemini_dir / "spend.json"
+        doc = read_json(p, {"days": {}, "log": []})
+        days = doc.setdefault("days", {})
+        cur = float(days.get(day, 0.0))
+        new_total = round(max(0.0, cur - usd), 6)
+        days[day] = new_total
+        doc["log"] = (doc.get("log") or [])[-499:] + [
+            {"at": utc_now_iso(), "day": day, "usd": -round(usd, 6), "note": note}
+        ]
+        write_json(p, doc)
+        return new_total
+
+
 # ---------- Batch JSONL builders & Gemini Batch API ----------
 
 def text_request_line(key: str, text: str) -> dict[str, Any]:
@@ -605,14 +674,14 @@ def plan_next_work(
     gemini_dir: Path,
     budget_usd: float,
     *,
-    max_tier: int = 3,
+    max_tier: int = 4,
     only_tier: int | None = None,
     max_items: int | None = None,
     inflight_keys: set[str] | None = None,
 ) -> tuple[int | None, list[tuple[dict[str, Any], float]]]:
-    """Choose the lowest incomplete tier (1 -> 2 -> 3) and pack videos fitting budget_usd."""
+    """Choose the lowest incomplete tier (1 -> 2 -> 3 -> 4) and pack videos fitting budget_usd."""
     inflight = inflight_keys or set()
-    tiers_to_check = [only_tier] if only_tier else [t for t in (1, 2, 3) if t <= max_tier]
+    tiers_to_check = [only_tier] if only_tier else [t for t in (1, 2, 3, 4) if t <= max_tier]
     ordered = sorted(videos, key=priority_key)
     for tier in tiers_to_check:
         rows, _, _ = load_vectors(gemini_dir, f"tier{tier}", expected_dims=VECTOR_DIM)
@@ -622,14 +691,16 @@ def plan_next_work(
         for v in ordered:
             if v["id"] in done or f"t{tier}:{v['id']}" in inflight:
                 continue
-            if tier in (2, 3) and not v.get("path"):
+            if tier in (2, 3, 4) and not v.get("path"):
                 continue
             if tier == 1:
                 est = max(0.0001, estimate_tier1_usd(v["title"] + " " + v["channel"]) * 8.0)
             elif tier == 2:
                 est = estimate_tier2_usd(len(keyframe_timestamps(v["duration"])))
-            else:
+            elif tier == 3:
                 est = estimate_tier3_usd(v["duration"])
+            else:
+                est = estimate_tier4_usd(v["duration"])
             if spent + est > budget_usd + 1e-9:
                 if picked:
                     break
@@ -780,6 +851,32 @@ def cmd_prepare(
                 lines_written += len(chunk_lines)
                 actual_est_usd += item_usd
                 included.append(v)
+            elif tier == 4:
+                vp = Path(v["path"])
+                if not vp.is_file():
+                    skipped += 1
+                    continue
+                wins = video_clip_windows(v["duration"])
+                clips = extract_video_clips_b64(vp, wins, ffmpeg=ffmpeg)
+                if not clips:
+                    skipped += 1
+                    continue
+                item_usd = estimate_tier4_usd(v["duration"])
+                if actual_est_usd + item_usd > remaining + 1e-9:
+                    break
+                chunk_lines = [
+                    json.dumps(inline_request_line(f"{vid}:{i}", "video/mp4", b64), ensure_ascii=False) + "\n"
+                    for i, b64 in enumerate(clips)
+                ]
+                chunk_bytes = sum(len(s.encode("utf-8")) for s in chunk_lines)
+                if bytes_written + chunk_bytes > SHARD_MAX_BYTES and included:
+                    break
+                for s in chunk_lines:
+                    fh.write(s)
+                bytes_written += chunk_bytes
+                lines_written += len(chunk_lines)
+                actual_est_usd += item_usd
+                included.append(v)
 
     if not included:
         shard_path.unlink(missing_ok=True)
@@ -823,15 +920,24 @@ def cmd_submit(state_dir: Path, cap_usd: float, model: str = DEFAULT_MODEL, clie
     c = client or _genai_client()
     from google.genai import types  # type: ignore
 
-    uploaded = c.files.upload(
-        file=prep["shard"],
-        config=types.UploadFileConfig(mime_type="application/jsonl", display_name=prep["id"]),
-    )
-    job = c.batches.create_embeddings(
-        model=model,
-        src=types.EmbeddingsBatchJobSource(file_name=uploaded.name),
-        config=types.CreateEmbeddingsBatchJobConfig(display_name=prep["id"]),
-    )
+    job_created = False
+    try:
+        uploaded = c.files.upload(
+            file=prep["shard"],
+            config=types.UploadFileConfig(mime_type="application/jsonl", display_name=prep["id"]),
+        )
+        job = c.batches.create_embeddings(
+            model=model,
+            src=types.EmbeddingsBatchJobSource(file_name=uploaded.name),
+            config=types.CreateEmbeddingsBatchJobConfig(display_name=prep["id"]),
+        )
+        job_created = True
+    except Exception as exc:
+        if not job_created:
+            release_spend(gdir, est_usd, f"{prep['id']} not created ({type(exc).__name__})")
+        if "monthly spending cap" in str(exc).lower():
+            return {"status": "paused-monthly-cap", "id": prep["id"], "error": str(exc)[:240]}
+        raise
     rec = {
         "id": prep["id"],
         "tier": prep["tier"],
@@ -1108,7 +1214,7 @@ def cmd_status(state_dir: Path, library_path: Path, sources_path: Path, cap_usd:
     ldir = state_dir / "gemma"
     total_vids = len(load_canonical_videos(library_path, sources_path)) if library_path.is_file() else 0
     g_tiers = {}
-    for t in (1, 2, 3):
+    for t in (1, 2, 3, 4):
         rows, _, _ = load_vectors(gdir, f"tier{t}", expected_dims=VECTOR_DIM)
         g_tiers[f"tier{t}"] = len(rows)
     l_tiers = {}
@@ -1147,8 +1253,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp_spend.add_argument("--init", action="store_true")
 
     sp_prep = sub.add_parser("prepare")
-    sp_prep.add_argument("--max-tier", type=int, default=3, choices=[1, 2, 3])
-    sp_prep.add_argument("--tier", type=int, default=None, choices=[1, 2, 3])
+    sp_prep.add_argument("--max-tier", type=int, default=4, choices=[1, 2, 3, 4])
+    sp_prep.add_argument("--tier", type=int, default=None, choices=[1, 2, 3, 4])
     sp_prep.add_argument("--max-items", type=int, default=None)
     sp_prep.add_argument("--no-subtitles", action="store_true")
 

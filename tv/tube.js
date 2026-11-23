@@ -373,7 +373,7 @@ window.ontoTube = (function () {
   function paint() {
     var holder, rows, viewers, feedChip;
     if (!active()) return;
-    feedChip = state.view === 'library' ? 'all' : state.chip;
+    feedChip = state.view === 'library' ? 'library' : state.chip;
     if ((state.view === 'home' || state.view === 'library') && state.feedKey !== audienceKey() + '|' + feedChip) state.cards = [];
     document.body.classList.add('tube-on');
     if (state.rail) document.body.classList.add('tube-rail-open');
@@ -398,7 +398,7 @@ window.ontoTube = (function () {
     else if (state.view === 'creators') ensureCreators();
   }
   function ensureFeed() {
-    var chip = state.view === 'library' ? 'all' : state.chip;
+    var chip = state.view === 'library' ? 'library' : state.chip;
     var want = audienceKey() + '|' + chip;
     var gen;
     if (state.feedKey === want && (state.feedLoaded || state.feedFlight)) return;

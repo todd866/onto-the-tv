@@ -2,7 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
-export const MUSIC_VIDEO_CHANNEL_IDS = new Set(['music', 'dance', 'livesets', 'triplej', 'doublej']);
+export const MUSIC_VIDEO_CHANNEL_IDS = new Set(['music', 'dance', 'chill', 'alt', 'rap', 'livesets', 'triplej', 'doublej']);
 export const MUSIC_HEARD_MS = 3 * 24 * 60 * 60 * 1000;
 export const MUSIC_EARLY_SKIP_SECONDS = 30;
 export const MUSIC_EXPLORATION_SHARE = 0.12;
@@ -229,6 +229,7 @@ export function createMusicEmbedState() {
     centroids: new Map(),
     tracks: new Map(),
     bySha: new Map(),
+    byItemSrc: new Map(),
     ids: null,
     idsMtime: 0,
     stats: { ids: 0, fallback: 0 },
@@ -242,19 +243,30 @@ export function createMusicEmbedState() {
 
 function embeddingVector(embed, item) {
   if (!embed?.ready || !item) return null;
+  const cacheKey = item.src || '';
+  if (cacheKey && embed.byItemSrc?.has(cacheKey)) return embed.byItemSrc.get(cacheKey);
+  let resolved = null;
   if (embed.ids && embed.bySha?.size) {
     const { sha } = songShaFor(embed.ids, item);
     const exact = sha && embed.bySha.get(sha);
-    if (exact) { embed.stats.ids += 1; return exact; }
+    if (exact) {
+      embed.stats.ids += 1;
+      if (cacheKey && embed.byItemSrc) embed.byItemSrc.set(cacheKey, exact);
+      return exact;
+    }
     embed.stats.fallback += 1;  // fuzzy below; counted, and logged on each refresh
   }
   const { artist, title } = parseArtistTitleFromVideo(item);
   if (title) {
     const track = embed.tracks?.get(songMatchKey(artist, title));
-    if (track) return track;
+    if (track) resolved = track;
   }
-  const key = normalizeArtist(artist);
-  return key ? embed.centroids.get(key) : null;
+  if (!resolved) {
+    const key = normalizeArtist(artist);
+    resolved = (key ? embed.centroids.get(key) : null) || null;
+  }
+  if (cacheKey && embed.byItemSrc) embed.byItemSrc.set(cacheKey, resolved);
+  return resolved;
 }
 
 export async function loadMusicEmbeddings(state, dir, log = () => {}, options = {}) {
@@ -321,6 +333,7 @@ export async function loadMusicEmbeddings(state, dir, log = () => {}, options = 
   state.centroids = centroids;
   state.tracks = tracks;
   state.bySha = bySha;
+  state.byItemSrc = new Map();
   state.dim = dim;
   state.dir = dir;
   state.indexMtime = indexInfo.mtimeMs;
@@ -404,6 +417,7 @@ export async function loadMusicIds(state, storeDir, log = () => {}) {
     if (!doc || typeof doc.key !== 'object') throw new Error('no key map');
     state.ids = { key: doc.key || {}, youtube: doc.youtube || {} };
     state.idsMtime = info.mtimeMs;
+    state.byItemSrc = new Map();
     log(`music ids: ${Object.keys(state.ids.key).length} songs, ${Object.keys(state.ids.youtube).length} YouTube ids`);
     return true;
   } catch (error) {

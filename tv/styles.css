@@ -203,6 +203,23 @@ button:focus { outline: none; }
   background: #c5c8ce;
 }
 #tune-flash svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+/* Tizen 3 Chromium 47: 1920x1080 SVG feTurbulence rasterizes on CPU right during AVPlay.open(); use a zero-CPU CRT blank instead. */
+body.avplay #tune-flash { background: #0b1428; }
+body.avplay #tune-flash svg { display: none; }
+
+#av-subs {
+  position: fixed; z-index: 4; left: 8%; right: 8%; bottom: 68px;
+  text-align: center; pointer-events: none;
+  font-size: 44px; font-weight: 800; line-height: 1.28; color: #f4f1ea;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.95), 0 0 18px rgba(0, 0, 0, 0.85);
+  white-space: pre-line;
+  -webkit-transition: bottom 160ms ease-out; transition: bottom 160ms ease-out;
+}
+#av-subs span {
+  display: inline-block; padding: 6px 20px; border-radius: 12px;
+  background: rgba(8, 13, 24, 0.74);
+}
+#osd:not(.hidden) + #av-subs { bottom: 204px; }
 #tune-num {
   position: fixed; z-index: 41; top: 36px; left: 48px;
   min-width: 196px; padding: 26px 28px 18px;
@@ -853,6 +870,8 @@ body.billboard #backdrop { display: block; }
 }
 #backdrop img.on { opacity: 1; -webkit-animation: billboard-drift 24s ease-in-out infinite alternate; animation: billboard-drift 24s ease-in-out infinite alternate; }
 #backdrop img.soft { -webkit-filter: blur(6px); filter: blur(6px); -webkit-transform: scale(1.08); transform: scale(1.08); }
+/* Tizen 3 Mali GPU: a 1920x1080 Gaussian blur pass drops Home arrow frames; dim cleanly instead. */
+body.avplay #backdrop img.soft { -webkit-filter: none; filter: none; -webkit-transform: none; transform: none; opacity: 0.3; }
 #backdrop img.soft.on { -webkit-animation: none; animation: none; }
 @-webkit-keyframes billboard-drift { from { -webkit-transform: scale(1.02); } to { -webkit-transform: scale(1.09) translate(-1.2%, -0.8%); } }
 @keyframes billboard-drift { from { transform: scale(1.02); } to { transform: scale(1.09) translate(-1.2%, -0.8%); } }

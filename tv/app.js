@@ -1377,6 +1377,20 @@
     errorCtrl = window.ontoPlayerExtras.errorLine();
   }
 
+  var pendingTapSeek = null, tapSeekScheduled = false, lastTracksKey = '', lastScreenSaverAllow = null, reportNowTimer = 0;
+  function syncScreenSaver() {
+    var allow = !play || pausedNow() || mediaState === 'error';
+    if (allow === lastScreenSaverAllow) return;
+    lastScreenSaverAllow = allow;
+    try {
+      if (window.webapis && webapis.appcommon && typeof webapis.appcommon.setScreenSaver === 'function') {
+        var saverState = allow
+          ? webapis.appcommon.AppCommonScreenSaverState.SCREEN_SAVER_ON
+          : webapis.appcommon.AppCommonScreenSaverState.SCREEN_SAVER_OFF;
+        webapis.appcommon.setScreenSaver(saverState, function () {}, function () {});
+      }
+    } catch (e) {}
+  }
   function playerOverlay() {
     return !!(play && (play.resumePending || play.errorOn)) || (upNextCard && upNextCard.active());
   }
@@ -1399,7 +1413,7 @@
       // Transport, continue and scrub focus keep the bar up while keys are being pressed, but not for ever:
       // eight quiet seconds and it goes (Ian, 21 Nov 2026: "the bottom bar never disappears").
       if (overlayFocus && Date.now() - lastInput < OSD_MS * 2) { showOsd(); return; }
-      if (!media.paused() && !playerOverlay()) {
+      if (!pausedNow() && !playerOverlay()) {
         osd.classList.add('hidden');
         paintBackChip();
         overlayFocus = '';
@@ -1421,6 +1435,8 @@
     if (!play || !play.item) return;
     var duration = media.duration() || play.item.duration || 0;
     var channel = play.channel;
+    var isPaused = pausedNow();
+    var mediaNow = pendingTapSeek ? pendingTapSeek.target : media.time();
     if (play.mode === 'tube') {
       paintChannel({ name: play.item.show || '' });
       $('osd-show').textContent = '';
@@ -1429,19 +1445,23 @@
       paintChannel(channel);
       paintOsdLabels(play.item);
     }
-    $('osd-play').setAttribute('aria-label', media.paused() ? 'Play' : 'Pause');
-    var shown = seekPreview != null ? seekPreview : media.time();
+    $('osd-play').setAttribute('aria-label', isPaused ? 'Play' : 'Pause');
+    var shown = seekPreview != null ? seekPreview : mediaNow;
     $('osd-elapsed').textContent = clock(shown);
     $('osd-elapsed').classList.toggle('is-preview', seekPreview != null);
     $('osd-duration').textContent = clock(duration);
-    $('osd-fill').style.width = duration ? Math.min(100, 100 * media.time() / duration) + '%' : '0';
+    $('osd-fill').style.width = duration ? Math.min(100, 100 * mediaNow / duration) + '%' : '0';
     var seekMark = $('osd-seek');
     if (seekMark) {
       if (seekPreview == null || !duration) seekMark.hidden = true;
       else { seekMark.hidden = false; seekMark.style.left = Math.min(100, 100 * seekPreview / duration) + '%'; }
     }
-    paintTrackToggles();
-    if (media.paused()) $('osd-play').classList.add('is-paused');
+    var tracksKey = (play.sidecars ? play.sidecars.length : 0) + ':' + subsChoice() + ':' + (play.audioIndex || 0) + ':' + (duration > 0 ? 1 : 0);
+    if (tracksKey !== lastTracksKey) {
+      lastTracksKey = tracksKey;
+      paintTrackToggles();
+    }
+    if (isPaused) $('osd-play').classList.add('is-paused');
     else $('osd-play').classList.remove('is-paused');
     $('osd-next').hidden = play.mode === 'single' && !(play.nextQueue && play.nextQueue[0]);
   }
@@ -1580,9 +1600,69 @@
     for (i = 0; i < options.length; i++) if (options[i].id === choice) return choice;
     return options.length ? options[0].id : 'off';
   }
+  var avSubCues = null, avSubKey = '', avSubReq = 0, lastPaintedSub = '';
+  function paintAvSub(text) {
+    var box = $('av-subs'), span;
+    if (!box) return;
+    text = String(text || '');
+    if (text === lastPaintedSub) return;
+    lastPaintedSub = text;
+    if (!text) { box.hidden = true; box.innerHTML = ''; return; }
+    box.innerHTML = '';
+    span = document.createElement('span');
+    span.textContent = text;
+    box.appendChild(span);
+    box.hidden = false;
+  }
+  function clearAvSubs() {
+    avSubReq += 1;
+    avSubCues = null;
+    avSubKey = '';
+    paintAvSub('');
+  }
+  function loadAvSidecarVtt(src, name) {
+    var wantedKey = src + '\n' + name, reqId;
+    if (avSubKey === wantedKey && avSubCues) {
+      if (window.ontoPlayerExtras && window.ontoPlayerExtras.activeCue) {
+        paintAvSub(window.ontoPlayerExtras.activeCue(avSubCues, media.time()));
+      }
+      return;
+    }
+    avSubKey = wantedKey;
+    avSubCues = null;
+    paintAvSub('');
+    reqId = ++avSubReq;
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', subsUrl(src, name), true);
+    if (TOKEN) xhr.setRequestHeader('X-Onto-Token', TOKEN);
+    xhr.onload = function () {
+      if (reqId !== avSubReq || !play || !play.item || play.item.src !== src) return;
+      if (xhr.status === 200 && window.ontoPlayerExtras && window.ontoPlayerExtras.parseVtt) {
+        avSubCues = window.ontoPlayerExtras.parseVtt(xhr.responseText || '');
+        paintAvSub(window.ontoPlayerExtras.activeCue(avSubCues, media.time()));
+      }
+    };
+    xhr.onerror = function () { if (reqId === avSubReq) avSubKey = ''; };
+    try { xhr.send(); } catch (e) { avSubKey = ''; }
+  }
   function applySavedSubs() {
     if (!media.selectText) return;
     var choice = resolveSubs(subsChoice());
+    if (media.engine === 'avplay') {
+      if (choice.indexOf('track:') === 0) {
+        clearAvSubs();
+        media.selectText(Number(choice.slice(6)));
+        return;
+      }
+      if (choice.indexOf('file:') === 0 && play && play.item && play.item.src) {
+        media.selectText(-1);
+        loadAvSidecarVtt(play.item.src, choice.slice(5));
+        return;
+      }
+      clearAvSubs();
+      media.selectText(-1);
+      return;
+    }
     if (choice.indexOf('track:') === 0) { media.selectText(Number(choice.slice(6))); return; }
     if (choice.indexOf('file:') === 0) {
       var name = choice.slice(5), found = -1, list = video.textTracks, i;
@@ -1911,6 +1991,7 @@
   function inAd() { return !!(play && (play.airing === 'ad' || play.inRecorded)); }
   function durationNow() { return media.duration() || (play && play.item && play.item.duration) || 0; }
   function applySeek(target, keepBurst) {
+    pendingTapSeek = null;
     seekPreview = null;
     if (seekCtrl && !keepBurst) seekCtrl.clear();
     media.seek(target);
@@ -2056,6 +2137,9 @@
     play.errorOn = false;
     if (upNextCard) upNextCard.reset();
     seekPreview = null;
+    pendingTapSeek = null;
+    lastTracksKey = '';
+    clearAvSubs();
     scrub = null;
     $('player').classList.remove('is-seeking');
     if (overlayFocus === 'seek') overlayFocus = '';
@@ -2107,6 +2191,7 @@
     hideResume();
     hideError();
     mediaState = 'loading'; lastProgressAt = 0; previousMediaTime = item.resume || 0;
+    syncScreenSaver();
     diag('play_request', { page: 'player', engine: media.engine, state: 'loading', position: item.resume || 0, duration: item.duration || 0, paused: false });
     for (i = 0; i < play.queue.length; i++) {
       if (play.queue[i].kind !== 'ad') break;
@@ -2369,6 +2454,8 @@
     reportNow();
   }
   function reportNow() {
+    clearTimeout(reportNowTimer);
+    reportNowTimer = 0;
     if (!TOKEN) return;
     var body, channel;
     if (!play || !play.item || $('player').hidden) body = { src: null, position: 0, channel: null, profile: profileId };
@@ -2382,6 +2469,10 @@
       };
     }
     post('/api/now-playing', body).catch(function () {});
+  }
+  function reportNowSoon() {
+    clearTimeout(reportNowTimer);
+    reportNowTimer = setTimeout(function () { reportNowTimer = 0; reportNow(); }, 500);
   }
 
   function next(reason) {
@@ -2404,17 +2495,19 @@
     stopPlayback();
   }
 
-  function stopAfterPaint() {
+  function afterNextPaint(fn, fallbackMs) {
     var raf = window.requestAnimationFrame || function (f) { return setTimeout(f, 16); };
-    // Two frames: the first paints the home screen, and the stop lands after it (one frame would let it run
-    // before the press's own next-frame mark, which is what the TV's key telemetry reports).
-    // A hidden page gets no frames (the TV suspending the app, a hidden tab): stop at once, and never rely on
-    // frames alone, so the picture and sound always stop.
+    // Two frames: the first paints the UI change, and the heavy AVPlay bridge call lands after it (one frame
+    // would let it run before the press's own next-frame mark, which is what the TV's key telemetry reports).
+    // A hidden page gets no frames: run at once, and always arm a timer fallback.
     var done = false;
-    function go() { if (done) return; done = true; if (!play) media.stop(); }
+    function go() { if (done) return; done = true; fn(); }
     if (document.hidden) { go(); return; }
     raf(function () { raf(function () { setTimeout(go, 0); }); });
-    setTimeout(go, 250);
+    setTimeout(go, fallbackMs || 250);
+  }
+  function stopAfterPaint() {
+    afterNextPaint(function () { if (!play) media.stop(); }, 250);
   }
   function stopPlayback() {
     resetPressedKeys();
@@ -2439,6 +2532,9 @@
     clearTimeout(errorTimer);
     clearInterval(sweepTimer);
     seekPreview = null;
+    pendingTapSeek = null;
+    lastTracksKey = '';
+    clearAvSubs();
     scrub = null;
     $('player').classList.remove('is-seeking');
     if (overlayFocus === 'seek') overlayFocus = '';
@@ -2457,6 +2553,7 @@
     // Tuned elsewhere while watching: Back lands on the channel that was on.
     if (homeReturn && play && play.channel && play.channel.id && /^ch:/.test(homeReturn.id)) homeReturn.id = 'ch:' + play.channel.id;
     play = null; mediaState = 'ready';
+    syncScreenSaver();
     // The home screen paints first and the player is told after: AVPlay's stop and close are synchronous and
     // slow on the TV (Back took 190-240 ms at p50 and up to 2 s, remote-events.jsonl 14-21 Nov 2026, against
     // 14 ms for a home move). With 'playing' gone the page is opaque, so the picture is already hidden.
@@ -2471,7 +2568,7 @@
   }
 
   // Pause and play answer in the frame of the press: the button and bar repaint first, and the player (whose pause
-  // call took 700 ms on the TV, 14 Nov 2026) is told straight after. Returns whether the picture is now paused.
+  // call took 700 ms on the TV, 14 Nov 2026) is told after the frame has painted. Returns whether the picture is now paused.
   var pendingPause = null;
   function pausedNow() { return pendingPause === null ? media.paused() : pendingPause; }
   function togglePause() {
@@ -2480,18 +2577,25 @@
     $('osd-play').classList.toggle('is-paused', willPause);
     $('osd-play').setAttribute('aria-label', willPause ? 'Play' : 'Pause');
     showOsd();
-    setTimeout(function () {
+    syncScreenSaver();
+    afterNextPaint(function () {
       var want = pendingPause;
       pendingPause = null;
       if (!play || want === null) return;
       if (want !== media.paused()) { if (want) media.pause(); else { media.play(); watchEvent('resume'); } }
+      syncScreenSaver();
       updateOsd();
       showOsd();
-      reportNow();
-    }, 0);
+      reportNowSoon();
+    }, 250);
     return willPause;
   }
 
+  media.on('subtitle', function () {
+    if (media.engine !== 'avplay' || !play || play.airing !== 'show') return;
+    var choice = resolveSubs(subsChoice());
+    if (choice.indexOf('track:') === 0) paintAvSub(media.subtitle ? media.subtitle() : '');
+  });
   media.on('time', function () {
     // The picture is running once the clock has moved (a resumed episode starts with its clock already
     // at its place, so one reading is not enough).
@@ -2502,6 +2606,9 @@
     if (play && play.resumePending) return;
     if (play && play.airing === 'show') followSegments();
     if (play && play.airing === 'show') considerUpNext();
+    if (media.engine === 'avplay' && avSubCues && play && play.airing === 'show' && window.ontoPlayerExtras && window.ontoPlayerExtras.activeCue) {
+      paintAvSub(window.ontoPlayerExtras.activeCue(avSubCues, media.time()));
+    }
     updateOsd();
     if (!play || play.airing !== 'show') return;
     var at = media.time();
@@ -2534,6 +2641,7 @@
     if (!play) return;
     if (play.airing === 'ad') return advanceAd();
     mediaState = 'error';
+    syncScreenSaver();
     diag('play_error', { page: 'player', engine: media.engine || 'video', state: 'error', errorCode: 'media' });
     watchEvent('error');
     // Stay on the channel. Retry reloads this file; after 5 s the channel moves on.
@@ -2817,12 +2925,13 @@
   function paintResumeInto(holder, entries) {
     if (!holder) return [];
     holder.innerHTML = '';
-    var els = [], i;
+    var els = [], frag = document.createDocumentFragment(), i, button;
     for (i = 0; i < entries.length; i++) {
-      var button = resumeButton(entries[i]);
-      holder.appendChild(button);
+      button = resumeButton(entries[i]);
+      frag.appendChild(button);
       els.push(button);
     }
+    holder.appendChild(frag);
     return els;
   }
   function resumeEntries() {
@@ -2874,6 +2983,7 @@
   function scrollContinueTo(index) {
     var strip = $('continue-strip'), els = strip ? strip.children : [];
     if (!strip || !els.length || !els[index]) return;
+    if (index === 0 && strip.scrollLeft === 0) return;
     var tile = els[index].getBoundingClientRect(), view = strip.getBoundingClientRect();
     if (tile.left < view.left + 16) strip.scrollLeft -= view.left + 16 - tile.left;
     if (tile.right > view.right - 16) strip.scrollLeft += tile.right - view.right + 16;
@@ -2883,13 +2993,14 @@
       positionSeconds: tile.resume || 0, duration: tile.duration || 0, channel: channelView(tile.channel), mode: 'channel' };
   }
   function appendResumeTiles(holder, entries) {
-    var els = [], i, button;
+    var els = [], frag = document.createDocumentFragment(), i, button;
     if (!holder) return els;
     for (i = 0; i < entries.length; i++) {
       button = resumeButton(entries[i]);
-      holder.appendChild(button);
+      frag.appendChild(button);
       els.push(button);
     }
+    holder.appendChild(frag);
     return els;
   }
   function directionPlaceholder() {
@@ -3416,6 +3527,7 @@
     $('player').classList.add('is-tap-seeking');
   }
   function resetTapSeek() {
+    pendingTapSeek = null;
     if (seekCtrl) seekCtrl.clear();
     arrowHoldRepeats = 0;
     clearTapSeekChrome();
@@ -3425,27 +3537,43 @@
     arrowHoldRepeats = 0;
   }
   function tapSeekStep(direction, held) {
-    var duration, target, step;
+    var duration, target, step, baseTime;
     if (!play || !play.item || play.resumePending || play.errorOn) return;
     if (upNextCard && upNextCard.active()) cancelUpNext();
     if (inAd()) { if (direction > 0 && !held) skipBreak(); showOsd(); return; }
     if (scrub) cancelScrub();
     duration = durationNow();
     if (!seekCtrl) return;
+    baseTime = pendingTapSeek ? pendingTapSeek.target : media.time();
     if (held) {
       step = scrubHoldStepSize(arrowHoldRepeats);
       arrowHoldRepeats += 1;
-      target = media.time() + direction * step;
+      target = baseTime + direction * step;
     } else {
       arrowHoldRepeats = 0;
-      target = seekCtrl.tap(media.time(), duration, direction, Date.now());
+      target = seekCtrl.tap(baseTime, duration, direction, Date.now());
     }
     if (target < 0) target = 0;
     if (duration > 5 && target > duration - 5) target = duration - 5;
     else if (duration > 1 && target > duration - 1) target = duration - 1;
-    applySeek(target, !held);
+    pendingTapSeek = { target: target, keepBurst: !held };
+    seekPreview = null;
+    $('osd-elapsed').textContent = clock(target);
+    $('osd-elapsed').classList.remove('is-preview');
+    if (duration) $('osd-fill').style.width = Math.min(100, 100 * target / duration) + '%';
     paintTapSeekBubble();
-    reportNow();
+    showOsd();
+    if (!tapSeekScheduled) {
+      tapSeekScheduled = true;
+      afterNextPaint(function () {
+        tapSeekScheduled = false;
+        var req = pendingTapSeek;
+        pendingTapSeek = null;
+        if (!req || !play) return;
+        applySeek(req.target, req.keepBurst);
+        reportNowSoon();
+      }, 250);
+    }
   }
   function endScrub() {
     var was = scrub;
@@ -3737,24 +3865,51 @@
         if (window.ontoRemoteGuide) window.ontoRemoteGuide.setCode('subt', subtCode);
       }
     }
-    remoteKeys.forEach(function (name) {
-      try { tizen.tvinputdevice.registerKey(name); } catch (e) {}
-    });
+    if (typeof tizen.tvinputdevice.registerKeyBatch === 'function') {
+      try { tizen.tvinputdevice.registerKeyBatch(remoteKeys); }
+      catch (eBatch) {
+        remoteKeys.forEach(function (name) {
+          try { tizen.tvinputdevice.registerKey(name); } catch (e) {}
+        });
+      }
+    } else {
+      remoteKeys.forEach(function (name) {
+        try { tizen.tvinputdevice.registerKey(name); } catch (e) {}
+      });
+    }
   }
-  // Leaving the app (Home button) saves the place.
+  // Leaving the app (Home button or TV standby) saves the place and suspends AVPlay's hardware decoder
+  // so another app or standby cannot leave AVPlay in INVALID_STATE on return.
   // Back after a long time away, the page starts afresh from the server (boot.js): on 16 Nov 2026 a page left
   // hidden for 23 hours woke with no pictures on the cards and every title failing, though the server served both.
   window.addEventListener('blur', resetPressedKeys);
   var hiddenAt = 0, STALE_AFTER_MS = 30 * 60 * 1000;
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { resetPressedKeys(); hiddenAt = Date.now(); flushRemote(); }
-    if (document.hidden && play) { saveProgress(false); media.pause(); }
-    if (!document.hidden && hiddenAt && Date.now() - hiddenAt > STALE_AFTER_MS && !GUEST && window.tizen) {
+    if (document.hidden) {
+      resetPressedKeys();
+      hiddenAt = Date.now();
+      flushRemote();
+      if (play) {
+        saveProgress(false);
+        if (media.suspend) media.suspend(); else media.pause();
+        syncScreenSaver();
+      }
+      return;
+    }
+    if (hiddenAt && Date.now() - hiddenAt > STALE_AFTER_MS && !GUEST && window.tizen) {
       hiddenAt = 0;
       setTimeout(function () { location.reload(); }, 400);
       diag('wake_reload', { page: play ? 'player' : 'home' });
       try { if (play) stopPlayback(); } catch (e) {}
-    } else if (!document.hidden) hiddenAt = 0;
+    } else {
+      hiddenAt = 0;
+      if (play && play.item && media.engine === 'avplay' && media.restore) {
+        media.restore(mediaUrl(play.item.src), playbackPosition(), false);
+        syncScreenSaver();
+        updateOsd();
+        showOsd();
+      }
+    }
   });
 
   // The shell reports what it is doing to the TV (tuning, a TV that will not answer).

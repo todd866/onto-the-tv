@@ -7,6 +7,16 @@ import { randomUUID } from 'node:crypto';
 
 const execute = promisify(execFile);
 
+// A file's mtime in nanoseconds (as text: it is too long for a JavaScript number) to the mtimeMs that
+// fs.stat reports for that file: seconds * 1e3 + nanoseconds / 1e6, in that order, as Node computes it.
+// The playback cache names its blocks by path, size and mtimeMs, so for a title that has left the drive
+// (22 Nov 2026) this must be the very same number, or the opening cached from the drive would be orphaned.
+export function mtimeMsFromNs(text) {
+  if (typeof text !== 'string' || !/^\d{1,20}$/.test(text)) return null;
+  const ns = BigInt(text);
+  return Number(ns / 1000000000n) * 1e3 + Number(ns % 1000000000n) / 1e6;
+}
+
 export function readCatalogue(html, sourcePath, outputPath) {
   const match = html.match(/<script>\s*const VIDEOS = ([\s\S]*?);\s*<\/script>/);
   if (!match) throw new Error('Refresh the library to create your channels.');
@@ -17,11 +27,15 @@ export function readCatalogue(html, sourcePath, outputPath) {
     const path = video.path || video.src;
     if (typeof path !== 'string' || !path || path.includes('\0') || /^[a-z][\w+.-]*:/i.test(path)
         || typeof video.src !== 'string' || !tiers.has(video.tier)) throw new Error('Invalid library entry.');
+    // cloud: the file is on no drive and plays from the cloud copy (make_shuffler.py's cloud manifest).
+    const held = video.cloud && typeof video.cloud === 'object' && Number.isSafeInteger(video.cloud.size) && video.cloud.size > 0
+      ? mtimeMsFromNs(video.cloud.mtime) : null;
     return { src: video.src, file: resolve(dirname(sourcePath), path),
       path: relative(dirname(outputPath), resolve(dirname(sourcePath), path)),
       title: typeof video.title === 'string' ? video.title : '',
       channel: typeof video.channel === 'string' ? video.channel : '', tier: video.tier,
-      duration: Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0 };
+      duration: Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0,
+      ...(held === null ? {} : { cloud: { size: video.cloud.size, mtimeMs: held } }) };
   });
 }
 

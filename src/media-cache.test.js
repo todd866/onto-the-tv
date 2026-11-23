@@ -157,3 +157,67 @@ test('kept titles go too when the disk itself runs short', async t => {
   assert.equal(cache.stats().bytesCached, 0, 'the free-space floor outranks keeping');
   await cache.close();
 });
+
+// 22 Nov 2026 (owner: "local copies of enough to start a show, then backfill from the cloud"): a title whose file
+// is no longer on a drive is read from a remote source, through the same blocks and the same cache.
+test('a file that has left the drive is read from the remote source, then from the cache', async t => {
+  const root = await temp(), data = Buffer.from('abcdefghijklmnop'), gone = join(root, 'not-on-a-drive.bin');
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const calls = [];
+  const remote = async (file, start, length) => { calls.push({ file, start, length }); return data.subarray(start, start + length); };
+  const cache = await createMediaCache({ directory: join(root, 'cache'), blockBytes: 4, eligible: () => true, statfs: fakeFs(), remote });
+  assert.deepEqual(await bytes(await cache.stream(gone, info(data.length), { start: 3, end: 11 })), data.subarray(3, 12));
+  assert.ok(calls.length >= 3 && calls.every(c => c.file === gone && c.start % 4 === 0 && c.length === 4));
+  const fetched = calls.length;
+  assert.deepEqual(await bytes(await cache.stream(gone, info(data.length), { start: 0, end: 7 })), data.subarray(0, 8));
+  assert.equal(calls.length, fetched);
+  assert.equal(cache.stats().remoteReads, fetched);
+  await cache.close();
+});
+
+test('a file that is on the drive never touches the remote source', async t => {
+  const root = await temp(), file = join(root, 'source.bin'), data = Buffer.from('abcdefgh');
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(file, data);
+  const remote = async () => { throw new Error('the remote source must not be asked'); };
+  const cache = await createMediaCache({ directory: join(root, 'cache'), blockBytes: 4, eligible: () => true, statfs: fakeFs(), remote });
+  assert.deepEqual(await bytes(await cache.stream(file, info(data.length))), data);
+  assert.equal(cache.stats().remoteReads, 0);
+  await cache.close();
+});
+
+test('blocks cached while the file was on the drive still play after it has gone, with no remote read', async t => {
+  const root = await temp(), file = join(root, 'source.bin'), data = Buffer.from('abcdefghijkl');
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(file, data);
+  const remote = async () => { throw new Error('the remote source must not be asked'); };
+  const options = { directory: join(root, 'cache'), blockBytes: 4, eligible: () => true, statfs: fakeFs(), remote };
+  let cache = await createMediaCache(options);
+  assert.deepEqual(await bytes(await cache.stream(file, info(data.length))), data);
+  await cache.close();
+  await fs.rm(file);
+  cache = await createMediaCache(options);
+  assert.deepEqual(await bytes(await cache.stream(file, info(data.length), { start: 2, end: 9 })), data.subarray(2, 10));
+  await cache.close();
+});
+
+test('a remote failure, or a short remote read, reaches the reader as an error', async t => {
+  const root = await temp(), gone = join(root, 'not-on-a-drive.bin');
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const failing = await createMediaCache({ directory: join(root, 'a'), blockBytes: 4, eligible: () => true, statfs: fakeFs(),
+    remote: async () => { throw Object.assign(new Error('cloud read failed'), { code: 'EREMOTE' }); } });
+  await assert.rejects(async () => bytes(await failing.stream(gone, info(8))), /cloud read failed/);
+  await failing.close();
+  const short = await createMediaCache({ directory: join(root, 'b'), blockBytes: 4, eligible: () => true, statfs: fakeFs(),
+    remote: async () => Buffer.from('ab') });
+  await assert.rejects(async () => bytes(await short.stream(gone, info(8))), /wrong amount/);
+  await short.close();
+});
+
+test('without a remote source a missing file fails as it always did', async t => {
+  const root = await temp();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const cache = await createMediaCache({ directory: join(root, 'cache'), blockBytes: 4, eligible: () => true, statfs: fakeFs() });
+  await assert.rejects(async () => bytes(await cache.stream(join(root, 'missing.bin'), info(8))), { code: 'ENOENT' });
+  await cache.close();
+});

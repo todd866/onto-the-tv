@@ -1265,7 +1265,7 @@ test('the live library proxy in bin/tv-server.js forwards every method the HTTP 
   const { readFile } = await import('node:fs/promises');
   const src = await readFile(new URL('../bin/tv-server.js', import.meta.url), 'utf8');
   const proxy = src.slice(src.indexOf('const current = {'), src.indexOf('};', src.indexOf('const current = {')));
-  for (const name of ['home', 'next', 'show', 'catalogue', 'allowed', 'feed', 'related', 'search', 'creators']) {
+  for (const name of ['home', 'next', 'show', 'catalogue', 'allowed', 'feed', 'related', 'search', 'creators', 'knownInfo', 'rememberInfo']) {
     assert.ok(new RegExp('\\b' + name + ':').test(proxy), `proxy forwards ${name}`);
   }
 });
@@ -1342,7 +1342,6 @@ test('a preschool creator watched on YouTube lifts the youngest viewer\'s grid, 
   assert.equal(little.chips[1].label, 'Owl Babies', 'with the little one watching it leads');
   assert.equal(little.cards[0].creator, 'Owl Babies');
 });
-
 test('with no ledger the tube grid orders as before', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'onto-tv-tube-plain-'));
   const history = await loadPlaybackHistory(join(dir, 'history.json'));
@@ -1353,4 +1352,87 @@ test('with no ledger the tube grid orders as before', async () => {
   const order = library => library.feed({ viewers: 'kid2,adult2,adult1' }).cards.map(card => card.src);
   assert.deepEqual(order(empty), order(plain));
   assert.equal(order(plain)[0], 'Mumbo/m.mp4');
+});
+
+test('streamFile serves SSD-warmed blocks with knownInfo without statting a sleeping USB drive', async () => {
+  const { createServer } = await import('node:http');
+  const { unlink } = await import('node:fs/promises');
+  const { streamFile } = await import('./tv-server.js');
+  const { createMediaCache } = await import('./media-cache.js');
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-ssd-'));
+  const sourceFile = join(dir, 'episode.mp4');
+  const payload = Buffer.from('0123456789abcdef'.repeat(64));
+  await writeFile(sourceFile, payload);
+  const st = await stat(sourceFile);
+  const known = { size: st.size, mtimeMs: st.mtimeMs };
+  const cache = await createMediaCache({
+    directory: join(dir, 'cache'),
+    blockBytes: 256,
+    reserveBytes: 0,
+    eligible: () => true,
+  });
+  await cache.keep([{ file: sourceFile, info: known }]);
+  await cache.warm(sourceFile, known, { durationSeconds: 10 });
+  // Simulate the slow/unmounted USB drive being absent for stat() while cached blocks live on SSD.
+  await unlink(sourceFile);
+  let remembered = null;
+  const server = createServer((req, res) => {
+    streamFile(req, res, sourceFile, cache, null, known, (f, info) => { remembered = { f, info }; })
+      .catch(err => { res.statusCode = err.status || 500; res.end(err.message); });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const { port } = server.address();
+    const res = await fetch(`http://127.0.0.1:${port}/media`, { headers: { Range: 'bytes=0-31' } });
+    assert.equal(res.status, 206);
+    assert.equal(Buffer.from(await res.arrayBuffer()).toString(), payload.subarray(0, 32).toString());
+    assert.equal(remembered, null, 'knownInfo skips stat(file) completely');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    await cache.close();
+  }
+});
+
+test('shared-tier baby shows half-watched in household history do not hijack the older child\'s Tube Home or Creators', async () => {
+  const { parseYouTubeWatch } = await import('./youtube-watch.js');
+  const index = parseYouTubeWatch(JSON.stringify({
+    version: 1,
+    generated: '2026-11-23T05:00:00Z',
+    events: [],
+    channels: {
+      '@beckbroplays': { name: 'BeckBroPlays', verdict: 'unjudged', recent: { seconds: 30000, shorts: 0 } },
+      '@fuzz': { name: 'Fuzz', verdict: 'cleared', recent: { seconds: 16000, shorts: 0 } },
+    },
+  }));
+  const cat = [
+    ...tubeCatalogue(),
+    { src: 'Bing/e1.mp4', file: '/m/Bing/e1.mp4', title: 'Bing 1', channel: 'Bing', tier: 'shared', duration: 420 },
+    { src: 'Play School/e1.mp4', file: '/m/Play School/e1.mp4', title: 'Play School 1', channel: 'Play School', tier: 'shared', duration: 1500 },
+    { src: 'Numberblocks/e1.mp4', file: '/m/Numberblocks/e1.mp4', title: 'One', channel: 'Numberblocks', tier: 'shared', duration: 300 },
+    { src: 'BeckBroPlays/c1 [abcDEF12345].mp4', file: '/m/BeckBroPlays/c1 [abcDEF12345].mp4', title: 'I Evolved My Tiny Car!', channel: 'BeckBroPlays', tier: 'older', duration: 900 },
+    { src: 'Fuzz/f1 [xyzUVW67890].mp4', file: '/m/Fuzz/f1 [xyzUVW67890].mp4', title: '100 Days Underground', channel: 'Fuzz', tier: 'older', duration: 1200 },
+  ];
+  const dir = await mkdtemp(join(tmpdir(), 'onto-tv-tube-baby-'));
+  const history = await loadPlaybackHistory(join(dir, 'history.json'));
+  const storage = await createFileStorage(join(dir, 'taste.json'));
+  const library = createTvLibrary({ videos: cat, history, storage, random: () => 0, youtubeWatch: () => index });
+  // Simulate the youngest child leaving three shared-tier baby cartoons half-watched.
+  library.progress({ src: 'Bing/e1.mp4', positionSeconds: 180, durationSeconds: 420, completed: false });
+  library.progress({ src: 'Play School/e1.mp4', positionSeconds: 400, durationSeconds: 1500, completed: false });
+  library.progress({ src: 'Numberblocks/e1.mp4', positionSeconds: 120, durationSeconds: 300, completed: false });
+  library.progress({ src: 'Grian/e1.mp4', positionSeconds: 600, durationSeconds: 600, completed: true });
+
+  const older = library.feed({ viewers: 'kid2,adult2,adult1' });
+  const top3Creators = older.cards.slice(0, 3).map(card => card.creator);
+  assert.equal(top3Creators.includes('Bing'), false, 'shared baby resume does not hijack top of older Tube grid');
+  assert.equal(top3Creators.includes('Play School'), false);
+  assert.equal(older.cards[0].creator, 'BeckBroPlays', 'top YouTube creator leads older Tube Home');
+  assert.equal(older.cards.slice(0, 3).some(card => card.creator === 'Fuzz'), true, 'unjudged/cleared YouTube favourite also surfaces');
+  assert.equal(older.chips.some(chip => chip.label === 'Bing' || chip.label === 'Play School'), false);
+  const creators = library.creators({ viewers: 'kid2,adult2,adult1' }).creators.map(c => c.name);
+  assert.equal(creators[0], 'BeckBroPlays');
+  assert.equal(creators.includes('Bing'), false, 'household baby-show watch time does not put Bing in older Creators');
+
+  const libView = library.feed({ viewers: 'kid2,adult2,adult1', chip: 'library' });
+  assert.deepEqual(libView.cards.map(c => c.src), ['Grian/e1.mp4'], 'Tube Library shows older viewer\'s non-baby history');
 });

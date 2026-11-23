@@ -39,30 +39,54 @@ window.ontoPlayer = function (video, avObject) {
   }
 
   if (!(window.webapis && webapis.avplay && avObject)) {
-    video.addEventListener('timeupdate', function () { emit('time'); });
-    video.addEventListener('ended', function () { emit('ended'); });
-    video.addEventListener('error', function () { emit('error'); });
+    var VIDEO_STALL_MS = 25000, videoStallTimer = 0, pendingBegin = null;
+    function clearVideoStall() { if (videoStallTimer) { clearTimeout(videoStallTimer); videoStallTimer = 0; } }
+    function clearPendingBegin() {
+      if (pendingBegin) { video.removeEventListener('loadedmetadata', pendingBegin); pendingBegin = null; }
+    }
+    function safeVideoPlay() {
+      try {
+        var p = video.play();
+        if (p && typeof p.catch === 'function') p.catch(function () {});
+      } catch (e) {}
+    }
+    video.addEventListener('timeupdate', function () { if (video.currentTime > 0) clearVideoStall(); emit('time'); });
+    video.addEventListener('playing', function () { clearVideoStall(); });
+    video.addEventListener('ended', function () { clearVideoStall(); emit('ended'); });
+    video.addEventListener('error', function () { clearVideoStall(); emit('error'); });
     video.addEventListener('pause', function () { emit('pause'); });
     return {
       engine: 'video', on: on,
       load: function (url, start) {
+        clearVideoStall();
+        clearPendingBegin();
         video.src = url;
         video.load();
-        var begin = function () {
-          video.removeEventListener('loadedmetadata', begin);
+        pendingBegin = function () {
+          clearPendingBegin();
           if (start) video.currentTime = start;
-          video.play();
+          safeVideoPlay();
         };
-        video.addEventListener('loadedmetadata', begin);
+        video.addEventListener('loadedmetadata', pendingBegin);
+        videoStallTimer = setTimeout(function () {
+          videoStallTimer = 0;
+          if (video.paused && video.readyState >= 2) return;
+          clearPendingBegin();
+          try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) {}
+          emit('error');
+        }, VIDEO_STALL_MS);
       },
-      play: function () { video.play(); },
+      play: function () { safeVideoPlay(); },
       pause: function () { video.pause(); },
       paused: function () { return video.paused; },
       time: function () { return isFinite(video.currentTime) ? video.currentTime : 0; },
       duration: function () { return isFinite(video.duration) ? video.duration : 0; },
       seek: function (seconds) { video.currentTime = seconds; },
       ended: function () { return video.ended; },
-      stop: function () { video.pause(); video.removeAttribute('src'); video.load(); },
+      stop: function () { clearVideoStall(); clearPendingBegin(); video.pause(); video.removeAttribute('src'); video.load(); },
+      suspend: function () { video.pause(); },
+      restore: function () {},
+      subtitle: function () { return ''; },
       tracks: videoTracks,
       selectAudio: selectVideoAudio,
       selectText: selectVideoText,
@@ -76,9 +100,19 @@ window.ontoPlayer = function (video, avObject) {
   // AVPlay can sit in prepareAsync forever without calling either callback (21 Nov 2026: the next title
   // after an ended one hung 'buffering' for an hour, and the channel never moved on). A load that has not
   // played a frame in STALL_MS becomes an error, so the channel's retry-then-move-on line takes over.
-  var STALL_MS = 25000, stallTimer = 0;
+  var STALL_MS = 25000, stallTimer = 0, tracksCache = null, prepared = false, subText = '', subTimer = 0;
   function clearStall() { if (stallTimer) { clearTimeout(stallTimer); stallTimer = 0; } }
-  function close() { clearStall(); seekBusy = 0; seekWanted = -1; try { av.stop(); } catch (e) {} try { av.close(); } catch (e) {} }
+  function setSub(text, durationMs) {
+    if (subTimer) { clearTimeout(subTimer); subTimer = 0; }
+    var cleaned = String(text || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+    if (cleaned === subText && !durationMs) return;
+    subText = cleaned;
+    emit('subtitle');
+    if (subText && durationMs > 0) {
+      subTimer = setTimeout(function () { subTimer = 0; subText = ''; emit('subtitle'); }, durationMs);
+    }
+  }
+  function close() { clearStall(); setSub('', 0); seekBusy = 0; seekWanted = -1; tracksCache = null; prepared = false; try { av.stop(); } catch (e) {} try { av.close(); } catch (e) {} }
   // Seeks run asynchronously (with callbacks): without them seekTo blocks until the TV has found the frame, and the
   // remote's Left / Right took 130-220 ms at p50 and up to 4.7 s to answer (remote-events.jsonl, 21 Nov 2026).
   // One seek is in flight at a time; taps that arrive meanwhile collapse into the latest target.
@@ -98,7 +132,18 @@ window.ontoPlayer = function (video, avObject) {
       state = { paused: false, ended: false, time: start || 0, duration: 0 };
       try {
         av.open(url);
+        try {
+          if (window.webapis && webapis.productinfo && typeof webapis.productinfo.isUdPanelSupported === 'function' && webapis.productinfo.isUdPanelSupported()) {
+            if (av.setStreamingProperty) av.setStreamingProperty('SET_MODE_4K', 'TRUE');
+          }
+        } catch (e4k) {}
         av.setDisplayRect(0, 0, 1920, 1080);
+        try {
+          if (av.setDisplayMethod) av.setDisplayMethod('PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO');
+        } catch (eAspect) {
+          try { if (av.setDisplayMethod) av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX'); } catch (eBox) {}
+        }
+        try { if (av.setTimeoutForBuffering) av.setTimeoutForBuffering(4); } catch (eBuf) {}
         av.setListener({
           // While a seek is in flight the TV still reports the old position; the target stands until it lands,
           // so held Left / Right keep stepping from where they asked for, not from where the picture was.
@@ -106,7 +151,9 @@ window.ontoPlayer = function (video, avObject) {
           onstreamcompleted: function () { state.ended = true; emit('ended'); },
           onerror: function () { clearStall(); emit('error'); },
           onbufferingstart: function () {}, onbufferingprogress: function () {}, onbufferingcomplete: function () {},
-          onevent: function () {}, onsubtitlechange: function () {}, ondrmevent: function () {},
+          onevent: function () {},
+          onsubtitlechange: function (duration, text) { setSub(text, Number(duration) || 0); },
+          ondrmevent: function () {},
         });
         stallTimer = setTimeout(function () {
           stallTimer = 0;
@@ -114,6 +161,7 @@ window.ontoPlayer = function (video, avObject) {
           close(); emit('error');
         }, STALL_MS);
         av.prepareAsync(function () {
+          prepared = true;
           state.duration = av.getDuration() / 1000;
           var go = function () { av.play(); emit('time'); };
           if (start) av.seekTo(Math.floor(start * 1000), go, go); else go();
@@ -128,6 +176,7 @@ window.ontoPlayer = function (video, avObject) {
     seek: function (seconds) {
       var ms = Math.floor(seconds * 1000);
       state.time = seconds;
+      if (subText) setSub('', 0);
       // A seek whose callbacks never came back (5 s) does not hold up the next one.
       if (seekBusy && Date.now() - seekBusy < 5000) seekWanted = ms;
       else seekNow(ms);
@@ -135,8 +184,24 @@ window.ontoPlayer = function (video, avObject) {
     },
     ended: function () { return state.ended; },
     stop: function () { close(); state.paused = true; },
+    suspend: function () {
+      try { if (av.suspend) av.suspend(); else av.pause(); state.paused = true; } catch (e) {}
+      emit('pause');
+    },
+    restore: function (url, resumeAt, playNow) {
+      try {
+        if (av.restore) {
+          av.restore(url || '', Math.floor((resumeAt || state.time || 0) * 1000), !!playNow);
+          state.paused = !playNow;
+          emit('pause');
+          return;
+        }
+      } catch (e) {}
+      if (playNow) { try { av.play(); state.paused = false; emit('pause'); } catch (e2) {} }
+    },
     tracks: function () {
-      var audio = [], text = [], info = [], i, item, label, extra;
+      if (tracksCache) return tracksCache;
+      var audio = [], text = [], info = [], i, item, label, extra, out;
       try { info = av.getTotalTrackInfo() || []; } catch (e) { info = []; }
       for (i = 0; i < info.length; i++) {
         item = info[i] || {};
@@ -152,15 +217,20 @@ window.ontoPlayer = function (video, avObject) {
         if (item.type === 'AUDIO') audio.push({ index: item.index, label: label });
         if (item.type === 'TEXT') text.push({ index: item.index, label: label, language: label });
       }
-      return { audio: audio, text: text };
+      out = { audio: audio, text: text };
+      if (prepared || info.length > 0) tracksCache = out;
+      return out;
     },
+    subtitle: function () { return subText; },
     selectAudio: function (index) { try { av.setSelectTrack('AUDIO', index); } catch (e) {} },
     selectText: function (index) {
       try {
-        if (index < 0 && av.setSilentSubtitle) av.setSilentSubtitle(true);
-        else {
+        if (index < 0) {
+          setSub('', 0);
+          if (av.setSilentSubtitle) av.setSilentSubtitle(true);
+        } else {
           if (av.setSilentSubtitle) av.setSilentSubtitle(false);
-          if (index >= 0) av.setSelectTrack('TEXT', index);
+          av.setSelectTrack('TEXT', index);
         }
       } catch (e) {}
     },
@@ -389,6 +459,70 @@ window.ontoPlayerExtras = (function () {
         '<button type="button" id="osd-cc" hidden><span class="k">CC</span><span class="v" id="osd-cc-value">Off</span></button>' +
         '<button type="button" id="osd-audio" hidden><span class="k">Audio</span><span class="v" id="osd-audio-value"></span></button>');
     }
+    if (!el(doc, 'av-subs')) {
+      root = doc.createElement('div');
+      root.id = 'av-subs';
+      root.hidden = true;
+      root.setAttribute('aria-hidden', 'true');
+      player.appendChild(root);
+    }
+  }
+
+  function vttSeconds(raw) {
+    var m = /^(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/.exec(String(raw || '').trim());
+    if (!m) return -1;
+    var ms = m[4];
+    while (ms.length < 3) ms += '0';
+    return (m[1] ? Number(m[1]) * 3600 : 0) + Number(m[2]) * 60 + Number(m[3]) + Number(ms) / 1000;
+  }
+
+  function decodeSubEntities(text) {
+    return String(text || '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/g, "'")
+      .trim();
+  }
+
+  function parseVtt(text) {
+    var body = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    var blocks = body.split(/\n{2,}/), cues = [], i, lines, idx, arrow, start, end, cueText;
+    for (i = 0; i < blocks.length; i++) {
+      lines = blocks[i].split('\n');
+      idx = 0;
+      while (idx < lines.length && !lines[idx].trim()) idx++;
+      if (idx >= lines.length || /^WEBVTT\b/i.test(lines[idx]) || /^NOTE\b/.test(lines[idx]) || /^STYLE\b/.test(lines[idx])) continue;
+      if (lines[idx].indexOf('-->') === -1) idx++;
+      if (idx >= lines.length || lines[idx].indexOf('-->') === -1) continue;
+      arrow = lines[idx].split('-->');
+      start = vttSeconds(arrow[0]);
+      end = vttSeconds(String(arrow[1] || '').trim().split(/\s+/)[0]);
+      if (start < 0 || end <= start) continue;
+      cueText = decodeSubEntities(lines.slice(idx + 1).join('\n'));
+      if (cueText) cues.push({ start: start, end: end, text: cueText });
+    }
+    cues.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
+    return cues;
+  }
+
+  function activeCue(cues, seconds) {
+    if (!cues || !cues.length || !(seconds >= 0)) return '';
+    var lo = 0, hi = cues.length - 1, mid, from, out = [], i;
+    while (lo <= hi) {
+      mid = (lo + hi) >> 1;
+      if (cues[mid].start <= seconds) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    from = Math.max(0, lo - 8);
+    for (i = from; i < lo; i++) {
+      if (seconds >= cues[i].start && seconds < cues[i].end) out.push(cues[i].text);
+    }
+    return out.join('\n');
   }
 
   return {
@@ -407,6 +541,8 @@ window.ontoPlayerExtras = (function () {
     resumeAction: resumeAction,
     skipChip: skipChip,
     errorLine: errorLine,
+    parseVtt: parseVtt,
+    activeCue: activeCue,
     install: install
   };
 }());

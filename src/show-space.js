@@ -18,15 +18,29 @@ export function slugify(title) {
     .replace(/^-+|-+$/g, '');
 }
 
+function addEdge(edges, a, b, sim) {
+  let row = edges.get(a);
+  if (!row) { row = new Map(); edges.set(a, row); }
+  const prev = row.get(b) || 0;
+  if (sim > prev) row.set(b, sim);
+}
+
 function index(space) {
   if (!space) return null;
   const bySlug = new Map();
+  const edges = new Map();
   for (const [slug, entry] of Object.entries(space)) {
     if (!entry || !Array.isArray(entry.next)) continue;
-    bySlug.set(slug, entry.next.filter(pair => Array.isArray(pair) && typeof pair[1] === 'number'));
+    const pairs = entry.next.filter(pair => Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'number');
+    bySlug.set(slug, pairs);
+    for (const [other, sim] of pairs) {
+      if (!other || other === slug || sim <= 0) continue;
+      addEdge(edges, slug, other, sim);
+      addEdge(edges, other, slug, sim);
+    }
   }
   if (!bySlug.size) return null;
-  return { bySlug };
+  return { bySlug, edges };
 }
 
 export function loadShowSpace(path) {
@@ -73,4 +87,22 @@ export function christmasAffinity(space, title, recentTitles) {
   }
   if (best <= 0) return 1;
   return 1 + AFFINITY_BONUS * Math.max(0, best);
+}
+
+/** Symmetric canon show similarity (1 .. 1 + AFFINITY_BONUS) for general channels and Down directions. */
+export function showAffinity(space, title, anchorTitles) {
+  if (!space || !title || !anchorTitles?.length) return 1;
+  const slug = canonSlug(space, title);
+  if (!slug) return 1;
+  const neighbours = space.edges ? space.edges.get(slug) : null;
+  if (!neighbours) return 1;
+  let best = 0;
+  for (const anchor of anchorTitles) {
+    const anchorSlug = canonSlug(space, anchor);
+    if (!anchorSlug || anchorSlug === slug) continue;
+    const sim = neighbours.get(anchorSlug) || 0;
+    if (sim > best) best = sim;
+  }
+  if (best <= 0) return 1;
+  return 1 + AFFINITY_BONUS * Math.min(1, best);
 }

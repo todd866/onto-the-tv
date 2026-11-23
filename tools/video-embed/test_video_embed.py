@@ -213,6 +213,50 @@ class VideoEmbedTests(unittest.TestCase):
             self.assertGreater(res["val_cosine"], 0.15)
             self.assertTrue((state / "align-gemma-to-gemini.npz").is_file())
 
+    def test_tier4_ladder_and_submit_failure_refunds_spend(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            lib, src, hist = self._fixture(root)
+            state = root / "state"
+            gdir = state / "gemini"
+            ve.init_spend_ledger(gdir)
+            vids = ve.load_canonical_videos(lib, src, hist)
+            dummy_vec = [1.0] + [0.0] * (ve.VECTOR_DIM - 1)
+            rows = [{"id": v["id"], "src": v["src"], "aliases": v["aliases"], "title": v["title"], "channel": v["channel"]} for v in vids]
+            for t in (1, 2, 3):
+                ve.save_vectors(gdir, f"tier{t}", rows, [dummy_vec for _ in vids], ve.VECTOR_DIM)
+            tier, picked = ve.plan_next_work(vids, gdir, budget_usd=1.0, max_tier=4)
+            self.assertEqual(tier, 4)
+            self.assertEqual(len(picked), 3)
+
+            # Simulate submit failure -> spend must be refunded cleanly to $0.00
+            (gdir / "batches").mkdir(parents=True, exist_ok=True)
+            shard = gdir / "batches/fail.jsonl"
+            shard.write_text("{}\n", encoding="utf-8")
+            ve.write_json(gdir / "prepared.json", {
+                "id": "vid-t4-fail", "tier": 4, "shard": str(shard),
+                "videos": 1, "video_ids": [vids[0]["id"]], "video_meta": {}, "est_usd": 0.50,
+            })
+            import sys
+            fake_types = SimpleNamespace(
+                UploadFileConfig=lambda **kw: SimpleNamespace(**kw),
+                EmbeddingsBatchJobSource=lambda **kw: SimpleNamespace(**kw),
+                CreateEmbeddingsBatchJobConfig=lambda **kw: SimpleNamespace(**kw),
+            )
+            broken_client = SimpleNamespace(
+                files=SimpleNamespace(upload=lambda **kw: (_ for _ in ()).throw(RuntimeError("monthly spending cap"))),
+            )
+            sys.modules["google"] = SimpleNamespace(genai=SimpleNamespace(types=fake_types))
+            sys.modules["google.genai"] = SimpleNamespace(types=fake_types)
+            try:
+                out = ve.cmd_submit(state, cap_usd=5.0, client=broken_client)
+                self.assertEqual(out["status"], "paused-monthly-cap")
+                self.assertAlmostEqual(ve.spent_today_usd(gdir), 0.0, places=6)
+                self.assertTrue((gdir / "prepared.json").is_file())
+            finally:
+                sys.modules.pop("google.genai", None)
+                sys.modules.pop("google", None)
+
 
 if __name__ == "__main__":
     unittest.main()

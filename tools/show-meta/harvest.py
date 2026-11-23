@@ -25,7 +25,7 @@ try:
 except ImportError:  # pragma: no cover
     requests = None  # type: ignore
 
-USER_AGENT = "onto-the-tv-metadata/0.2"  # no personal or project details in requests to outside services
+USER_AGENT = "onto-the-tv-metadata/0.2 (https://www.mediawiki.org/wiki/API:Etiquette; local-catalogue)"  # no personal details
 WIKI_BATCH_SIZE = 50
 WIKI_MAX_RETRIES = 5
 TIERS = frozenset(
@@ -102,6 +102,7 @@ CATALOGUE_RE = re.compile(r"<script>\s*const VIDEOS = ([\s\S]*?);\s*</script>")
 IMDB_BASICS_URL = "https://datasets.imdbws.com/title.basics.tsv.gz"
 IMDB_RATINGS_URL = "https://datasets.imdbws.com/title.ratings.tsv.gz"
 WIKI_API = "https://en.wikipedia.org/w/api.php"
+WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 WIKI_REST = "https://en.wikipedia.org/api/rest_v1/page/summary/"
 META_MAX_AGE = timedelta(days=30)
 YOUTUBE_PACE_SECONDS = 20
@@ -765,9 +766,11 @@ def wikidata_entities_batch(
             "action": "wbgetentities",
             "ids": "|".join(batch),
             "props": "claims|labels|aliases",
+            "languages": "en",
+            "maxlag": 5,
             "format": "json",
         }
-        response = session.get(WIKI_API, params=params, timeout=60)
+        response = session.get(WIKIDATA_API, params=params, timeout=60)
         response.raise_for_status()
         for qid, entity in (response.json().get("entities") or {}).items():
             if not entity or entity.get("missing"):
@@ -781,21 +784,8 @@ def wikidata_entities(
 ) -> dict[str, Any] | None:
     if not qid:
         return None
-    if isinstance(session, RateLimitedSession):
-        batch = wikidata_entities_batch(session, [qid])
-        return batch.get(qid)
-    params = {
-        "action": "wbgetentities",
-        "ids": qid,
-        "props": "claims|labels|aliases",
-        "format": "json",
-    }
-    response = session.get(WIKI_API, params=params, timeout=60)
-    response.raise_for_status()
-    entity = response.json().get("entities", {}).get(qid, {})
-    if not entity or entity.get("missing"):
-        return None
-    return parse_wikidata_entity(entity)
+    paced = session if isinstance(session, RateLimitedSession) else RateLimitedSession(session)
+    return wikidata_entities_batch(paced, [qid]).get(qid)
 
 
 @dataclass
@@ -1393,6 +1383,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Re-harvest shows whose saved JSON has wikipedia_status throttled.",
     )
+    parser.add_argument(
+        "--no-youtube",
+        action="store_true",
+        help="Skip yt-dlp YouTube description lookups and harvest Wikipedia + Wikidata + IMDb only.",
+    )
     return parser.parse_args(argv)
 
 
@@ -1443,6 +1438,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     prepared = [(group.name, guess_kind(group.name, group.items, raw_channels=group.raw_channels)) for group in planned]
     wiki_resolver.prepare(prepared)
     harvested = 0
+    youtube_enabled = not args.no_youtube
     for group in planned:
         out_path = meta_dir / f"{group.slug}.json"
         harvested_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -1453,7 +1449,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 imdb_index=imdb_index,
                 runner=subprocess.run,
                 sleeper=time.sleep,
-                youtube_enabled=True,
+                youtube_enabled=youtube_enabled,
                 wiki_resolver=wiki_resolver,
             )
         except Exception as exc:
@@ -1471,8 +1467,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         logging.info("Wrote %s", out_path)
         harvested += 1
         if stopped:
-            logging.warning("YouTube bot-check encountered; stopping early this run.")
-            break
+            logging.warning("YouTube bot-check encountered; disabling YouTube lookups and continuing Wikipedia/IMDb harvest.")
+            youtube_enabled = False
     logging.info("Harvested %s show(s)", harvested)
     return 0
 

@@ -21,11 +21,20 @@ final class RemoteModel {
     var viewers: String?
     var people: [Person]
     var rating: String
+    var manifoldLensID: String
+    var manifoldLenses: [ManifoldTVLens] = ManifoldClient.bundledTVLenses
     var tokenSet = false
     var revision = 0
 
     var showsPause: Bool { hasProgram && !paused }
     var viewerLabel: String { SettingsStore.viewerNames(viewers, people: people) }
+    var activeLensLabel: String {
+        guard !manifoldLensID.isEmpty,
+              let lens = manifoldLenses.first(where: { $0.id == manifoldLensID }) else {
+            return "Off"
+        }
+        return lens.name
+    }
 
     private let client: TVClient
     private let settings: SettingsStore
@@ -41,7 +50,19 @@ final class RemoteModel {
         viewers = settings.viewers
         people = settings.people
         rating = settings.rating
+        manifoldLensID = settings.manifoldLensID
         serverDraft = settings.base
+    }
+
+    func setManifoldLens(_ id: String) {
+        manifoldLensID = id
+        settings.manifoldLensID = id
+    }
+
+    func refreshManifoldLenses() async {
+        if let fetched = try? await ManifoldClient.fetchTVLenses(), !fetched.isEmpty {
+            manifoldLenses = fetched
+        }
     }
 
     func foreground() {

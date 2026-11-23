@@ -17,9 +17,10 @@ import { rebuildCatalogue } from '../src/library.js';
 import { buildPlayer } from '../src/shuffler.js';
 import { loadPlaybackHistory } from '../src/playback-history.js';
 import { createArtworkCache } from '../src/library-artwork.js';
-import { TV_CHANNELS, channelScoresSignaturePart, createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue, mergeChannelScores, parseChannelScores } from '../src/tv-server.js';
+import { TV_CHANNELS, channelScoresSignaturePart, cloudManifestSignaturePart,createFileStorage, createTvLibrary, createTvServer, layeredHistory, loadCatalogue, mergeChannelScores, parseChannelScores } from '../src/tv-server.js';
 import { createSceneStore } from '../src/scenes.js';
 import { createMediaCache } from '../src/media-cache.js';
+import { openCloudSource } from '../src/cloud-source.js';
 import { createWatchEventStore } from '../src/watch-events.js';
 import { createMusicEmbedLoader } from '../src/music-pick.js';
 import { createTasteAppender } from '../src/music-taste.js';
@@ -89,10 +90,18 @@ async function signature(settings) {
       if (child) parts.push(`${entry.name}:${child.mtimeMs}`);
     }
   }
+  parts.push(cloudManifestSignaturePart(await stat(join(data, 'cloud-manifest.json')).catch(() => null)));
+  return parts.sort().join('\n');
+}
+
+// Channel score files only affect in-memory channel membership and weights (make_shuffler.py never reads them),
+// so reloading them in Node avoids a 10-minute USB drive rescan whenever station/kind scores update.
+async function scoresSignature(settings) {
+  const parts = [];
   for (const scoresPath of await channelScoresFiles(settings)) {
     parts.push(channelScoresSignaturePart(scoresPath, await stat(scoresPath).catch(() => null)));
   }
-  return parts.sort().join('\n');
+  return parts.join('\n');
 }
 
 // The kids library plus every extra source root. A pick is one file; a missing
@@ -179,6 +188,7 @@ const sceneLookup = src => {
   return video ? sceneStore.load(video.file) : null;
 };
 let channelScores = await loadChannelScores(settings);
+let lastScoresSig = await scoresSignature(settings);
 const musicEmbed = createMusicEmbedLoader({ dir: settings.musicVectorsDir, storeDir: settings.musicStoreDir, log });
 const tasteLog = createTasteAppender({ tool: settings.musicStoreTool, listeners: settings.musicTasteListeners, log });
 const nowWriter = createNowWriter({ listener: settings.musicNowListener,
@@ -215,6 +225,29 @@ async function keepDiskAwake() {
   finally { await handle?.close().catch(() => {}); diskTouching = false; }
 }
 setInterval(() => { const h = new Date().getHours(); if (h >= 6 && h < 23) void keepDiskAwake(); }, 3 * 60_000).unref();
+// Where the cache lives (Ian, 15 Nov 2026: "I just don't want the m2 internal drive getting full and I want
+// snappy response"; "surely the SSD external is fast enough to serve this"). The M2's T9 SSD is the fast tier
+// in the storage architecture (~/Projects/external-drives/docs/ARCHITECTURE.md: "fast media for the TV
+// server", folder hot/). The volume is Research until it is reformatted as M2-Fast. With the T9 away the
+// cache shrinks to a small fallback on the internal disk, which always keeps 50 GB free.
+const GiB = 1024 ** 3;
+const FAST_ROOTS = ['/Volumes/M2-Fast', '/Volumes/Research'];
+const INTERNAL_CACHE = join(homedir(), 'Library/Caches/Onto the TV/media');
+const fastRoot = FAST_ROOTS.find(root => existsSync(join(root, '.')));
+const isSlowVolumeFile = file => file.startsWith('/Volumes/') && !(fastRoot && file.startsWith(fastRoot + '/'));
+let mediaCache = null;
+const sizes = new Map();
+function knownFileInfo(src) {
+  const file = library.file(src);
+  const known = sizes.get(file);
+  if (!known || !isSlowVolumeFile(file)) return null;
+  return (mediaCache?.isKept(file, known.info) || Date.now() - known.at < 600_000) ? known.info : null;
+}
+function rememberFileInfo(file, info) {
+  if (isSlowVolumeFile(file) && info && Number.isFinite(info.size) && Number.isFinite(info.mtimeMs)) {
+    sizes.set(file, { info, at: Date.now() });
+  }
+}
 // While the TV is in use, batch jobs on the library drives give way (src/disk-priority.js; fleet disk-slot).
 const diskPriority = createDiskPriority({ file: join(homedir(), '.local/state/disk-slot/priority/onto-the-tv'),
   roots: () => volumeRoots(catalogueHolder.videos.map(video => video.file), fastRoot ? [fastRoot] : []), log });
@@ -231,30 +264,36 @@ const current = { home: (viewers, rating) => { const lineup = library.home(viewe
       tasteLog({ item, liked: result?.liked, viewers: input?.viewers });
     } catch (error) { log(`taste log: ${error.message}`); }
     return result;
-  }, skipped: input => library.skipped(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => { inUse(); return library.file(src); }, video: src => library.video(src),
+  }, skipped: input => library.skipped(input), liked: src => library.liked(src), directions: (id, input) => library.directions(id, input), directionChosen: kind => library.directionChosen(kind), file: src => { inUse(); return library.file(src); }, cloud: src => library.cloud(src), knownInfo: src => knownFileInfo(src), rememberInfo: (file, info) => rememberFileInfo(file, info), video: src => library.video(src),
   // The TV's Library (/api/library) reads the whole catalogue; allowed() gates media by audience.
   catalogue: () => library.catalogue(), allowed: (...args) => library.allowed(...args),
   // The tube layout (Samsung YouTube-style grid): feed, up-next, search and creators.
   feed: (...args) => { inUse(); return library.feed(...args); }, related: (...args) => library.related(...args),
   search: (...args) => library.search(...args), creators: (...args) => library.creators(...args) };
-let mediaCache = null;
-// Where the cache lives (Ian, 15 Nov 2026: "I just don't want the m2 internal drive getting full and I want
-// snappy response"; "surely the SSD external is fast enough to serve this"). The M2's T9 SSD is the fast tier
-// in the storage architecture (~/Projects/external-drives/docs/ARCHITECTURE.md: "fast media for the TV
-// server", folder hot/). The volume is Research until it is reformatted as M2-Fast. With the T9 away the
-// cache shrinks to a small fallback on the internal disk, which always keeps 50 GB free.
-const GiB = 1024 ** 3;
-const FAST_ROOTS = ['/Volumes/M2-Fast', '/Volumes/Research'];
-const INTERNAL_CACHE = join(homedir(), 'Library/Caches/Onto the TV/media');
-const fastRoot = FAST_ROOTS.find(root => existsSync(join(root, '.')));
 const place = fastRoot
   ? { directory: join(fastRoot, 'hot/onto-the-tv-media'), maxBytes: 80 * GiB, reserveBytes: 40 * GiB, where: `the T9 SSD (${fastRoot})` }
   : { directory: INTERNAL_CACHE, maxBytes: 2 * GiB, reserveBytes: 50 * GiB, where: 'the internal disk (T9 not attached)' };
 const CACHE_BYTES = place.maxBytes;
+// Cloud source (22 Nov 2026; docs/media-cache.md). With --cloud-source, a title whose file is on no drive is
+// read from the cloud backup named in tv-server/cloud-source.json, block by block, through the same cache. Off
+// unless asked for; if it cannot be opened (no config, no keychain access, no rclone) the server runs as before.
+let cloudRemote = null;
+if (args.includes('--cloud-source')) {
+  try {
+    // Folder ids are remembered beside the catalogue, so a restart does not look every folder up again.
+    cloudRemote = await openCloudSource({ configPath: join(data, 'cloud-source.json'), idFile: join(data, 'cloud-folder-ids.json') });
+    log(`cloud source: ready; titles on no drive play from the cloud copy (${cloudRemote.knownFolders()} folders already known)`);
+  }
+  catch (error) { log('cloud source unavailable; titles on no drive stay offline: ' + error.message); }
+}
 try {
   // A file already on the fast SSD gains nothing from a copy beside it.
   mediaCache = await createMediaCache({ directory: place.directory, maxBytes: place.maxBytes, reserveBytes: place.reserveBytes,
-    eligible: file => file.startsWith('/Volumes/') && !(fastRoot && file.startsWith(fastRoot + '/')),
+    remote: cloudRemote,
+    // --openings-dir DIR: the store bin/hold-openings.js fills, so a title that has left the drive starts from
+    // local blocks. It is never trimmed by this cache. Without the option nothing changes.
+    openings: option('--openings-dir', '') ? { directory: option('--openings-dir', '') } : null,
+    eligible: isSlowVolumeFile,
     log: entry => log('media cache: ' + JSON.stringify(entry)) });
   log(`media cache on ${place.where}: up to ${place.maxBytes / GiB} GB, keeping ${place.reserveBytes / GiB} GB free there`);
   // The internal cache from before the move is emptied by the cache's own eviction (ceiling 0).
@@ -274,7 +313,6 @@ const unique = list => [...new Set(list.filter(Boolean))];
 const IMMINENT_AUDIENCES = unique([audienceOf('youngest', 'older', 'adultB', 'adultA'), audienceOf('youngest', 'adultB', 'adultA'),
   audienceOf('older', 'adultB', 'adultA'), audienceOf('adultA'), audienceOf('adultB'), audienceOf('adultB', 'adultA')]);
 let warming = false, warmAgain = false, warmTimer = null;
-const sizes = new Map();
 // Then the episode each show opens on in Find a show (left part-way, else the first not finished): the
 // kids' first (15 Nov 2026), then the grown-ups', music folders aside, as far as the budget goes.
 const OPENING_AUDIENCES = unique([audienceOf('youngest', 'adultB', 'adultA'), audienceOf('older', 'adultB', 'adultA'),
@@ -313,7 +351,10 @@ async function warmImminent() {
         // Sizes are remembered for ten minutes: a pass restarts whenever a lineup is asked for, and
         // re-reading 235 files' details from a busy drive each time held the warm-up back.
         const known = sizes.get(item.file);
-        const info = known && Date.now() - known.at < 600_000 ? known.info : await stat(item.file).catch(() => null);
+        // A title on no drive has no file to stat: the catalogue's cloud marker gives its size and mtime,
+        // so its opening is warmed (from the cloud copy) and kept like any other.
+        const info = known && Date.now() - known.at < 600_000 ? known.info
+          : await stat(item.file).catch(() => catalogueHolder.videos.find(video => video.file === item.file)?.cloud || null);
         if (!info) continue;
         if (!known || known.info !== info) sizes.set(item.file, { info, at: Date.now() });
         const cost = warmBytes(info.size, item.duration);
@@ -362,6 +403,7 @@ let artGeneration = 0;
 async function warmProfileArt() {
   const generation = ++artGeneration;
   for (const audience of PROFILE_AUDIENCES) {
+    await new Promise(resolve => setImmediate(resolve));
     if (generation !== artGeneration) return;
     await server.warmArt(audience);
   }
@@ -380,25 +422,30 @@ async function rescan() {
     let t = Date.now();
     const steps = [];
     const mark = name => { const now = Date.now(); steps.push(`${name} ${now - t}`); t = now; };
-    const outcome = await rebuild(await readSettings(join(appData, 'settings.json')), false);
+    const freshSettings = await readSettings(join(appData, 'settings.json'));
+    const outcome = await rebuild(freshSettings, false);
     mark('rebuild');
-    if (outcome.rescanned) {
-      const refreshedVideos = await loadCatalogue(catalogue);
+    const nextScoresSig = await scoresSignature(freshSettings);
+    const scoresChanged = nextScoresSig !== lastScoresSig;
+    if (outcome.rescanned || scoresChanged) {
+      const refreshedVideos = outcome.rescanned ? await loadCatalogue(catalogue) : catalogueHolder.videos;
       mark('load');
       warmSoon();
       mark('warm');
       catalogueHolder.videos = refreshedVideos;
-      const freshSettings = await readSettings(join(appData, 'settings.json'));
       channelScores = await loadChannelScores(freshSettings);
+      lastScoresSig = nextScoresSig;
       mark('scores');
       library = createTvLibrary({ videos: refreshedVideos, history, storage, scenes: sceneLookup, showTiers, channelScores, musicEmbed, bestEpisodes, youtubeWatch });
       mark('library');
-      knownSources.clear();
-      for (const video of refreshedVideos) knownSources.add(video.src);
+      if (outcome.rescanned) {
+        sizes.clear();
+        knownSources.clear();
+        for (const video of refreshedVideos) knownSources.add(video.src);
+      }
       const count = library.home().channels.length;
       mark('home');
-      // Which step blocks the event loop (8–10 s stalls seen on 21 Nov 2026)?
-      log(`catalogue reloaded: ${count} channels (ms: ${steps.join(', ')})`);
+      log(`${outcome.rescanned ? 'catalogue' : 'channel scores'} reloaded: ${count} channels (ms: ${steps.join(', ')})`);
       void warmProfileArt();
     }
   } catch (error) { log(`rescan failed: ${error.message}`); } finally { scanning = false; }
@@ -407,6 +454,6 @@ setInterval(rescan, RESCAN_MS).unref();
 if (haveCatalogue) setTimeout(rescan, 5_000).unref();
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => { log(`${signal}: saving and stopping`); warmAgain = true; clearTimeout(warmTimer); guestServer?.close(); server.close(async () => { await mediaCache?.close(); process.exit(0); });
+  process.on(signal, () => { log(`${signal}: saving and stopping`); warmAgain = true; clearTimeout(warmTimer); guestServer?.close(); server.close(async () => { await mediaCache?.close(); await cloudRemote?.close?.(); process.exit(0); });
     setTimeout(() => process.exit(0), 3000).unref(); });
 }

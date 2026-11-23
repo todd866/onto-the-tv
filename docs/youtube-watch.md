@@ -54,7 +54,4 @@ titles the audience rules already allow. It never admits a title.
   or more in the window), by 1.5 for a `good` creator, and by 1.5 for a video watched to the end or on
   more than one day on YouTube. Unwatched cards from `good` creators, and such well-loved videos, join
   the favourites that follow the continue-watching cards.
-- **Whose watching it is:** the history is the whole household's. A creator whose library videos are all
-  in the `preschool` tier lifts a grid only when a viewer with the youngest ceiling (G) is among the
-  viewers; for anyone else those shows keep their ordinary place.
 - **Blocked creators:** a creator whose every matched channel is `block` is left out of all four endpoints.

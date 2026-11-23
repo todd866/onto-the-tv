@@ -37,6 +37,9 @@ done
 mkdir -p "$APP/fonts"
 cp "$ROOT"/tv/fonts/Nunito-Bold.woff "$ROOT"/tv/fonts/Nunito-ExtraBold.woff "$APP/fonts/"
 UKE_ROOT="${UKE_ROOT:-$ROOT/../uke}"
+if [ -z "${UKE_BABEL_BUNDLE:-}" ] && [ -f "$HOME/.local/state/onto-tv-redesign/babel/bundle.cjs" ]; then
+  export UKE_BABEL_BUNDLE="$HOME/.local/state/onto-tv-redesign/babel/bundle.cjs"
+fi
 node "$UKE_ROOT/tools/build-tv.mjs" "$APP/uke"
 cp "$ROOT/tv/uke-probe.js" "$APP/uke/probe.js"
 python3 - "$APP/uke/index.html" <<'PYPROBE'
@@ -53,18 +56,20 @@ COUCH_SOURCE="$ROOT/../guns-only/web/wwwroot/rc"
 HOUSEHOLD_FILE="${ONTO_HOUSEHOLD:-$HOME/.config/onto-the-tv/household.json}"
 COUCH_ADDRESS="${ONTO_COUCH_ADDRESS:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("network",{}).get("couchServer",""))' "$HOUSEHOLD_FILE" 2>/dev/null || true)}"
 [ -n "$COUCH_ADDRESS" ] || echo "note: no couchServer in $HOUSEHOLD_FILE; the RC race asks the TV server's machine"
-COUCH_TOKEN=$(cat "$ROOT/../.tv-couch-plan/couch-token")
+COUCH_TOKEN=$(cat "$ROOT/../.tv-couch-plan/couch-token" 2>/dev/null || true)
 cp "$HERE/icon.png" "$APP/onto-icon-v4.png"
-cp "$COUCH_SOURCE/couch.js" "$APP/rc-couch.js"
-cp "$COUCH_SOURCE/couch.css" "$APP/rc-couch.css"
-python3 - "$COUCH_SOURCE/couch.html" "$APP/rc-couch.html" <<'PYHTML'
+if [ -f "$COUCH_SOURCE/couch.js" ]; then
+  cp "$COUCH_SOURCE/couch.js" "$APP/rc-couch.js"
+  cp "$COUCH_SOURCE/couch.css" "$APP/rc-couch.css"
+  python3 - "$COUCH_SOURCE/couch.html" "$APP/rc-couch.html" <<'PYHTML'
 import sys
 from pathlib import Path
 s=Path(sys.argv[1]).read_text().replace('/rc/couch.css','rc-couch.css').replace('<script src="/rc/couch.js">','<script src="config.js"></script><script src="rc-couch.js">')
 Path(sys.argv[2]).write_text(s)
 PYHTML
+fi
 servers=$(printf '"%s",' "${ADDRESSES[@]}"); servers="[${servers%,}]"
-BUILD=$(cat "$ROOT"/tv/*.js "$ROOT"/tv/index.html "$ROOT"/tv/*.css "$HERE/config.xml" "$HERE/icon.png" "$COUCH_SOURCE/couch.js" "$COUCH_SOURCE/couch.css" "$COUCH_SOURCE/couch.html" "$APP"/uke/* | shasum -a 256 | cut -c1-16)
+BUILD=$(cat "$ROOT"/tv/*.js "$ROOT"/tv/index.html "$ROOT"/tv/*.css "$HERE/config.xml" "$HERE/icon.png" "$APP"/rc-couch.* "$APP"/uke/* | shasum -a 256 | cut -c1-16)
 ONTO_COUCH_ADDRESS="$COUCH_ADDRESS" ONTO_COUCH_TOKEN="$COUCH_TOKEN" ONTO_BUILD_TOKEN="$TOKEN" ONTO_BUILD_SERVERS="$(printf '%s\n' "${ADDRESSES[@]}")" ONTO_BUILD_ID="$BUILD" python3 -c 'import os,json; print("window.ONTO_CONFIG = " + json.dumps({"servers":os.environ["ONTO_BUILD_SERVERS"].splitlines(),"token":os.environ["ONTO_BUILD_TOKEN"],"couchServer":os.environ["ONTO_COUCH_ADDRESS"],"couchToken":os.environ["ONTO_COUCH_TOKEN"],"port":8686,"build":os.environ["ONTO_BUILD_ID"]}) + ";")' > "$APP/config.js"
 chmod 600 "$APP/config.js"
 # The installed page is a loader (tv/boot.js): it builds the interface from the server's live copy, and from the

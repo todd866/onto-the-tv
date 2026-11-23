@@ -29,8 +29,11 @@ struct RemoteScreen: View {
             Task { await model.reloadForAudience() }
         }) {
             SettingsSheet(model: model)
-                .presentationDetents([.height(332)])
+                .presentationDetents([.height(382)])
                 .presentationDragIndicator(.visible)
+        }
+        .task {
+            await model.refreshManifoldLenses()
         }
         .onAppear {
             if scenePhase == .active { model.foreground() }
@@ -306,6 +309,8 @@ struct SettingsSheet: View {
             viewersRow
             Divider()
             ratingRow
+            Divider()
+            lensRow
             Spacer(minLength: 0)
         }
         .background(Color(uiColor: .systemBackground))
@@ -392,6 +397,44 @@ struct SettingsSheet: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 48)
+    }
+
+    private var lensRow: some View {
+        HStack(spacing: 8) {
+            Text("Lens")
+                .frame(width: 76, alignment: .leading)
+            Spacer(minLength: 8)
+            Menu {
+                Button {
+                    model.setManifoldLens("")
+                } label: {
+                    if model.manifoldLensID.isEmpty {
+                        Label("Off", systemImage: "checkmark")
+                    } else {
+                        Text("Off")
+                    }
+                }
+                ForEach(model.manifoldLenses) { lens in
+                    Button {
+                        model.setManifoldLens(lens.id)
+                    } label: {
+                        if model.manifoldLensID == lens.id {
+                            Label(lens.name, systemImage: "checkmark")
+                        } else {
+                            Text(lens.name)
+                        }
+                    }
+                }
+            } label: {
+                Text(model.activeLensLabel)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .accessibilityLabel("Manifold lens")
         }
         .padding(.horizontal, 12)
         .frame(minHeight: 48)

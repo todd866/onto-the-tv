@@ -160,3 +160,114 @@ test('AVPlay seeks never block a key: async, one in flight, quick taps collapse 
   media.seek(5);
   assert.equal(calls.length, 3, 'a failed seek does not wedge the next one');
 });
+
+test('AVPlay caches getTotalTrackInfo per prepared stream and clears on reload/stop', () => {
+  let trackCalls = 0;
+  let prepOk = null;
+  let isPrepared = false;
+  const avplay = {
+    getTotalTrackInfo() {
+      trackCalls += 1;
+      return isPrepared ? [{ index: 1, type: 'AUDIO', extra_info: '{"language":"eng"}' }] : [];
+    },
+    getDuration() { return 60000; },
+    seekTo(ms, ok) { if (ok) ok(); },
+    open() {}, close() {}, stop() {}, setDisplayRect() {}, setListener() {},
+    prepareAsync(ok) { prepOk = ok; },
+    play() {}, pause() {},
+  };
+  const window = { webapis: { avplay } };
+  vm.runInNewContext(readFileSync(new URL('./player.js', import.meta.url), 'utf8'), { window, webapis: window.webapis, setTimeout, clearTimeout, Date });
+  const media = window.ontoPlayer({ hidden: false, addEventListener() {} }, { hidden: true });
+  try {
+    media.load('http://tv.test/a.mp4', 0);
+    assert.equal(media.tracks().audio.length, 0, 'before prepare completes an empty list is not cached');
+    isPrepared = true;
+    prepOk();
+    assert.equal(media.tracks().audio.length, 1);
+    const afterFirst = trackCalls;
+    media.tracks();
+    media.tracks();
+    assert.equal(trackCalls, afterFirst, 'repeated OSD updates do not re-cross Tizen getTotalTrackInfo IPC');
+    media.stop();
+    isPrepared = false;
+    media.tracks();
+    assert.equal(trackCalls, afterFirst + 1, 'stop invalidates cached tracks');
+  } finally {
+    media.stop();
+  }
+});
+
+test('AVPlay enables 4K UHD on UHD panels, preserves aspect ratio, and suspends/restores decoder', () => {
+  const events = [];
+  const avplay = {
+    open(u) { events.push(['open', u]); },
+    close() {}, stop() {},
+    setStreamingProperty(k, v) { events.push(['prop', k, v]); },
+    setDisplayRect() {},
+    setDisplayMethod(m) {
+      if (m === 'PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO') throw new Error('unsupported enum');
+      events.push(['aspect', m]);
+    },
+    setTimeoutForBuffering(s) { events.push(['buf', s]); },
+    setListener() {},
+    prepareAsync() {},
+    play() {}, pause() {},
+    suspend() { events.push(['suspend']); },
+    restore(u, ms, auto) { events.push(['restore', u, ms, auto]); },
+  };
+  const window = { webapis: { avplay, productinfo: { isUdPanelSupported: () => true } } };
+  vm.runInNewContext(readFileSync(new URL('./player.js', import.meta.url), 'utf8'), { window, webapis: window.webapis, setTimeout, clearTimeout, Date });
+  const media = window.ontoPlayer({ hidden: false, addEventListener() {} }, { hidden: true });
+  try {
+    media.load('http://tv.test/uhd.mkv', 42);
+    assert.deepEqual(events.slice(0, 4), [
+      ['open', 'http://tv.test/uhd.mkv'],
+      ['prop', 'SET_MODE_4K', 'TRUE'],
+      ['aspect', 'PLAYER_DISPLAY_MODE_LETTER_BOX'],
+      ['buf', 4],
+    ]);
+    media.suspend();
+    assert.equal(media.paused(), true);
+    media.restore('http://tv.test/uhd.mkv', 42, false);
+    assert.deepEqual(events.slice(4), [
+      ['suspend'],
+      ['restore', 'http://tv.test/uhd.mkv', 42000, false],
+    ]);
+  } finally {
+    media.stop();
+  }
+});
+
+test('AVPlay emits embedded subtitle cues via onsubtitlechange and parseVtt/activeCue render WebVTT sidecars', () => {
+  let listener = null;
+  const avplay = {
+    open() {}, close() {}, stop() {}, setDisplayRect() {},
+    setListener(l) { listener = l; },
+    prepareAsync() {}, play() {}, pause() {},
+    setSilentSubtitle() {}, setSelectTrack() {},
+  };
+  const timers = [];
+  const fakeSetTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  const window = { webapis: { avplay } };
+  vm.runInNewContext(readFileSync(new URL('./player.js', import.meta.url), 'utf8'), {
+    window, webapis: window.webapis, setTimeout: fakeSetTimeout, clearTimeout() {}, Date,
+  });
+  const media = window.ontoPlayer({ hidden: false, addEventListener() {} }, { hidden: true });
+  const seen = [];
+  media.on('subtitle', () => seen.push(media.subtitle()));
+  media.load('http://tv.test/ep.mkv', 0);
+  listener.onsubtitlechange(2500, '<i>Hello</i><br>there');
+  assert.equal(media.subtitle(), 'Hello\nthere');
+  assert.equal(seen.at(-1), 'Hello\nthere');
+  timers.at(-1).fn();
+  assert.equal(media.subtitle(), '', 'cue clears after duration');
+
+  const api = extras();
+  const cues = api.parseVtt('WEBVTT\n\n1\n00:00:05.000 --> 00:00:08.500 align:middle\n<v Speaker>First &amp; line\n\n01:02:03.250 --> 01:02:06.000\nLater cue\n');
+  assert.equal(cues.length, 2);
+  assert.equal(api.activeCue(cues, 4.9), '');
+  assert.equal(api.activeCue(cues, 6.2), 'First & line');
+  assert.equal(api.activeCue(cues, 8.5), '');
+  assert.equal(api.activeCue(cues, 3724.0), 'Later cue');
+});
